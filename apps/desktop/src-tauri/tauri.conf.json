@@ -1,0 +1,21 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "bangdream-optimize",
+  "version": "0.1.0",
+  "identifier": "dev.bangdream.optimize",
+  "build": {
+    "frontendDist": "../../web"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "bangdream-optimize",
+        "width": 1280,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 640
+      }
+    ]
+  }
+}

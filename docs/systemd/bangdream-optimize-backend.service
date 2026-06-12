@@ -1,0 +1,24 @@
+[Unit]
+Description=Bangdream Optimize Backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bangdream
+Group=bangdream
+WorkingDirectory=/opt/bangdream-optimize
+# Load all environment variables used by the service, e.g.
+# BANGDREAM_OPTIMIZE_HOST, BANGDREAM_OPTIMIZE_PORT, MONGODB settings,
+# BANGDREAM_OPTIMIZE_GAME_DATA_SYNC_* and so on.
+EnvironmentFile=-/etc/bangdream-optimize/backend.env
+ExecStart=/opt/bangdream-optimize/target/release/bangdream-optimize-server
+Restart=always
+RestartSec=5
+StartLimitBurst=10
+StartLimitIntervalSec=60
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

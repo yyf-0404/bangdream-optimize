@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>组队计算</title>
+    <link rel="icon" type="image/png" href="./icon.png?v=1" />
+    <link rel="apple-touch-icon" href="./icon.png?v=1" />
+    <meta name="theme-color" content="#d9467c" />
+    <link rel="stylesheet" href="./styles.css?v=1" />
+    <link
+      rel="preconnect"
+      href="https://fonts.googleapis.com"
+    />
+    <link
+      rel="preconnect"
+      href="https://fonts.gstatic.com"
+      crossorigin="anonymous"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="./config.js?v=1"></script>
+    <script type="module" src="./src/main.js?v=1"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+        <aside class="app-sidebar">
+        <div class="sidebar-brand">
+          <div>
+            <p class="sidebar-kicker">BangDream Optimize</p>
+            <h1>邦邦组队计算工具 <span class="app-version">v0.1.0</span></h1>
+          </div>
+        </div>
+
+        <nav class="app-nav" aria-label="配置页面">
+          <button type="button" class="app-nav-item page-tab active" data-page="activity">
+            <svg class="button-icon nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h4A1.5 1.5 0 0 1 11 5.5v4A1.5 1.5 0 0 1 9.5 11h-4A1.5 1.5 0 0 1 4 9.5v-4Zm9 0A1.5 1.5 0 0 1 14.5 4h4A1.5 1.5 0 0 1 20 5.5v4a1.5 1.5 0 0 1-1.5 1.5h-4A1.5 1.5 0 0 1 13 9.5v-4Zm-9 9A1.5 1.5 0 0 1 5.5 13h4a1.5 1.5 0 0 1 1.5 1.5v4A1.5 1.5 0 0 1 9.5 20h-4A1.5 1.5 0 0 1 4 18.5v-4Zm9 0a1.5 1.5 0 0 1 1.5-1.5h4a1.5 1.5 0 0 1 1.5 1.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a1.5 1.5 0 0 1-1.5-1.5v-4Z"/></svg>
+            活动
+          </button>
+          <button type="button" class="app-nav-item page-tab" data-page="cards">
+            <svg class="button-icon nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5A2.5 2.5 0 0 1 7.5 3h9A2.5 2.5 0 0 1 19 5.5v13a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 5 18.5v-13Zm2 0v13c0 .28.22.5.5.5h9a.5.5 0 0 0 .5-.5v-13a.5.5 0 0 0-.5-.5h-9a.5.5 0 0 0-.5.5ZM2 7a1 1 0 0 1 1 1v8a1 1 0 1 1-2 0V8a1 1 0 0 1 1-1Zm20 0a1 1 0 0 1 1 1v8a1 1 0 1 1-2 0V8a1 1 0 0 1 1-1Z"/></svg>
+            卡牌
+          </button>
+          <button type="button" class="app-nav-item page-tab" data-page="player">
+            <svg class="button-icon nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3a1 1 0 0 0-1 1v1H6.5A2.5 2.5 0 0 0 4 7.5v11A2.5 2.5 0 0 0 6.5 21h11a2.5 2.5 0 0 0 2.5-2.5v-11A2.5 2.5 0 0 0 17.5 5H16V4a1 1 0 0 0-1-1H9Zm1 2h4v2h-4V5Zm2 5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5Zm-4.5 8c.58-1.5 2.2-2.5 4.5-2.5s3.92 1 4.5 2.5h-9Z"/></svg>
+            道具和角色
+          </button>
+          <button type="button" class="app-nav-item page-tab" data-page="result">
+            <svg class="button-icon nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4a1 1 0 0 1 1 1v14h13a1 1 0 1 1 0 2H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Zm4 9a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 1-1Zm4-5a1 1 0 0 1 1 1v7a1 1 0 1 1-2 0V9a1 1 0 0 1 1-1Zm4 3a1 1 0 0 1 1 1v4a1 1 0 1 1-2 0v-4a1 1 0 0 1 1-1Z"/></svg>
+            结果
+          </button>
+        </nav>
+
+        <button type="button" class="sidebar-toggle-topbar" id="toggle-topbar" aria-expanded="true" aria-controls="app-topbar">
+          <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.3 9.3a1 1 0 0 1 1.4 0L12 13.6l4.3-4.3a1 1 0 1 1 1.4 1.4l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 0 1 0-1.4Z"/></svg>
+          <span class="button-label">收起顶部栏</span>
+        </button>
+
+        <section class="sidebar-status">
+          <div class="muted">运行状态</div>
+          <div class="status" id="status">初始化中</div>
+        </section>
+
+        <div class="sidebar-actions">
+          <button class="primary calculate-submit" type="submit" form="controls">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.8a1.5 1.5 0 0 1 2.3-1.27l8.1 5.2a1.5 1.5 0 0 1 0 2.54l-8.1 5.2A1.5 1.5 0 0 1 8 16.2V5.8Z"/></svg>
+            <span class="button-label">计算</span>
+          </button>
+        </div>
+      </aside>
+
+      <section class="app-main">
+        <header class="app-topbar" id="app-topbar">
+          <div class="topbar-main">
+            <div class="topbar-title">
+              <p class="muted">Dashboard</p>
+              <h2>配置与计算工作台</h2>
+            </div>
+            <div class="topbar-actions">
+              <button type="button" id="refresh-core-game-data" hidden>
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18.6 6.4A8 8 0 0 0 5.1 10a1 1 0 1 1-2-.3A10 10 0 0 1 20 5.7V4a1 1 0 1 1 2 0v4a1 1 0 0 1-1 1h-4a1 1 0 1 1 0-2h1.6ZM4 15a1 1 0 0 1 1-1h4a1 1 0 1 1 0 2H7.4a8 8 0 0 0 13.5-3.6 1 1 0 1 1 2 .3A10 10 0 0 1 4 18.3V20a1 1 0 1 1-2 0v-4a1 1 0 0 1 1-1h1Z"/></svg>
+                刷新核心资源
+              </button>
+              <button type="button" id="sync-all-game-data" hidden>
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 18h10a4 4 0 0 0 .7-7.94A6.5 6.5 0 0 0 6.1 8.6 4.8 4.8 0 0 0 8 18Zm3.3-5.8a1 1 0 0 1 1.4 0l.3.3V9a1 1 0 1 1 2 0v3.5l.3-.3a1 1 0 1 1 1.4 1.4l-2 2a1 1 0 0 1-1.4 0l-2-2a1 1 0 0 1 0-1.4Z"/></svg>
+                拉取全量资源
+              </button>
+              <button type="button" id="clear-game-cache">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18.6 6.4A8 8 0 0 0 5.1 10a1 1 0 1 1-2-.3A10 10 0 0 1 20 5.7V4a1 1 0 1 1 2 0v4a1 1 0 0 1-1 1h-4a1 1 0 1 1 0-2h1.6ZM4 15a1 1 0 0 1 1-1h4a1 1 0 1 1 0 2H7.4a8 8 0 0 0 13.5-3.6 1 1 0 1 1 2 .3A10 10 0 0 1 4 18.3V20a1 1 0 1 1-2 0v-4a1 1 0 0 1 1-1h1Z"/></svg>
+                清空游戏资源缓存
+              </button>
+              <button type="button" id="open-desktop-downloads" hidden>
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a1 1 0 0 1 1 1v8.6l2.3-2.3a1 1 0 1 1 1.4 1.4l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.4l2.3 2.3V4a1 1 0 0 1 1-1ZM5 17a1 1 0 0 1 1 1v1h12v-1a1 1 0 1 1 2 0v1.5A1.5 1.5 0 0 1 18.5 21h-13A1.5 1.5 0 0 1 4 19.5V18a1 1 0 0 1 1-1Z"/></svg>
+                下载桌面端
+              </button>
+              <button type="button" id="clear-local-cache" hidden>
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3a1 1 0 0 0-1 1v1H5a1 1 0 1 0 0 2h14a1 1 0 1 0 0-2h-3V4a1 1 0 0 0-1-1H9Zm1 2h4V5h-4Zm-3 4a1 1 0 0 0-1 1v8.5A2.5 2.5 0 0 0 8.5 21h7a2.5 2.5 0 0 0 2.5-2.5V10a1 1 0 1 0-2 0v8.5a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5V10a1 1 0 0 0-1-1Zm3 2a1 1 0 0 1 1 1v4a1 1 0 1 1-2 0v-4a1 1 0 0 1 1-1Zm4 0a1 1 0 0 1 1 1v4a1 1 0 1 1-2 0v-4a1 1 0 0 1 1-1Z"/></svg>
+                清空本地配置缓存
+              </button>
+              <button class="primary calculate-submit" type="submit" form="controls">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.8a1.5 1.5 0 0 1 2.3-1.27l8.1 5.2a1.5 1.5 0 0 1 0 2.54l-8.1 5.2A1.5 1.5 0 0 1 8 16.2V5.8Z"/></svg>
+                <span class="button-label">计算</span>
+              </button>
+            </div>
+          </div>
+
+          <dialog id="desktop-downloads-dialog" class="desktop-downloads-dialog">
+            <div class="desktop-downloads-dialog-content">
+              <div class="desktop-downloads-header">
+                <h3>下载桌面端</h3>
+                <button type="button" id="close-desktop-downloads-dialog" class="compact-button">关闭</button>
+              </div>
+              <div class="desktop-downloads-status" id="desktop-downloads-status">加载中</div>
+              <div class="desktop-downloads-list" id="desktop-downloads-list"></div>
+            </div>
+          </dialog>
+
+          <section class="config-manager-panel">
+              <div class="config-toolbar-row config-toolbar-primary">
+                <h2>配置管理</h2>
+                <label>
+                  <span>配置</span>
+                  <select id="player-profile"></select>
+                </label>
+
+                <label>
+                  <span>配置名</span>
+                  <input id="player-profile-name" placeholder="配置名" />
+                </label>
+
+                <label>
+                  <span>玩家 ID</span>
+                  <input id="player-id" type="number" min="0" step="1" />
+                </label>
+
+                <label>
+                  <span>服务器</span>
+                  <select id="player-server">
+                    <option value="cn" selected>国服</option>
+                    <option value="jp">日服</option>
+                    <option value="en">国际服</option>
+                    <option value="tw">台服</option>
+                    <option value="kr">韩服</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="config-toolbar-row config-toolbar-actions">
+                <button type="button" id="open-bestdori-profile">
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a1 1 0 0 1 1 1v7.6l2.3-2.3a1 1 0 1 1 1.4 1.4l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.4l2.3 2.3V4a1 1 0 0 1 1-1ZM5 15a1 1 0 0 1 1 1v2h12v-2a1 1 0 1 1 2 0v2.5A1.5 1.5 0 0 1 18.5 20h-13A1.5 1.5 0 0 1 4 18.5V16a1 1 0 0 1 1-1Z"/></svg>
+                  导入配置
+                </button>
+                <button type="button" id="export-compact-profile">
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21a1 1 0 0 1-1-1v-7.6l-2.3 2.3a1 1 0 1 1-1.4-1.4l4-4a1 1 0 0 1 1.4 0l4 4a1 1 0 1 1-1.4 1.4L13 12.4V20a1 1 0 0 1-1 1ZM5 4a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3a1 1 0 1 1-2 0V5H7v2a1 1 0 0 1-2 0V4Z"/></svg>
+                  导出配置
+                </button>
+                <button type="button" id="import-main-band">
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6Zm7 0a3 3 0 1 1 0-6 3 3 0 0 1 0 6ZM3 18.5C3 15.5 5.4 13 8.5 13S14 15.5 14 18.5A1.5 1.5 0 0 1 12.5 20h-8A1.5 1.5 0 0 1 3 18.5Zm12.2 1.5c.5-.4.8-1 .8-1.7 0-1.8-.7-3.5-1.9-4.8.5-.3 1-.5 1.7-.5 2.9 0 5.2 2.3 5.2 5.2a1.8 1.8 0 0 1-1.8 1.8h-4Z"/></svg>
+                  导入主乐队配置
+                </button>
+                <button type="button" id="new-player-profile">
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5a1 1 0 0 1 1 1v5h5a1 1 0 1 1 0 2h-5v5a1 1 0 1 1-2 0v-5H6a1 1 0 1 1 0-2h5V6a1 1 0 0 1 1-1Z"/></svg>
+                  新建
+                </button>
+                <button type="button" id="copy-player-profile">
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3.5A2.5 2.5 0 0 1 10.5 1h7A2.5 2.5 0 0 1 20 3.5v9A2.5 2.5 0 0 1 17.5 15h-7A2.5 2.5 0 0 1 8 12.5v-9Zm2.5-.5a.5.5 0 0 0-.5.5v9c0 .28.22.5.5.5h7a.5.5 0 0 0 .5-.5v-9a.5.5 0 0 0-.5-.5h-7ZM4 8a1 1 0 0 1 1 1v9.5c0 .28.22.5.5.5H14a1 1 0 1 1 0 2H5.5A2.5 2.5 0 0 1 3 18.5V9a1 1 0 0 1 1-1Z"/></svg>
+                  复制
+                </button>
+                <button type="button" id="delete-player-profile">
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3a1 1 0 0 0-1 1v1H5a1 1 0 1 0 0 2h14a1 1 0 1 0 0-2h-3V4a1 1 0 0 0-1-1H9Zm1 2h4V5h-4Zm-3 4a1 1 0 0 0-1 1v8.5A2.5 2.5 0 0 0 8.5 21h7a2.5 2.5 0 0 0 2.5-2.5V10a1 1 0 1 0-2 0v8.5a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5V10a1 1 0 0 0-1-1Z"/></svg>
+                  删除
+                </button>
+                <dialog id="bestdori-profile-dialog" class="bestdori-profile-dialog">
+                  <div class="bestdori-profile-dialog-content">
+                    <h3>导入配置</h3>
+                    <textarea
+                      id="bestdori-profile-json"
+                      placeholder="粘贴配置内容"
+                      spellcheck="false"
+                    ></textarea>
+                    <div class="bestdori-profile-dialog-actions">
+                      <button type="button" id="close-bestdori-profile-dialog">取消</button>
+                      <button type="button" id="import-bestdori-profile">按 Bestdori 格式导入</button>
+                      <button type="button" id="import-base64-profile">按 base64 格式导入</button>
+                    </div>
+                  </div>
+                </dialog>
+                <dialog id="export-profile-dialog" class="bestdori-profile-dialog">
+                  <div class="bestdori-profile-dialog-content">
+                    <h3>导出配置</h3>
+                    <textarea
+                      id="export-profile-payload"
+                      placeholder="导出的内容将显示在这里"
+                      readonly
+                      spellcheck="false"
+                    ></textarea>
+                    <div class="bestdori-profile-dialog-actions">
+                      <button type="button" id="close-export-profile-dialog">关闭</button>
+                      <button type="button" id="export-profile-bestdori">按 Bestdori 格式导出</button>
+                      <button type="button" id="export-profile-base64">按 base64 格式导出</button>
+                    </div>
+                  </div>
+                </dialog>
+
+                <textarea id="player-json" hidden spellcheck="false"></textarea>
+              </div>
+            </section>
+        </header>
+
+        <section class="workspace-grid">
+          <section class="workspace-main">
+
+            <form class="main-workbench" id="controls">
+              <section class="page-panel activity-page active" data-page-panel="activity">
+                <section class="panel activity-card activity-selector-card">
+                  <div class="panel-header">
+                    <h2>活动选择</h2>
+                  </div>
+                  <div class="config-content activity-selector-content">
+                    <section class="config-section activity-grid">
+                    <label>
+                      <span>计算模式</span>
+                      <select id="activity-mode">
+                        <option value="medley">组曲</option>
+                        <option value="single">单曲</option>
+                      </select>
+                    </label>
+
+                    <label>
+                      <span>活动</span>
+                      <input id="event-search" list="event-options" placeholder="输入活动名或 ID" />
+                    </label>
+
+                    <input id="event-id" type="hidden" />
+
+                    <div class="activity-actions">
+                      <button type="button" id="custom-event">使用自定义</button>
+                    </div>
+                  </section>
+
+                    <div class="event-summary" id="event-summary"></div>
+                  </div>
+                </section>
+
+                <section class="panel activity-card activity-bonus-card">
+                  <div class="panel-header">
+                    <h3>加成配置</h3>
+                  </div>
+                  <div class="config-content">
+                    <div class="activity-bonus-layout" id="event-param-tables">
+                      <div class="activity-basic-bonuses">
+                        <section class="config-section event-attribute-bonus-section">
+                          <div class="section-header">
+                            <h3>属性加成</h3>
+                            <div class="inline-form event-attribute-add-form compact-add-form">
+                              <select id="new-event-attribute" hidden>
+                                <option value="cool">Cool</option>
+                                <option value="happy">Happy</option>
+                                <option value="pure">Pure</option>
+                                <option value="powerful">Powerful</option>
+                              </select>
+                              <input id="new-event-attribute-percent" type="number" min="0" step="0.01" placeholder="加成" hidden />
+                              <button type="button" id="add-event-attribute" class="event-add-bonus-button" aria-label="添加属性加成" title="添加属性加成">
+                                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5a1 1 0 0 1 1 1v5h5a1 1 0 1 1 0 2h-5v5a1 1 0 1 1-2 0v-5H6a1 1 0 1 1 0-2h5V6a1 1 0 0 1 1-1Z"/></svg>
+                              </button>
+                            </div>
+                          </div>
+                          <div class="event-attribute-bonus-list" id="event-attribute-rows"></div>
+                        </section>
+
+                        <section class="config-section event-character-bonus-section">
+                          <div class="section-header">
+                            <h3>角色加成</h3>
+                            <div class="inline-form event-character-add-form compact-add-form">
+                              <input id="new-event-character-id" list="character-options" placeholder="选择角色" hidden />
+                              <input id="new-event-character-percent" type="number" min="0" step="0.01" placeholder="加成" hidden />
+                              <button type="button" id="add-event-character" class="event-add-bonus-button" aria-label="添加角色加成" title="添加角色加成">
+                                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5a1 1 0 0 1 1 1v5h5a1 1 0 1 1 0 2h-5v5a1 1 0 1 1-2 0v-5H6a1 1 0 1 1 0-2h5V6a1 1 0 0 1 1-1Z"/></svg>
+                              </button>
+                            </div>
+                          </div>
+                          <div class="event-character-bonus-list" id="event-character-rows"></div>
+                        </section>
+                      </div>
+
+                      <section class="config-section activity-match-bonus">
+                        <div class="section-header">
+                          <h3>属性+角色匹配加成</h3>
+                        </div>
+                        <div class="event-param-grid">
+                          <label>
+                            <span>综合力</span>
+                            <input id="event-combined-percent" type="number" min="0" step="0.01" />
+                          </label>
+
+                          <label>
+                            <span>演出</span>
+                            <input id="event-character-param-performance" type="number" min="0" step="0.01" />
+                          </label>
+
+                          <label>
+                            <span>技巧</span>
+                            <input id="event-character-param-technique" type="number" min="0" step="0.01" />
+                          </label>
+
+                          <label>
+                            <span>形象</span>
+                            <input id="event-character-param-visual" type="number" min="0" step="0.01" />
+                          </label>
+                        </div>
+                      </section>
+
+                      <section class="config-section activity-member-bonus event-member-bonus-section">
+                          <div class="section-header">
+                            <h3>卡牌加成</h3>
+                            <div class="inline-form event-member-add-form compact-add-form">
+                              <input id="new-event-member-card-id" list="card-options" placeholder="选择卡牌" hidden />
+                              <input id="new-event-member-percent" type="number" min="0" step="0.01" placeholder="加成" hidden />
+                              <button type="button" id="add-event-member" class="event-add-bonus-button" aria-label="添加卡牌加成" title="添加卡牌加成">
+                                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5a1 1 0 0 1 1 1v5h5a1 1 0 1 1 0 2h-5v5a1 1 0 1 1-2 0v-5H6a1 1 0 1 1 0-2h5V6a1 1 0 0 1 1-1Z"/></svg>
+                              </button>
+                            </div>
+                          </div>
+                          <div class="event-member-bonus-list" id="event-member-rows"></div>
+                      </section>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="panel activity-card activity-song-card">
+                  <div class="panel-header">
+                      <h3>活动歌曲</h3>
+                  </div>
+                  <div class="config-content">
+                    <div class="activity-song-list" id="song-rows"></div>
+                  </div>
+                </section>
+              </section>
+
+              <section class="page-panel card-page" data-page-panel="cards" hidden>
+                <section class="panel card-add-card">
+                  <div class="panel-header">
+                    <h2>添加卡牌</h2>
+                    <button type="button" id="toggle-card-add-panel" class="compact-button card-add-panel-toggle" aria-expanded="false">
+                      <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.3 9.3a1 1 0 0 1 1.4 0L12 13.6l4.3-4.3a1 1 0 1 1 1.4 1.4l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 0 1 0-1.4Z"/></svg>
+                      <span>展开</span>
+                    </button>
+                  </div>
+                  <div class="config-content card-add-layout" id="card-add-content" hidden>
+                    <div class="card-add-controls">
+                      <div class="card-add-search">
+                        <input id="new-card-id" placeholder="搜索卡牌名称或 ID" />
+                      </div>
+                      <div class="card-add-filters" id="card-add-filters"></div>
+                      <div class="card-default-config">
+                        <div class="card-default-config-title">默认配置</div>
+                        <div class="card-default-number-row">
+                          <label>
+                            <span>等级</span>
+                            <input id="default-card-level" type="number" min="1" placeholder="最大" />
+                          </label>
+                          <label>
+                            <span>技能</span>
+                            <input id="default-card-skill-level" type="number" min="1" max="5" value="5" />
+                          </label>
+                          <label>
+                            <span>突破</span>
+                            <input id="default-card-limit-break" type="number" min="0" max="4" value="4" />
+                          </label>
+                        </div>
+                        <div class="card-default-toggle-row">
+                          <label class="card-default-toggle">
+                            <input id="default-card-training" type="checkbox" checked />
+                            <span>训练</span>
+                          </label>
+                          <label class="card-default-toggle">
+                            <input id="default-card-illust" type="checkbox" checked />
+                            <span>图片</span>
+                          </label>
+                          <label class="card-default-toggle">
+                            <input id="default-card-episode-1" type="checkbox" checked />
+                            <span>剧情1</span>
+                          </label>
+                          <label class="card-default-toggle">
+                            <input id="default-card-episode-2" type="checkbox" checked />
+                            <span>剧情2</span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="card-add-preview-column">
+                      <div class="card-add-preview" id="card-add-preview"></div>
+                      <div class="card-add-actions">
+                        <button type="button" id="add-card">添加选中</button>
+                        <button type="button" id="add-all-cards" class="inverse-action">添加全部</button>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+                <section class="panel">
+                  <div class="panel-header">
+                    <h2>卡牌列表</h2>
+                  </div>
+                  <div class="config-content">
+                    <section class="config-section card-list" id="card-rows"></section>
+                  </div>
+                </section>
+              </section>
+
+              <section class="page-panel player-page" data-page-panel="player" hidden>
+                <section class="panel player-config-panel">
+                  <div class="panel-header">
+                    <div class="section-header">
+                      <h3>区域道具</h3>
+                      <div class="section-actions">
+                        <button type="button" class="compact-button" id="toggle-area-items">折叠</button>
+                        <button type="button" class="compact-button inverse-action" id="set-area-items">全部满级</button>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="config-content">
+                    <div class="player-config-list area-item-list" id="area-item-rows"></div>
+                  </div>
+                </section>
+
+                <section class="panel player-config-panel">
+                  <div class="panel-header">
+                    <div class="section-header">
+                      <h3>角色加成</h3>
+                      <div class="section-actions">
+                        <button type="button" class="compact-button" id="toggle-character-bonuses">折叠</button>
+                        <button type="button" class="compact-button inverse-action" id="set-character-bonuses">全部满级</button>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="config-content">
+                    <div class="player-config-list character-bonus-list" id="character-bonus-rows"></div>
+                  </div>
+                </section>
+              </section>
+
+              <section class="page-panel result-page" data-page-panel="result" hidden>
+                <section class="panel result-panel">
+                  <div class="panel-header">
+                    <h2>计算结果</h2>
+                    <div class="panel-actions">
+                      <button type="button" id="export-diagnostics">导出诊断</button>
+                      <button type="button" id="copy-result">复制</button>
+                    </div>
+                  </div>
+                  <dl class="metrics-grid" id="metrics" hidden></dl>
+                  <div class="result-summary" id="result-summary" hidden></div>
+                  <pre id="result" hidden></pre>
+                </section>
+
+                <section class="panel result-cache-panel">
+                  <div class="panel-header">
+                    <h2>结果缓存</h2>
+                    <div class="panel-actions">
+                      <button type="button" id="clear-result-cache">清空缓存</button>
+                    </div>
+                  </div>
+                  <ul id="result-cache-list" class="result-cache-list"></ul>
+                </section>
+
+                <section class="panel log-panel" hidden>
+                  <div class="panel-header">
+                    <h2>同步日志</h2>
+                    <button type="button" id="clear-log">清空</button>
+                  </div>
+                  <ol id="log"></ol>
+                </section>
+              </section>
+            </form>
+          </section>
+        </section>
+      </section>
+      <datalist id="card-options"></datalist>
+      <datalist id="event-options"></datalist>
+      <datalist id="song-options"></datalist>
+      <datalist id="area-item-options"></datalist>
+      <datalist id="character-options"></datalist>
+    </main>
+  </body>
+</html>
