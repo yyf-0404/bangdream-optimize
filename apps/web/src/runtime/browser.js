@@ -12,7 +12,7 @@ import {
   selectPlayerConfig,
 } from '../storage/user.js?v=1';
 
-const WASM_ASSET_VERSION = '20260607-wasm-timer';
+const WASM_ASSET_VERSION = '20260615-current-core';
 
 export async function createBrowserRuntime({ onProgress } = {}) {
   const config = readRuntimeConfig();

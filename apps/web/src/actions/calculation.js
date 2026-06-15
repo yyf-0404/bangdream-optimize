@@ -26,6 +26,7 @@ export function createCalculationActions({
   persistResultCache,
   clearPersistedResultCache,
 }) {
+  const RESULT_CACHE_KEY_VERSION = 2;
   const calculateButton = elements.calculateButton;
   const calculateButtons = Array.from(elements.calculateButtons || []);
   const calculateButtonLabel = calculateButton?.querySelector('.button-label');
@@ -55,6 +56,7 @@ export function createCalculationActions({
 
   function makeResultCacheKey(player, eventId) {
     const serialized = cloneJson({
+      cacheVersion: RESULT_CACHE_KEY_VERSION,
       server: player.server,
       activityMode: player.activityMode,
       eventId,
@@ -89,6 +91,7 @@ export function createCalculationActions({
     const cache = state.resultCache || [];
     const nextCache = cache.filter((entry) => entry.key !== cacheKey);
     nextCache.unshift({
+      cacheVersion: RESULT_CACHE_KEY_VERSION,
       key: cacheKey,
       eventLabel: eventLabel(eventId, player),
       eventId,

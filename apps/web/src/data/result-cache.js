@@ -2,6 +2,7 @@ const DB_NAME = 'bangdream-optimize-result-cache-v1';
 const DB_VERSION = 1;
 const STORE = 'result-cache';
 const CACHE_KEY = 'entries';
+const CACHE_SCHEMA_VERSION = 2;
 
 export const RESULT_CACHE_LIMIT = 20;
 
@@ -46,10 +47,11 @@ function normalizeEntry(entry) {
     return undefined;
   }
   const key = String(entry.key || '').trim();
-  if (!key) {
+  if (!key || Number(entry.cacheVersion) !== CACHE_SCHEMA_VERSION) {
     return undefined;
   }
   return {
+    cacheVersion: CACHE_SCHEMA_VERSION,
     key,
     eventId: Number(entry.eventId) || 0,
     eventLabel: typeof entry.eventLabel === 'string' ? entry.eventLabel : `活动 ${Number(entry.eventId) || 0}`,

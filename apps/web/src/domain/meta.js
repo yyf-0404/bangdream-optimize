@@ -15,6 +15,9 @@ export function createGameMeta({
   getCore,
   serverIndex,
 }) {
+  let cachedMaxCardLevelCore;
+  let cachedMaxCardLevels = new Map();
+
   function cardLabel(cardId) {
     const card = recordWithFix('cards', 'cardsFix', cardId);
     if (!card) {
@@ -137,11 +140,22 @@ export function createGameMeta({
   }
 
   function maxCardLevel(cardId) {
-    const card = recordWithFix('cards', 'cardsFix', cardId);
+    const core = getCore();
+    if (cachedMaxCardLevelCore !== core) {
+      cachedMaxCardLevelCore = core;
+      cachedMaxCardLevels = new Map();
+    }
+    const stringId = String(cardId);
+    if (cachedMaxCardLevels.has(stringId)) {
+      return cachedMaxCardLevels.get(stringId);
+    }
+    const card = core?.cards?.[stringId] ?? core?.cardsFix?.[stringId];
     const levels = Object.keys(card?.stat ?? {})
       .map(Number)
       .filter(Number.isInteger);
-    return levels.length > 0 ? Math.max(...levels) : 60;
+    const maxLevel = levels.length > 0 ? Math.max(...levels) : 60;
+    cachedMaxCardLevels.set(stringId, maxLevel);
+    return maxLevel;
   }
 
   function cardTrainingStatusList(cardId) {

@@ -16,10 +16,14 @@ export function createServerContext({
   }
 
   function currentServer() {
+    const inputValue = getServerInputValue();
+    if (inputValue != null && inputValue !== '') {
+      return normalizeServer(inputValue);
+    }
     try {
-      return getPlayerServer();
+      return normalizeServer(getPlayerServer());
     } catch {
-      return normalizeServer(getServerInputValue());
+      return normalizeServer(inputValue);
     }
   }
 

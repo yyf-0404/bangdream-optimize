@@ -13,8 +13,8 @@ export function createDiagnostics({
       runtimeInfo,
       server,
       eventId: eventId ?? player.currentEvent ?? null,
-      result,
-      player,
+      result: cloneJson(result),
+      player: cloneJson(player),
       gameData: {
         cachedCore: Boolean(core),
         cardCount: Object.keys(core?.cards ?? {}).length,
@@ -40,6 +40,10 @@ export function createDiagnostics({
   return {
     buildDiagnostic,
   };
+}
+
+function cloneJson(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
 export function diagnosticFileName(diagnostic) {

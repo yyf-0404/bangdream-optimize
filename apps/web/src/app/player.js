@@ -8,13 +8,34 @@ export function createPlayerStore({
   renderPlayerProfileControls,
   onError,
 }) {
+  let cachedPlayerSourceText;
+  let cachedNormalizedPlayer;
+  let cachedNormalizedPlayerText;
+
+  function cachedPlayer() {
+    const text = playerJson.value;
+    if (cachedPlayerSourceText !== text) {
+      const normalized = normalizePlayer(JSON.parse(text));
+      cachedPlayerSourceText = text;
+      cachedNormalizedPlayer = normalized;
+      cachedNormalizedPlayerText = undefined;
+    }
+    return cachedNormalizedPlayer;
+  }
+
   function readPlayer() {
-    return normalizePlayer(JSON.parse(playerJson.value));
+    const player = cachedPlayer();
+    cachedNormalizedPlayerText ??= JSON.stringify(player);
+    return JSON.parse(cachedNormalizedPlayerText);
   }
 
   function writePlayer(player, { autosave = true } = {}) {
     const normalized = normalizedWritablePlayer(player);
-    playerJson.value = JSON.stringify(normalized, null, 2);
+    const text = JSON.stringify(normalized, null, 2);
+    cachedPlayerSourceText = text;
+    cachedNormalizedPlayer = normalized;
+    cachedNormalizedPlayerText = JSON.stringify(normalized);
+    playerJson.value = text;
     if (autosave) {
       schedulePlayerSave();
     }
@@ -84,9 +105,9 @@ export function createPlayerStore({
 
   function safeReadPlayer() {
     try {
-      return readPlayer();
+      return cachedPlayer();
     } catch {
-      return state.runtime?.samplePlayerConfig?.() ?? {};
+      return normalizePlayer(state.runtime?.samplePlayerConfig?.() ?? {});
     }
   }
 
@@ -127,6 +148,7 @@ export function createPlayerStore({
   return {
     cancelPendingSave,
     ensurePlayerProfiles,
+    peekPlayer: safeReadPlayer,
     readPlayer,
     refreshPlayerProfiles,
     safeReadPlayer,

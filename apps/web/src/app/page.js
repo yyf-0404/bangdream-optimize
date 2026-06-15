@@ -30,7 +30,7 @@ export function createPageController({
       ? ''
       : eventSearchValue(normalized.currentEvent, normalized);
     renderReferenceOptions();
-    renderPageForms(page, normalized);
+    renderPageForms(page, normalized, { normalized: true });
   }
 
   function activePage() {
@@ -56,12 +56,12 @@ export function createPageController({
       if (page === 'cards') {
         renderReferenceOptions();
       }
-      renderPageForms(page, safeReadPlayer());
+      renderPageForms(page, safeReadPlayer(), { normalized: true });
     }
   }
 
-  function renderPageForms(page, player) {
-    const normalized = normalizePlayer(player);
+  function renderPageForms(page, player, { normalized: alreadyNormalized = false } = {}) {
+    const normalized = alreadyNormalized ? player : normalizePlayer(player);
     switch (page) {
       case 'activity':
         renderEventSummary(normalized.currentEvent);
