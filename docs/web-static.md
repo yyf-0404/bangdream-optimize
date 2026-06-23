@@ -13,9 +13,9 @@ Web 端不需要运行时计算后端。
 
 ## 生产部署
 
-生产环境建议使用 Nginx 托管前端静态文件，并将 `/game-data/` 与
-`/bestdori/player/` 反向代理到后端。后端负责挂载
-`BANGDREAM_OPTIMIZE_GAME_DATA_ROOT` 并提供 `/game-data`。
+生产环境建议使用 Nginx 托管前端静态文件，并将 `/game-data/`、
+`/bestdori/player/` 与 `/bangdream/user-data/import` 反向代理到后端。
+后端负责挂载 `BANGDREAM_OPTIMIZE_GAME_DATA_ROOT` 并提供 `/game-data`。
 
 部署前先准备 Rust/Cargo、WASM 工具链和基础系统工具，见
 `docs/environment.md`。
@@ -64,6 +64,10 @@ sudo nano /etc/bangdream-optimize/backend.env
 `BANGDREAM_OPTIMIZE_GAME_DATA_ROOT=/var/bangdream-optimize/game-data`。
 如果不希望后端启动时同步 game-data，可设置
 `BANGDREAM_OPTIMIZE_GAME_DATA_SYNC_ENABLED=0`。
+国服游戏账号导入默认开启，默认读取项目内
+`var/bangdream-account/persist.json`。仓库只提交
+`var/bangdream-account/persist.example.json`，部署时需要复制 example 并填入真实值。
+如果要关闭该接口，设置 `BANGDREAM_OPTIMIZE_ENABLE_BD_IMPORT=false`。
 
 4. 初始化 game-data 挂载目录
 
@@ -101,7 +105,8 @@ globalThis.BANGDREAM_OPTIMIZE_CONFIG = {
 ```
 
 该部署下，前端计算在浏览器 WASM 内完成，不访问 `/v1/`；导入
-Bestdori 玩家资料会访问同源 `/bestdori/player/`，因此 Nginx 需要保留该反代。
+Bestdori 玩家资料会访问同源 `/bestdori/player/`，国服游戏账号导入会访问同源
+`/bangdream/user-data/import`，因此 Nginx 需要保留这两个反代。
 
 7. 构建并发布前端
 
@@ -133,6 +138,7 @@ sudo systemctl reload nginx
 - 从 `/var/www/bangdream-optimize/web` 托管前端；
 - 将 `/game-data/` 反代到 `http://127.0.0.1:3100`；
 - 将 `/bestdori/player/` 反代到 `http://127.0.0.1:3100`；
+- 将 `/bangdream/user-data/import` 反代到 `http://127.0.0.1:3100`；
 - 对其他路径做 SPA 回退。
 
 9. 验证

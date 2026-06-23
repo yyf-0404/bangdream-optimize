@@ -8,6 +8,9 @@
 !/var/game-data/skillsCNfix.json
 !/var/game-data/areaItemFix.json
 !/var/game-data/eventCharacterParameterBonusFix.json
+/var/bangdream-account/persist.json
+!/var/bangdream-account/
+!/var/bangdream-account/persist.example.json
 /dist/
 *.pyc
 *.pyo

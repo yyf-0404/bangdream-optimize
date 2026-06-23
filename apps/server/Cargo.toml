@@ -7,6 +7,7 @@ repository.workspace = true
 
 [dependencies]
 axum.workspace = true
+bangdream-optimize-bangdream-account.workspace = true
 bangdream-optimize-core.workspace = true
 bangdream-optimize-data = { workspace = true, features = ["native-cache"] }
 bangdream-optimize-service.workspace = true

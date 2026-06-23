@@ -3,14 +3,14 @@ import {
   assetImage,
   characterIconUrls,
   starIconUrls,
-} from '../assets/index.js?v=1';
-import { buttonIcon, iconButton } from '../ui/icons.js?v=1';
-import { emptyMessage, unwrapCell } from '../ui/dom.js?v=1';
+} from '../assets/index.js?v=2';
+import { buttonIcon, iconButton } from '../ui/icons.js?v=2';
+import { emptyMessage, unwrapCell } from '../ui/dom.js?v=2';
 import {
   ATTRIBUTE_VALUES_WITH_ALL,
   attributeLabel,
   numericStringSort,
-} from '../utils.js?v=1';
+} from '../utils.js?v=2';
 
 export function createCardView({
   rows,

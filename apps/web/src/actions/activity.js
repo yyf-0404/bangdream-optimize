@@ -1,5 +1,5 @@
 import { clearFieldValidationMessage, setFieldValidationMessage } from '../ui/validation.js';
-import { ATTRIBUTE_VALUES } from '../utils.js?v=1';
+import { ATTRIBUTE_VALUES } from '../utils.js?v=2';
 
 const DEFAULT_EVENT_BONUS_PERCENT = 10;
 const DEFAULT_EVENT_ATTRIBUTES = ATTRIBUTE_VALUES;

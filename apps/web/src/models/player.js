@@ -5,8 +5,8 @@ import {
   normalizedAttribute,
   positiveIntegerOrDefault,
   positiveIntegerOrUndefined,
-} from '../utils.js?v=1';
-import { CUSTOM_EVENT_ID } from './event.js?v=1';
+} from '../utils.js?v=2';
+import { CUSTOM_EVENT_ID } from './event.js?v=2';
 
 const SERVER_INDEX = {
   jp: 0,

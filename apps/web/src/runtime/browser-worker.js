@@ -1,4 +1,4 @@
-const WASM_ASSET_VERSION = '20260615-current-core';
+const WASM_ASSET_VERSION = '20260624-v0.1.1';
 
 let wasmPromise = null;
 

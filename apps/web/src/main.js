@@ -1,80 +1,80 @@
-import { createRuntime } from './runtime/index.js?v=1';
-import { characterIconUrls } from './assets/index.js?v=1';
+import { createRuntime } from './runtime/index.js?v=2';
+import { characterIconUrls } from './assets/index.js?v=2';
 import {
   areaItemGroupIconUrls,
   createAreaItemHelpers,
   formatAreaItemRate,
-} from './domain/area.js?v=1';
-import { attributeSwatch } from './ui/attribute.js?v=1';
-import { createActivityActions } from './actions/activity.js?v=1';
-import { createAppLifecycle } from './app/lifecycle.js?v=1';
-import { createInitialState } from './app/state.js?v=1';
+} from './domain/area.js?v=2';
+import { attributeSwatch } from './ui/attribute.js?v=2';
+import { createActivityActions } from './actions/activity.js?v=2';
+import { createAppLifecycle } from './app/lifecycle.js?v=2';
+import { createInitialState } from './app/state.js?v=2';
 import {
   createBestdoriProfileImporter,
   parseBestdoriProfileExport,
-} from './data/bestdori.js?v=1';
-import { createCalculationActions } from './actions/calculation.js?v=1';
+} from './data/bestdori.js?v=2';
+import { createCalculationActions } from './actions/calculation.js?v=2';
 import {
   characterBonusWithRates as buildCharacterBonusWithRates,
   createCharacterBonusHelpers,
-} from './domain/character.js?v=1';
-import { createConfigActions } from './actions/config.js?v=1';
-import { createCoreLoader } from './app/core.js?v=1';
+} from './domain/character.js?v=2';
+import { createConfigActions } from './actions/config.js?v=2';
+import { createCoreLoader } from './app/core.js?v=2';
 import {
   createDiagnostics,
   diagnosticFileName,
-} from './data/diagnostics.js?v=1';
-import { createDownloadActions } from './actions/download.js?v=1';
-import { queryElements } from './app/elements.js?v=1';
+} from './data/diagnostics.js?v=2';
+import { createDownloadActions } from './actions/download.js?v=2';
+import { queryElements } from './app/elements.js?v=2';
 import {
   createEventModel,
   CUSTOM_EVENT_ID,
-} from './models/event.js?v=1';
-import { createEventActions } from './actions/event.js?v=1';
-import { createEventContext } from './app/event.js?v=1';
-import { createFormActions } from './actions/form.js?v=1';
+} from './models/event.js?v=2';
+import { createEventActions } from './actions/event.js?v=2';
+import { createEventContext } from './app/event.js?v=2';
+import { createFormActions } from './actions/form.js?v=2';
 import {
   numericStringSort,
   optionText,
   parseEntityId,
   parseNonNegativeInteger,
   readOptionalInteger,
-} from './utils.js?v=1';
-import { createCardView } from './views/card.js?v=1';
-import { createEventView } from './views/event.js?v=1';
-import { createFormCells } from './ui/form.js?v=1';
-import { createGameMeta } from './domain/meta.js?v=1';
+} from './utils.js?v=2';
+import { createCardView } from './views/card.js?v=2';
+import { createEventView } from './views/event.js?v=2';
+import { createFormCells } from './ui/form.js?v=2';
+import { createGameMeta } from './domain/meta.js?v=2';
 import {
   cloneJson,
   createPlayerModel,
   normalizedServer as normalizeServerValue,
   readFiniteInput,
-} from './models/player.js?v=1';
-import { createPageController } from './app/page.js?v=1';
-import { createPlayerStore } from './app/player.js?v=1';
-import { createPlayerView } from './views/player.js?v=1';
-import { createProfileActions } from './actions/profile.js?v=1';
-import { createProfileView } from './views/profile.js?v=1';
+} from './models/player.js?v=2';
+import { createPageController } from './app/page.js?v=2';
+import { createPlayerStore } from './app/player.js?v=2';
+import { createPlayerView } from './views/player.js?v=2';
+import { createProfileActions } from './actions/profile.js?v=2';
+import { createProfileView } from './views/profile.js?v=2';
 import {
   createReferenceView,
   installRecoveringDatalistInput,
-} from './views/reference.js?v=1';
-import { createReferenceData } from './data/reference.js?v=1';
+} from './views/reference.js?v=2';
+import { createReferenceData } from './data/reference.js?v=2';
 import {
   renderMetrics as renderMetricsView,
   renderResultSummary as renderResultSummaryView,
-} from './views/result.js?v=1';
+} from './views/result.js?v=2';
 import {
   RESULT_CACHE_LIMIT,
   createResultCacheStorage,
-} from './data/result-cache.js?v=1';
-import { createResourceActions } from './actions/resource.js?v=1';
-import { createServerContext } from './app/server.js?v=1';
-import { createSongView } from './views/song.js?v=1';
-import { createStatusProxy } from './app/status.js?v=1';
-import { createStatusView } from './views/status.js?v=1';
-import { createViewAdapters } from './views/adapters.js?v=1';
-import { createResultCacheView } from './views/result-cache.js?v=1';
+} from './data/result-cache.js?v=2';
+import { createResourceActions } from './actions/resource.js?v=2';
+import { createServerContext } from './app/server.js?v=2';
+import { createSongView } from './views/song.js?v=2';
+import { createStatusProxy } from './app/status.js?v=2';
+import { createStatusView } from './views/status.js?v=2';
+import { createViewAdapters } from './views/adapters.js?v=2';
+import { createResultCacheView } from './views/result-cache.js?v=2';
 
 // Runtime state and deferred cross-module calls.
 const state = createInitialState();

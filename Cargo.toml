@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/bangdream-account",
     "crates/core",
     "crates/data",
     "crates/desktop",
@@ -21,8 +22,10 @@ license = "MIT"
 repository = "https://github.com/yyf-0404/bangdream-optimize"
 
 [workspace.dependencies]
+aes = "0.8.4"
 async-trait = "0.1.89"
 axum = "0.8.7"
+bangdream-optimize-bangdream-account = { path = "crates/bangdream-account" }
 bangdream-optimize-core = { path = "crates/core" }
 bangdream-optimize-data = { path = "crates/data" }
 bangdream-optimize-desktop = { path = "crates/desktop" }

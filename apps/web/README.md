@@ -125,6 +125,12 @@ server {
     proxy_set_header X-Real-IP $remote_addr;
   }
 
+  location = /bangdream/user-data/import {
+    proxy_pass http://127.0.0.1:3100;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+  }
+
   location / {
     try_files $uri $uri/ /index.html;
   }
@@ -135,4 +141,5 @@ server {
 
 上线注意：
 - 前端配置为 `gameDataBaseUrl: '/game-data'`，`apiBaseUrl: ''`，确保请求为同源，不写死 `127.0.0.1`。
+- 国服游戏账号导入启用时，保留 `/bangdream/user-data/import` 到后端的反代。
 - 前端计算不需要 `/v1`；仅在需要对外暴露后端计算 API 时额外配置 `/v1` 反代。

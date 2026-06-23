@@ -1,9 +1,9 @@
-import { emptyMessage } from '../ui/dom.js?v=1';
+import { emptyMessage } from '../ui/dom.js?v=2';
 import {
   compactJoin,
   formatDateTime,
   formatInteger,
-} from '../utils.js?v=1';
+} from '../utils.js?v=2';
 
 export function createResultCacheView({ elements }) {
   function renderResultCache(entries, { activeKey } = {}) {

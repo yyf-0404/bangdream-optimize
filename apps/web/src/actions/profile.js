@@ -1,6 +1,6 @@
-import { confirmDialog } from '../ui/confirm.js?v=1';
-import { createCompactProfileCodec } from '../data/compact-profile.js?v=1';
-import { copyTextToClipboard } from '../ui/clipboard.js?v=1';
+import { confirmDialog } from '../ui/confirm.js?v=2';
+import { createCompactProfileCodec } from '../data/compact-profile.js?v=2';
+import { copyTextToClipboard } from '../ui/clipboard.js?v=2';
 import { setFieldValidationMessage, clearFieldValidationMessage } from '../ui/validation.js';
 
 export function createProfileActions({
@@ -32,7 +32,10 @@ export function createProfileActions({
   let copyToastTimer;
   let copyToastElement;
   let isImportingMainBand = false;
-  const importMainBandLabel = elements.importMainBand?.textContent?.trim() || '导入主乐队配置';
+  const importMainBandLabel = elements.importMainBand?.textContent?.trim() || '从游戏账号导入配置';
+  const importMainBandIcon = elements.importMainBand
+    ?.querySelector('.button-icon')
+    ?.cloneNode(true);
   const {
     buildCompactProfilePayload,
     compactProfileToPlayer,
@@ -48,7 +51,16 @@ export function createProfileActions({
     button.disabled = isBusy;
     button.classList.toggle('is-loading', isBusy);
     button.setAttribute('aria-busy', isBusy ? 'true' : 'false');
-    button.textContent = isBusy ? '导入中' : importMainBandLabel;
+    setButtonIconText(button, importMainBandIcon, isBusy ? '导入中' : importMainBandLabel);
+  }
+
+  function setButtonIconText(button, icon, text) {
+    if (!icon) {
+      button.textContent = text;
+      return;
+    }
+
+    button.replaceChildren(icon.cloneNode(true), document.createTextNode(text));
   }
 
   function showCopyToast(message, { duration = 1400 } = {}) {
@@ -235,17 +247,33 @@ export function createProfileActions({
       await ensureCore();
       const playerId = parseEntityId(playerIdInput.value, '玩家 ID');
       const server = normalizedServer(elements.playerServer.value);
-      setStatus('导入主乐队配置');
-      const profile = await fetchBestdoriPlayerProfile(playerId, server);
+      if (server !== 'cn') {
+        throw new Error('游戏账号导入仅支持国服');
+      }
+      setStatus('从游戏账号导入配置');
+      const imported = await importBangDreamUserData(playerId);
       const player = normalizedPlayer(readPlayer());
       player.playerId = playerId;
-      player.server = server;
-      importMainBandCards(player, profile);
-      importMainBandCharacterBonuses(player, profile);
-      importEnabledAreaItems(player, profile);
+      player.server = 'cn';
+      player.cardList = {
+        ...player.cardList,
+        ...(imported.cardList ?? {}),
+      };
+      player.areaItem = {
+        ...player.areaItem,
+        ...(imported.areaItem ?? {}),
+      };
+      player.characterBouns = {
+        ...player.characterBouns,
+        ...(imported.characterBouns ?? {}),
+      };
       writePlayer(player);
       renderConfigForms(player);
-      setStatus('主乐队配置已导入');
+      setStatus(
+        `游戏账号配置已导入：${Object.keys(imported.cardList ?? {}).length} 张卡牌，`
+        + `${Object.keys(imported.areaItem ?? {}).length} 个区域道具，`
+        + `${Object.keys(imported.characterBouns ?? {}).length} 个角色加成`,
+      );
     } catch (error) {
       if (error instanceof Error && /玩家 ID/.test(error.message)) {
         setFieldValidationMessage(playerIdInput, error);
@@ -434,6 +462,13 @@ export function createProfileActions({
       return state.runtime.importBestdoriPlayerProfile({ playerId, server, mode: 3 });
     }
     throw new Error('当前运行时不支持导入 Bestdori 玩家资料');
+  }
+
+  async function importBangDreamUserData(userId) {
+    if (typeof state.runtime?.importBangDreamUserData === 'function') {
+      return state.runtime.importBangDreamUserData({ userId });
+    }
+    throw new Error('当前运行时不支持游戏账号导入');
   }
 
   return {

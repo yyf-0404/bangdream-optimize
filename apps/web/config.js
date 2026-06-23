@@ -6,6 +6,7 @@ globalThis.BANGDREAM_OPTIMIZE_CONFIG = {
   gameDataBaseUrl: '/game-data',
   desktopDownloadsUrl: '/downloads/',
   apiBaseUrl: defaultApiBaseUrl,
+  bangDreamImportApiBaseUrl: defaultApiBaseUrl,
   assetOriginUrl: 'https://bestdori.com',
   assetBaseUrl: 'https://bestdori.com/assets',
   assetServer: 'jp',

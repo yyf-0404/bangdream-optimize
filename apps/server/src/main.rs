@@ -5,9 +5,13 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use bangdream_optimize_bangdream_account::{
+    persist_path_from_env, BangDreamAccountImporter, ImportError as BangDreamImportError,
+    ImportRequest as BangDreamImportRequest,
+};
 use bangdream_optimize_core::{
     calculate_from_candidates, BuildResult, CalculationMetrics, CandidateBuildRequest, EventType,
-    ItemSearchOptions, Server,
+    ItemSearchOptions, PlayerConfig, Server,
 };
 use bangdream_optimize_data::{
     BestdoriCachedFilesystemCalculationInputBuilder, BestdoriFilesystemCalculationInputBuilder,
@@ -19,6 +23,7 @@ use bangdream_optimize_storage_mongodb::MongoPlayerConfigStore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
+    collections::BTreeMap,
     env,
     fs::{self, OpenOptions},
     io::ErrorKind,
@@ -41,6 +46,7 @@ const DEFAULT_GAME_DATA_SYNC_INTERVAL_SECONDS: u64 = 60 * 60;
 #[derive(Clone, Default)]
 struct AppState {
     optimizer: Option<OptimizerService>,
+    bangdream_importer: Option<BangDreamAccountImporter>,
     telemetry: TelemetryLogger,
 }
 
@@ -68,8 +74,16 @@ impl AppState {
             _ => None,
         };
 
+        let bangdream_importer = if env_bool("BANGDREAM_OPTIMIZE_ENABLE_BD_IMPORT", true) {
+            let persist_path = persist_path_from_env();
+            Some(BangDreamAccountImporter::new(persist_path).map_err(|err| err.to_string())?)
+        } else {
+            None
+        };
+
         Ok(Self {
             optimizer,
+            bangdream_importer,
             telemetry: TelemetryLogger::from_env(),
         })
     }
@@ -1095,6 +1109,34 @@ struct CalcResultRequest {
     options: ItemSearchOptions,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BangDreamUserDataImportRequest {
+    user_id: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BangDreamUserDataImportResponse {
+    player_id: i64,
+    server: Server,
+    card_list: BTreeMap<String, bangdream_optimize_core::PlayerCardConfig>,
+    area_item: BTreeMap<String, bangdream_optimize_core::AreaItemConfig>,
+    character_bouns: BTreeMap<String, bangdream_optimize_core::CharacterBonusConfig>,
+}
+
+impl From<PlayerConfig> for BangDreamUserDataImportResponse {
+    fn from(player: PlayerConfig) -> Self {
+        Self {
+            player_id: player.player_id,
+            server: Server::Cn,
+            card_list: player.card_list,
+            area_item: player.area_item,
+            character_bouns: player.character_bouns,
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -1145,6 +1187,13 @@ fn build_app(
         "/bestdori/player/{server}/{player_id}",
         get(bestdori_player),
     );
+
+    if state.bangdream_importer.is_some() {
+        app = app.route(
+            "/bangdream/user-data/import",
+            post(bangdream_user_data_import),
+        );
+    }
 
     if enable_calc_routes {
         app = app.route("/v1/calc-result", post(calc_result)).route(
@@ -1264,6 +1313,74 @@ async fn fetch_bestdori_player(server: String, player_id: u64, mode: u8) -> Resu
     })
     .await
     .map_err(|err| format!("Bestdori proxy task failed: {err}"))?
+}
+
+async fn bangdream_user_data_import(
+    State(state): State<AppState>,
+    Json(request): Json<BangDreamUserDataImportRequest>,
+) -> impl IntoResponse {
+    if request.user_id == 0 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError {
+                status: "error",
+                message: "userId must be a positive integer".to_owned(),
+            }),
+        )
+            .into_response();
+    }
+
+    let Some(importer) = state.bangdream_importer.clone() else {
+        return service_unavailable("Bang Dream account import is not configured");
+    };
+
+    let user_id = request.user_id;
+    match tokio::task::spawn_blocking(move || {
+        importer.import_player_config(BangDreamImportRequest { user_id })
+    })
+    .await
+    {
+        Ok(Ok(player)) => (
+            StatusCode::OK,
+            Json(ApiResponse::<BangDreamUserDataImportResponse> {
+                status: "ok",
+                data: player.into(),
+            }),
+        )
+            .into_response(),
+        Ok(Err(err)) => bangdream_import_error_response(err),
+        Err(err) => (
+            StatusCode::BAD_GATEWAY,
+            Json(ApiError {
+                status: "error",
+                message: format!("Bang Dream import task failed: {err}"),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+fn bangdream_import_error_response(err: BangDreamImportError) -> axum::response::Response {
+    let status = match err {
+        BangDreamImportError::MissingPersistField(_)
+        | BangDreamImportError::Crypto(_)
+        | BangDreamImportError::Protobuf(_) => StatusCode::BAD_GATEWAY,
+        BangDreamImportError::ReadPersist(_) | BangDreamImportError::ParsePersist(_) => {
+            StatusCode::SERVICE_UNAVAILABLE
+        }
+        BangDreamImportError::Http(_)
+        | BangDreamImportError::HttpStatus { .. }
+        | BangDreamImportError::MissingHeader(_) => StatusCode::BAD_GATEWAY,
+    };
+
+    (
+        status,
+        Json(ApiError {
+            status: "error",
+            message: err.to_string(),
+        }),
+    )
+        .into_response()
 }
 
 async fn calc_result(
@@ -1546,6 +1663,57 @@ mod tests {
             .await
             .expect("from-candidates request should complete");
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn bangdream_import_route_is_disabled_without_importer() {
+        let app = build_app(AppState::default(), None, None, false);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/bangdream/user-data/import")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"userId":1008131441}"#))
+                    .expect("failed to build Bang Dream import request"),
+            )
+            .await
+            .expect("Bang Dream import request should complete");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn bangdream_import_rejects_bad_user_id_before_network() {
+        let fixture = TestDir::new();
+        let persist_path = fixture.path().join("persist.json");
+        fs::write(&persist_path, "{}").expect("failed to write persist placeholder");
+        let app = build_app(
+            AppState {
+                bangdream_importer: Some(
+                    BangDreamAccountImporter::new(persist_path)
+                        .expect("importer should accept persist path"),
+                ),
+                ..Default::default()
+            },
+            None,
+            None,
+            false,
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/bangdream/user-data/import")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"userId":0}"#))
+                    .expect("failed to build Bang Dream import request"),
+            )
+            .await
+            .expect("Bang Dream import request should complete");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_body_contains(response, "userId must be a positive integer").await;
     }
 
     #[tokio::test]

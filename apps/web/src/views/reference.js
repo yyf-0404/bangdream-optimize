@@ -5,16 +5,16 @@ import {
   assetImage,
   serverIconUrls,
   starIconUrls,
-} from '../assets/index.js?v=1';
-import { attributeSwatch } from '../ui/attribute.js?v=1';
-import { cardPreviewItem as createCardPreviewItem } from '../ui/card-preview.js?v=1';
-import { emptyMessage } from '../ui/dom.js?v=1';
+} from '../assets/index.js?v=2';
+import { attributeSwatch } from '../ui/attribute.js?v=2';
+import { cardPreviewItem as createCardPreviewItem } from '../ui/card-preview.js?v=2';
+import { emptyMessage } from '../ui/dom.js?v=2';
 import {
   attributeLabel,
   numericStringSort,
   optionText,
   positiveIntegerOrUndefined,
-} from '../utils.js?v=1';
+} from '../utils.js?v=2';
 
 const ATTRIBUTE_FILTERS = ['powerful', 'cool', 'happy', 'pure'];
 const RARITY_FILTERS = [1, 2, 3, 4, 5];

@@ -24,6 +24,10 @@
 生产部署建议将前端与后端同域部署，并将 `apiBaseUrl` 置空（如
 `globalThis.BANGDREAM_OPTIMIZE_CONFIG = { apiBaseUrl: '' }`），
 使前端请求走同源：`/game-data/...`。
+国服游戏账号导入默认开启，默认读取项目内
+`var/bangdream-account/persist.json`；该真实文件被 `.gitignore` 忽略，只提交
+`var/bangdream-account/persist.example.json`。部署时还需要同源反代
+`/bangdream/user-data/import` 到后端。
 
 生产环境静态部署（Nginx）可直接参考：
 
@@ -36,6 +40,7 @@
 - `apps/web` 的静态托管
 - `/game-data/` 的后端反向代理
 - `/bestdori/player/` 的同源 API 反向代理
+- `/bangdream/user-data/import` 的同源 API 反向代理
 - SPA 回退配置
 
 服务端内部遥测与 API 说明见：

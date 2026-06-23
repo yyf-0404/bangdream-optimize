@@ -1,4 +1,4 @@
-import { confirmDialog } from '../ui/confirm.js?v=1';
+import { confirmDialog } from '../ui/confirm.js?v=2';
 
 export function createResourceActions({
   state,

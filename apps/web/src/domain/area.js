@@ -1,7 +1,7 @@
 import {
   attributeIconUrls,
   bandIconUrls,
-} from '../assets/index.js?v=1';
+} from '../assets/index.js?v=2';
 import {
   attributeLabel,
   bandLabel,
@@ -9,7 +9,7 @@ import {
   normalizedAttribute,
   numericStringSort,
   positiveIntegerOrUndefined,
-} from '../utils.js?v=1';
+} from '../utils.js?v=2';
 
 export function createAreaItemHelpers({
   getAreaItemRecords,

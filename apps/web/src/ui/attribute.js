@@ -1,4 +1,4 @@
-import { compactJoin } from '../utils.js?v=1';
+import { compactJoin } from '../utils.js?v=2';
 
 export function attributeSwatch(attribute) {
   const swatch = document.createElement('span');

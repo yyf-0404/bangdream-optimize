@@ -1,5 +1,5 @@
-import { confirmDialog } from '../ui/confirm.js?v=1';
-import { copyTextToClipboard } from '../ui/clipboard.js?v=1';
+import { confirmDialog } from '../ui/confirm.js?v=2';
+import { copyTextToClipboard } from '../ui/clipboard.js?v=2';
 
 export function createCalculationActions({
   state,

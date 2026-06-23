@@ -1,7 +1,7 @@
 import {
   numericStringSort,
   positiveIntegerOrUndefined,
-} from '../utils.js?v=1';
+} from '../utils.js?v=2';
 
 const DEFAULT_EVENT_DIFFICULTY = 3;
 const ACTIVITY_MODES = {

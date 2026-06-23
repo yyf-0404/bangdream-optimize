@@ -6,15 +6,15 @@ import {
   formatMs,
   magazineLabel,
   selectedBandLabel,
-} from '../utils.js?v=1';
+} from '../utils.js?v=2';
 import {
   assetImage,
   attributeIconUrls,
   bandIconUrls,
-} from '../assets/index.js?v=1';
-import { cardPreviewItem } from '../ui/card-preview.js?v=1';
-import { emptyMessage } from '../ui/dom.js?v=1';
-import { renderDifficultyList } from './song.js?v=1';
+} from '../assets/index.js?v=2';
+import { cardPreviewItem } from '../ui/card-preview.js?v=2';
+import { emptyMessage } from '../ui/dom.js?v=2';
+import { renderDifficultyList } from './song.js?v=2';
 
 export function renderMetrics(metricsElement, metrics) {
   metricsElement.textContent = '';

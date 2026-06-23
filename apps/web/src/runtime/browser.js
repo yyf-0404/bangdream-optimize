@@ -1,4 +1,4 @@
-import { createGameDataClient } from '../data/game-sync.js?v=1';
+import { createGameDataClient } from '../data/game-sync.js?v=2';
 import {
   clearPlayerConfigCache,
   createPlayerConfig,
@@ -10,9 +10,9 @@ import {
   samplePlayerConfig,
   savePlayerConfig,
   selectPlayerConfig,
-} from '../storage/user.js?v=1';
+} from '../storage/user.js?v=2';
 
-const WASM_ASSET_VERSION = '20260615-current-core';
+const WASM_ASSET_VERSION = '20260624-v0.1.1';
 
 export async function createBrowserRuntime({ onProgress } = {}) {
   const config = readRuntimeConfig();
@@ -46,6 +46,8 @@ export async function createBrowserRuntime({ onProgress } = {}) {
     clearLocalCache: clearPlayerConfigCache,
     importBestdoriPlayerProfile: ({ playerId, server, mode = 3 }) =>
       fetchBestdoriPlayerProfile([config.apiBaseUrl], { playerId, server, mode }),
+    importBangDreamUserData: ({ userId }) =>
+      fetchBangDreamUserData([config.apiBaseUrl], { userId }),
     clearGameCache: () => gameData.clearCache(),
     runtimeInfo: async () => ({
       runtime: 'browser',
@@ -195,6 +197,33 @@ async function fetchBestdoriPlayerProfile(apiBaseUrls, { playerId, server, mode 
     ? `主乐队导入失败：${errors.join('；')}`
     : '主乐队导入失败';
   throw new Error(message);
+}
+
+async function fetchBangDreamUserData(apiBaseUrls, { userId }) {
+  const configuredBase = normalizeApiBase(apiBaseUrls?.[0]);
+  const base = configuredBase ?? '';
+  const url = `${base}/bangdream/user-data/import`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-cache',
+    body: JSON.stringify({ userId }),
+  });
+  const text = await response.text();
+  let payload;
+  try {
+    payload = text ? JSON.parse(text) : null;
+  } catch {
+    payload = null;
+  }
+  if (!response.ok) {
+    const detail = payload?.message || text.slice(0, 200) || `HTTP ${response.status}`;
+    throw new Error(`游戏账号导入失败：${detail}`);
+  }
+  if (!payload || payload.status !== 'ok' || payload.data == null) {
+    throw new Error('游戏账号导入没有返回配置数据');
+  }
+  return payload.data;
 }
 
 function normalizeApiBase(baseUrl) {

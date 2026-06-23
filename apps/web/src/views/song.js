@@ -1,5 +1,5 @@
-import { emptyMessage } from '../ui/dom.js?v=1';
-import { difficultyLabel } from '../utils.js?v=1';
+import { emptyMessage } from '../ui/dom.js?v=2';
+import { difficultyLabel } from '../utils.js?v=2';
 
 export function createSongView({
   rows,

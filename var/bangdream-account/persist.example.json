@@ -1,0 +1,18 @@
+{
+  "device_id": "example-device-id",
+  "sdk": {
+    "uid": "example-sdk-uid",
+    "access_key": "example-access-key"
+  },
+  "unity": {
+    "unity_channel_id": "example-channel-id",
+    "unity_platform_id": "example-platform-id",
+    "client_platform": "Android",
+    "login_platform": "Android",
+    "operating_system": "Android OS 16 / API-36",
+    "device_model": "Example Device",
+    "client_version": "9.4.2",
+    "udid_short": "example-udid-short",
+    "client_package": "com.bilibili.star.bili"
+  }
+}
