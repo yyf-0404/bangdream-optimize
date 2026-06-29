@@ -29,6 +29,7 @@ const CARD_PREVIEW_BATCH_SIZE = 50;
 const CARD_SEARCH_DEBOUNCE_MS = 160;
 const CARD_SEARCH_FRAME_BUDGET_MS = 8;
 const CARD_SEARCH_WARMUP_BUDGET_MS = 12;
+const CARD_RELEASE_LOOKAHEAD_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function createReferenceView({
   elements,
@@ -776,10 +777,10 @@ export function createReferenceView({
     if (!Array.isArray(card?.releasedAt)) {
       return true;
     }
-    const now = Date.now();
+    const latestReleasedAt = cardReleaseCutoff();
     return card.releasedAt.some((timestamp) => {
       const releasedAt = Number(timestamp);
-      return Number.isFinite(releasedAt) && releasedAt > 0 && releasedAt <= now;
+      return Number.isFinite(releasedAt) && releasedAt > 0 && releasedAt <= latestReleasedAt;
     });
   }
 
@@ -908,7 +909,11 @@ function cardReleasedOnServer(releasedAt, server) {
     return false;
   }
   const timestamp = Number(releasedAt[index]);
-  return Number.isFinite(timestamp) && timestamp > 0 && timestamp <= Date.now();
+  return Number.isFinite(timestamp) && timestamp > 0 && timestamp <= cardReleaseCutoff();
+}
+
+function cardReleaseCutoff() {
+  return Date.now() + CARD_RELEASE_LOOKAHEAD_MS;
 }
 
 function serverIndex(server) {
