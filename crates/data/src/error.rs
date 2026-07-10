@@ -59,7 +59,10 @@ pub enum DataError {
     Preparation(#[from] bangdream_optimize_core::PreparationError),
 
     #[error("calculation error: {0}")]
-    Calculation(#[from] bangdream_optimize_core::CalculationError),
+    Maximize(#[from] bangdream_optimize_core::MaximizeError),
+
+    #[error("score-range error: {0}")]
+    ScoreRange(#[from] bangdream_optimize_core::ScoreRangeError),
 
     #[error("data preparation is not implemented yet")]
     NotImplemented,

@@ -1,13 +1,13 @@
-import { attributeIconUrls, assetImage } from '../assets/index.js?v=2';
-import { emptyMessage, inputCell as baseInputCell } from './dom.js?v=2';
-import { clearFieldValidationMessage, setFieldValidationMessage } from './validation.js?v=2';
+import { attributeIconUrls, assetImage } from '../assets/index.js?v=3';
+import { emptyMessage, inputCell as baseInputCell } from './dom.js?v=3';
+import { clearFieldValidationMessage, setFieldValidationMessage } from './validation.js?v=3';
 import {
   ATTRIBUTE_VALUES_WITH_ALL,
   attributeLabel,
   numericStringSort,
   parseEntityId,
   positiveIntegerOrUndefined,
-} from '../utils.js?v=2';
+} from '../utils.js?v=3';
 
 export function createFormCells({
   attributeFallback,

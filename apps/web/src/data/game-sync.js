@@ -2,6 +2,7 @@ const DB_NAME = 'bangdream-optimize-game-data';
 const DB_VERSION = 1;
 const FILE_STORE = 'files';
 const MANIFEST_PATH = 'manifest.json';
+const SCORE_RANGE_CHART_META_PATH = 'api/scoreRangeChartMeta.1.json';
 const CUSTOM_EVENT_ID = 0;
 
 const REQUIRED_CORE_FILES = [
@@ -110,6 +111,10 @@ export class GameDataClient {
     };
   }
 
+  async syncScoreRangeChartMeta() {
+    return this.syncFile(SCORE_RANGE_CHART_META_PATH);
+  }
+
   async syncCardDetail(cardId) {
     return this.syncFile(cardPath(cardId), { useManifest: false });
   }
@@ -152,6 +157,37 @@ export class GameDataClient {
       server,
       eventId: selectedEventId,
       options,
+    };
+  }
+
+  async buildScoreRangePayload({ player, server, eventId, request, core: preloadedCore }) {
+    const selectedEventId = eventId ?? player.currentEvent;
+    if (selectedEventId == null) {
+      throw new Error('current event is not set');
+    }
+
+    const core = preloadedCore ?? await this.syncCore({ refreshManifest: true });
+    const [cards, event, scoreRangeChartMeta] = await Promise.all([
+      this.cardsWithRequestedDetails(core.cards, player),
+      this.calculationEvent(selectedEventId, player, core),
+      this.syncScoreRangeChartMeta(),
+    ]);
+    return {
+      cards,
+      characters: core.characters,
+      skills: core.skills,
+      areaItems: core.areaItems,
+      cardsFix: core.cardsFix,
+      skillsFix: core.skillsFix,
+      areaItemsFix: core.areaItemsFix,
+      event,
+      songs: core.songs,
+      scoreRangeChartMeta,
+      player,
+      server,
+      eventId: selectedEventId,
+      request,
+      nowMillis: Date.now(),
     };
   }
 

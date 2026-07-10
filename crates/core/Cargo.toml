@@ -1,6 +1,6 @@
 [package]
 name = "bangdream-optimize-core"
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -15,5 +15,8 @@ thiserror.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen.workspace = true
+
+[build-dependencies]
+serde_json.workspace = true
 
 [dev-dependencies]

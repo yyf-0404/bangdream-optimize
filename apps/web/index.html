@@ -4,10 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>组队计算</title>
-    <link rel="icon" type="image/png" href="./icon.png?v=2" />
-    <link rel="apple-touch-icon" href="./icon.png?v=2" />
+    <link rel="icon" type="image/png" href="./icon.png?v=3" />
+    <link rel="apple-touch-icon" href="./icon.png?v=3" />
     <meta name="theme-color" content="#d9467c" />
-    <link rel="stylesheet" href="./styles.css?v=2" />
+    <link rel="stylesheet" href="./styles.css?v=3" />
     <link
       rel="preconnect"
       href="https://fonts.googleapis.com"
@@ -21,8 +21,8 @@
       href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <script src="./config.js?v=2"></script>
-    <script type="module" src="./src/main.js?v=2"></script>
+    <script src="./config.js?v=3"></script>
+    <script type="module" src="./src/main.js?v=3"></script>
   </head>
   <body>
     <main class="app-shell">
@@ -30,7 +30,7 @@
         <div class="sidebar-brand">
           <div>
             <p class="sidebar-kicker">BangDream Optimize</p>
-            <h1>邦邦组队计算工具 <span class="app-version">v0.1.1</span></h1>
+            <h1>邦邦组队计算工具 <span id="app-version" class="app-version" hidden></span></h1>
           </div>
         </div>
 
@@ -220,13 +220,19 @@
                   </div>
                   <div class="config-content activity-selector-content">
                     <section class="config-section activity-grid">
-                    <label>
-                      <span>计算模式</span>
-                      <select id="activity-mode">
-                        <option value="medley">组曲</option>
-                        <option value="single">单曲</option>
-                      </select>
-                    </label>
+                    <fieldset id="calculation-mode" class="calculation-mode-field">
+                      <legend>计算目标</legend>
+                      <div class="segmented-control">
+                        <label>
+                          <input type="radio" name="calculation-mode" value="maximize" checked />
+                          <span>最高得分</span>
+                        </label>
+                        <label>
+                          <input type="radio" name="calculation-mode" value="scoreRange" />
+                          <span>控分</span>
+                        </label>
+                      </div>
+                    </fieldset>
 
                     <label>
                       <span>活动</span>
@@ -239,6 +245,32 @@
                       <button type="button" id="custom-event">使用自定义</button>
                     </div>
                   </section>
+
+                    <p id="calculation-mode-hint" class="calculation-mode-hint" aria-live="polite">当前模式仅支持巡回演出、挑战 Live 和竞演 Live。</p>
+
+                    <section class="score-range-controls" id="score-range-controls" hidden>
+                      <label>
+                        <span>当前 PT</span>
+                        <input id="score-range-current-pt" type="number" min="0" step="1" inputmode="numeric" value="0" />
+                      </label>
+                      <label>
+                        <span>目标总 PT</span>
+                        <input id="score-range-target-total-pt" type="number" min="0" step="1" inputmode="numeric" value="0" />
+                      </label>
+                      <label>
+                        <span>Auto 倍率</span>
+                        <select id="score-range-auto-base-multiplier">
+                          <option value="0.5">0.5 倍（非日服）</option>
+                          <option value="0.75">0.75 倍（日服）</option>
+                        </select>
+                        <small id="score-range-auto-base-multiplier-hint" class="score-range-field-hint"></small>
+                      </label>
+                      <label id="score-range-mission-support-field" hidden>
+                        <span>支援 PT 加成</span>
+                        <input id="score-range-mission-support-pt" type="number" min="0" step="1" inputmode="numeric" />
+                        <small class="score-range-field-hint">请先使用配置较低的队伍完成一次自由演出并记录支援 PT 加成，然后在卡牌列表中删除对应成员，再将记录值填入上方输入框。</small>
+                      </label>
+                    </section>
 
                     <div class="event-summary" id="event-summary"></div>
                   </div>
@@ -329,7 +361,7 @@
                   </div>
                 </section>
 
-                <section class="panel activity-card activity-song-card">
+                <section class="panel activity-card activity-song-card" id="activity-song-card">
                   <div class="panel-header">
                       <h3>活动歌曲</h3>
                   </div>

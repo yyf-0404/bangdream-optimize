@@ -1,185 +1,86 @@
-use crate::{CalculationInputBuilder, DataError};
+use crate::{
+    event_songs, initialized_charts, prepare_event_context, DataError, GameDataSnapshot,
+    MaximizeInputBuilder,
+};
 use async_trait::async_trait;
 use bangdream_optimize_core::{
-    calculate_area_item_percent, calculate_best_result_for_items, AreaItemDefinition, BuildResult,
-    CardDefinition, Chart, EventBonus, EventType, ItemSearchOptions, PlayerConfig,
-    PreferredItemTarget, Server, SongSelection,
+    maximize_result_for_items, BuildResult, MaximizeOptions, PlayerConfig, Server,
 };
-use std::collections::BTreeMap;
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct EventCalculationData {
-    pub event_type: EventType,
-    pub event_bonus: EventBonus,
-    pub preferred: Option<PreferredItemTarget>,
-}
-
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct CalculationDataSnapshot {
-    pub card_definitions: BTreeMap<u32, CardDefinition>,
-    pub area_item_definitions: BTreeMap<u32, AreaItemDefinition>,
-    pub events: BTreeMap<u32, EventCalculationData>,
-    charts: BTreeMap<(u32, u8), Chart>,
-}
-
-impl CalculationDataSnapshot {
-    pub fn new(
-        card_definitions: BTreeMap<u32, CardDefinition>,
-        area_item_definitions: BTreeMap<u32, AreaItemDefinition>,
-        events: BTreeMap<u32, EventCalculationData>,
-    ) -> Self {
-        Self {
-            card_definitions,
-            area_item_definitions,
-            events,
-            charts: BTreeMap::new(),
-        }
-    }
-
-    pub fn insert_chart(&mut self, song_id: u32, difficulty: u8, chart: Chart) {
-        self.charts.insert((song_id, difficulty), chart);
-    }
-
-    pub fn chart(&self, song_id: u32, difficulty: u8) -> Option<&Chart> {
-        self.charts.get(&(song_id, difficulty))
-    }
-}
 
 #[derive(Debug, Clone)]
-pub struct SnapshotCalculationInputBuilder {
-    data: CalculationDataSnapshot,
+pub struct SnapshotMaximizeInputBuilder {
+    data: GameDataSnapshot,
 }
 
-impl SnapshotCalculationInputBuilder {
-    pub fn new(data: CalculationDataSnapshot) -> Self {
+impl SnapshotMaximizeInputBuilder {
+    pub fn new(data: GameDataSnapshot) -> Self {
         Self { data }
+    }
+
+    pub fn maximize_sync(
+        &self,
+        player: PlayerConfig,
+        _server: Server,
+        event_id: Option<u32>,
+        mut options: MaximizeOptions,
+    ) -> Result<BuildResult, DataError> {
+        let context = prepare_event_context(&self.data, &player, event_id)?;
+        let song_list = event_songs(&player, context.event_id)?;
+        let charts = initialized_charts(&self.data, &song_list, context.event_type)?;
+
+        if options.preferred.is_none() {
+            options.preferred = context.preferred.clone();
+        }
+
+        maximize_result_for_items(
+            context.event_id,
+            context.event_type,
+            song_list,
+            &context.cards_with_stat_bonus,
+            &charts,
+            &context.area_item_percent,
+            options,
+        )
+        .map_err(Into::into)
     }
 
     pub fn calculate_result_sync(
         &self,
         player: PlayerConfig,
-        _server: Server,
+        server: Server,
         event_id: Option<u32>,
-        mut options: ItemSearchOptions,
+        options: MaximizeOptions,
     ) -> Result<BuildResult, DataError> {
-        let event_id = event_id
-            .or(player.current_event)
-            .ok_or(DataError::MissingCurrentEvent)?;
-        let event = self
-            .data
-            .events
-            .get(&event_id)
-            .ok_or(DataError::MissingEntity {
-                kind: "event",
-                id: event_id.to_string(),
-            })?;
-        let song_list = event_songs(&player, event_id)?;
-        let card_definitions = player_card_definitions(&player, &self.data)?;
-        let cards = bangdream_optimize_core::prepare_cards(
-            &card_definitions,
-            &player.card_list,
-            &player.character_bouns,
-            &event.event_bonus,
-        )?;
-        let area_item_percent =
-            calculate_area_item_percent(&player.area_item, &self.data.area_item_definitions)?;
-        let charts = initialized_charts(&self.data, &song_list, event.event_type)?;
-
-        if options.preferred.is_none() {
-            options.preferred = event.preferred.clone();
-        }
-
-        calculate_best_result_for_items(
-            event_id,
-            event.event_type,
-            song_list,
-            &cards,
-            &charts,
-            &area_item_percent,
-            options,
-        )
-        .map_err(Into::into)
+        self.maximize_sync(player, server, event_id, options)
     }
 }
 
 #[async_trait]
-impl CalculationInputBuilder for SnapshotCalculationInputBuilder {
-    async fn calculate_result(
+impl MaximizeInputBuilder for SnapshotMaximizeInputBuilder {
+    async fn maximize(
         &self,
         player: PlayerConfig,
         server: Server,
         event_id: Option<u32>,
-        options: ItemSearchOptions,
+        options: MaximizeOptions,
     ) -> Result<BuildResult, DataError> {
-        self.calculate_result_sync(player, server, event_id, options)
+        self.maximize_sync(player, server, event_id, options)
     }
 }
 
-fn event_songs(player: &PlayerConfig, event_id: u32) -> Result<Vec<SongSelection>, DataError> {
-    player
-        .event_songs
-        .get(&event_id.to_string())
-        .cloned()
-        .ok_or(DataError::MissingEventSongs { event_id })
-}
-
-fn player_card_definitions(
-    player: &PlayerConfig,
-    data: &CalculationDataSnapshot,
-) -> Result<Vec<CardDefinition>, DataError> {
-    player
-        .card_list
-        .keys()
-        .map(|card_id| {
-            let parsed_id = card_id
-                .parse::<u32>()
-                .map_err(|_| DataError::InvalidField {
-                    field: "cardList.cardId",
-                    value: card_id.clone(),
-                })?;
-            data.card_definitions
-                .get(&parsed_id)
-                .cloned()
-                .ok_or(DataError::MissingEntity {
-                    kind: "card",
-                    id: card_id.clone(),
-                })
-        })
-        .collect()
-}
-
-fn initialized_charts(
-    data: &CalculationDataSnapshot,
-    song_list: &[SongSelection],
-    event_type: EventType,
-) -> Result<Vec<Chart>, DataError> {
-    let is_medley = event_type == EventType::Medley;
-    let mut combo = 0;
-    let mut charts = Vec::with_capacity(song_list.len());
-
-    for song in song_list {
-        let mut chart =
-            data.chart(song.song_id, song.difficulty)
-                .cloned()
-                .ok_or(DataError::MissingEntity {
-                    kind: "chart",
-                    id: format!("{}:{}", song.song_id, song.difficulty),
-                })?;
-        chart.init(combo, is_medley)?;
-        combo += chart.count as i32;
-        charts.push(chart);
-    }
-
-    Ok(charts)
-}
+pub type SnapshotCalculationInputBuilder = SnapshotMaximizeInputBuilder;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{EventData, GameDataSnapshot};
     use bangdream_optimize_core::{
-        preparation::StatRate as PrepStatRate, AreaItemConfig, Attribute, CharacterBonusConfig,
-        ChartNode, ChartNodeType, PlayerCardConfig, ScoreUp, SkillDefinition, Stat, StatRate,
+        preparation::StatRate as PrepStatRate, AreaItemConfig, AreaItemDefinition, Attribute,
+        CardDefinition, CharacterBonusConfig, Chart, ChartNode, ChartNodeType, EventBonus,
+        EventType, MaximizeOptions, PlayerCardConfig, ScoreUp, SkillDefinition, SongSelection,
+        Stat, StatRate,
     };
+    use std::collections::BTreeMap;
 
     fn chart() -> Chart {
         let mut nodes = Vec::new();
@@ -241,7 +142,7 @@ mod tests {
         }
     }
 
-    fn snapshot() -> CalculationDataSnapshot {
+    fn snapshot() -> GameDataSnapshot {
         let card_definitions = (1..=5).map(|id| (id, card(id, id))).collect();
         let area_item_definitions = BTreeMap::from([
             (
@@ -281,7 +182,7 @@ mod tests {
         ]);
         let events = BTreeMap::from([(
             100,
-            EventCalculationData {
+            EventData {
                 event_type: EventType::Challenge,
                 event_bonus: EventBonus {
                     attributes: vec![],
@@ -289,13 +190,13 @@ mod tests {
                     members: vec![],
                     event_character_parameter_bonus: None,
                     event_attribute_and_character_parameter_percent: 0.0,
+                    event_attribute_and_character_point_percent: 0.0,
                     limit_breaks: BTreeMap::new(),
                 },
                 preferred: None,
             },
         )]);
-        let mut snapshot =
-            CalculationDataSnapshot::new(card_definitions, area_item_definitions, events);
+        let mut snapshot = GameDataSnapshot::new(card_definitions, area_item_definitions, events);
         snapshot.insert_chart(1, 3, chart());
         snapshot
     }
@@ -358,10 +259,10 @@ mod tests {
 
     #[test]
     fn calculates_result_from_snapshot_and_player_config() {
-        let builder = SnapshotCalculationInputBuilder::new(snapshot());
+        let builder = SnapshotMaximizeInputBuilder::new(snapshot());
 
         let result = builder
-            .calculate_result_sync(player(), Server::Jp, None, ItemSearchOptions::default())
+            .maximize_sync(player(), Server::Jp, None, MaximizeOptions::default())
             .unwrap();
 
         assert_eq!(result.event_id, 100);

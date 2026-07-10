@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 target="${BANGDREAM_OPTIMIZE_DESKTOP_WINDOWS_TARGET:-x86_64-pc-windows-msvc}"
 binary_name="bangdream-optimize-desktop-app"
 package_name="bangdream-optimize-desktop"
-version="$(sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' apps/desktop/src-tauri/tauri.conf.json | head -n 1)"
+version="$(python3 -c 'import json; print(json.load(open("apps/web/package.json", encoding="utf-8"))["version"])')"
 if [[ -z "${version}" ]]; then
   version="0.0.0"
 fi

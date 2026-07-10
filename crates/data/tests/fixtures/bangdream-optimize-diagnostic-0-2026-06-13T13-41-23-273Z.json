@@ -69,7 +69,7 @@
     },
     "solver": "randomBucketAvx2",
     "metrics": {
-      "coreVersion": "0.1.0",
+      "coreVersion": "0.2.0",
       "cardCount": 1414,
       "songCount": 3,
       "itemCombinationsBefore": 108,

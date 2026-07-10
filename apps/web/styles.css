@@ -1110,7 +1110,7 @@ pre {
 
 .activity-grid {
   display: grid;
-  grid-template-columns: minmax(120px, 180px) minmax(250px, 1fr) auto;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(250px, 1fr) auto;
   gap: 12px;
   align-items: end;
 }
@@ -1121,6 +1121,113 @@ pre {
   gap: 6px;
   color: var(--muted);
   font-size: 13px;
+}
+
+.calculation-mode-field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.calculation-mode-field legend {
+  margin-bottom: 6px;
+  padding: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.segmented-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-height: 38px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.activity-grid .segmented-control label {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.activity-grid .segmented-control label + label {
+  border-left: 1px solid var(--line);
+}
+
+.segmented-control input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.segmented-control span {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.segmented-control input:checked + span {
+  background: var(--accent);
+  color: #fff;
+}
+
+.segmented-control input:focus-visible + span {
+  box-shadow: inset 0 0 0 2px #fff, inset 0 0 0 4px var(--accent);
+}
+
+.calculation-mode-hint {
+  margin: 0;
+  border-left: 3px solid #3f7a63;
+  padding: 8px 10px;
+  background: #f4f8f5;
+  color: #345548;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.score-range-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+
+.score-range-controls[hidden] {
+  display: none !important;
+}
+
+.score-range-controls [hidden] {
+  display: none !important;
+}
+
+.score-range-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.score-range-field-hint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .activity-actions {
@@ -3107,6 +3214,71 @@ td select {
   letter-spacing: 0;
 }
 
+.result-stat-danger strong {
+  color: var(--danger);
+}
+
+.result-diagnostic {
+  border-top: 1px dashed var(--line);
+  padding-top: 12px;
+}
+
+.result-diagnostic-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.result-diagnostic-grid > div {
+  min-width: 0;
+  padding: 9px 12px;
+}
+
+.result-diagnostic-grid > div:nth-child(even) {
+  border-left: 1px dashed var(--line);
+}
+
+.result-diagnostic-grid dt,
+.result-diagnostic-grid dd {
+  margin: 0;
+}
+
+.result-diagnostic-grid dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.result-diagnostic-grid dd {
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.result-diagnostic-stack {
+  border-top: 1px dashed var(--line);
+  padding: 10px 12px 0;
+}
+
+.result-diagnostic-stack summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.result-diagnostic-stack pre {
+  max-height: 280px;
+  margin: 10px 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .result-items {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3135,6 +3307,32 @@ td select {
 .result-section h3 {
   margin: 0;
   font-size: 14px;
+}
+
+.score-range-overview {
+  grid-template-columns: minmax(180px, 1.4fr) repeat(3, minmax(100px, 1fr));
+}
+
+.score-range-overview.has-point-bonus {
+  grid-template-columns: minmax(180px, 1.4fr) repeat(4, minmax(100px, 1fr));
+}
+
+.score-range-result-content {
+  display: grid;
+  gap: 16px;
+}
+
+.score-range-play-list {
+  display: grid;
+  gap: 10px;
+}
+
+.score-range-play-list .result-song + .result-song {
+  margin-top: 0;
+}
+
+.score-range-play-list .result-song + .result-song::before {
+  display: none;
 }
 
 .result-song-list {
@@ -3415,8 +3613,20 @@ td select {
   border: 1px dashed var(--line);
 }
 
+.result-cache-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .result-cache-actions .compact-button {
   max-width: 84px;
+}
+
+.result-cache-actions .result-cache-delete {
+  width: 34px;
+  padding: 0;
+  color: var(--danger);
 }
 
 .attribute-swatch {
@@ -3539,14 +3749,24 @@ td select {
   }
 
   .activity-grid,
+  .score-range-controls,
   .activity-page,
   .event-param-grid,
   .player-page,
   .result-overview,
   .result-items,
+  .result-diagnostic-grid,
   .result-song-details,
   .result-page {
     grid-template-columns: 1fr;
+  }
+
+  .result-diagnostic-grid > div:nth-child(even) {
+    border-left: 0;
+  }
+
+  .result-diagnostic-grid > div + div {
+    border-top: 1px dashed var(--line);
   }
 
   .result-song-header {
@@ -3616,6 +3836,7 @@ td select {
   }
 
   .activity-grid,
+  .score-range-controls,
   .activity-bonus-layout,
   .card-add-layout,
   .event-param-grid,

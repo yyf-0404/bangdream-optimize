@@ -18,6 +18,9 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum CalculationError {
+    #[error("event type {event_type:?} is not supported by maximize")]
+    UnsupportedEventType { event_type: EventType },
+
     #[error("no valid area item combinations are available")]
     NoAreaItemCombinations,
 
@@ -44,6 +47,13 @@ pub enum CalculationError {
         expected: usize,
         actual: usize,
     },
+}
+
+pub const SUPPORTED_EVENT_TYPES: [EventType; 3] =
+    [EventType::Medley, EventType::Versus, EventType::Challenge];
+
+pub fn supports_event_type(event_type: EventType) -> bool {
+    SUPPORTED_EVENT_TYPES.contains(&event_type)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,6 +93,9 @@ pub fn calculate_best_result_for_items(
     area_item_percent: &AreaItemPercent,
     options: ItemSearchOptions,
 ) -> Result<BuildResult, CalculationError> {
+    if !supports_event_type(event_type) {
+        return Err(CalculationError::UnsupportedEventType { event_type });
+    }
     let calculation_start = Timer::start();
     validate_song_inputs(event_type, &song_list, charts)?;
     let item_combinations =
@@ -218,6 +231,9 @@ fn validate_song_inputs(
     let expected = match event_type {
         EventType::Medley => 3,
         EventType::Versus | EventType::Challenge => 1,
+        EventType::Festival | EventType::LiveTry | EventType::MissionLive => {
+            return Err(CalculationError::UnsupportedEventType { event_type })
+        }
     };
     if song_list.len() != expected {
         return Err(CalculationError::InvalidSongCount {
@@ -262,6 +278,9 @@ fn calculate_result_for_items(
             area_item_percent,
             selected_items,
         ),
+        EventType::Festival | EventType::LiveTry | EventType::MissionLive => {
+            Err(CalculationError::UnsupportedEventType { event_type })
+        }
     }
 }
 
@@ -503,6 +522,16 @@ mod tests {
     use crate::model::preparation::{ScoreUp, StatRate, StatValue, PERFORMANCE_KEY};
     use crate::model::schema::{Attribute, Magazine};
     use std::collections::BTreeMap;
+
+    #[test]
+    fn supports_only_maximize_event_types() {
+        assert!(supports_event_type(EventType::Medley));
+        assert!(supports_event_type(EventType::Versus));
+        assert!(supports_event_type(EventType::Challenge));
+        assert!(!supports_event_type(EventType::Festival));
+        assert!(!supports_event_type(EventType::LiveTry));
+        assert!(!supports_event_type(EventType::MissionLive));
+    }
 
     fn chart(song_idx: u32) -> Chart {
         let mut nodes = Vec::new();

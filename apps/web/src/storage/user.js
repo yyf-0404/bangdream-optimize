@@ -96,7 +96,14 @@ export function samplePlayerConfig() {
     playerId: 0,
     server: 'cn',
     currentEvent: 287,
+    calculationMode: 'maximize',
     activityMode: 'medley',
+    scoreRange: {
+      currentPt: 0,
+      targetTotalPt: 0,
+      autoBaseMultiplier: 0.5,
+      maxResults: 1,
+    },
     eventSongs: {
       287: [
         { songId: 232, difficulty: 3 },

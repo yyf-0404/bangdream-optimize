@@ -208,6 +208,7 @@ impl ScoreUp {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub struct EventBonus {
     #[serde(default)]
     pub attributes: Vec<EventAttributeBonus>,
@@ -220,7 +221,46 @@ pub struct EventBonus {
     #[serde(default)]
     pub event_attribute_and_character_parameter_percent: f64,
     #[serde(default)]
+    pub event_attribute_and_character_point_percent: f64,
+    #[serde(default)]
     pub limit_breaks: BTreeMap<u8, BTreeMap<u8, f64>>,
+}
+
+/// Event PT bonus for one card, expressed as a percentage. Unlike `event_percent`, this
+/// deliberately excludes the anisotropic parameter bonus used by deck power.
+pub fn event_point_bonus_percent(card: &PreparedCard, event: &EventBonus) -> f64 {
+    let mut percent = 0.0;
+    let mut matched_attribute = false;
+    let mut matched_character = false;
+
+    for bonus in &event.attributes {
+        if bonus.attribute == card.attribute {
+            matched_attribute = true;
+            percent += bonus.percent;
+        }
+    }
+    for bonus in &event.characters {
+        if bonus.character_id == card.character_id {
+            matched_character = true;
+            percent += bonus.percent;
+        }
+    }
+    for bonus in &event.members {
+        if bonus.card_id == card.card_id {
+            percent += bonus.percent;
+        }
+    }
+    if matched_attribute && matched_character {
+        percent += event.event_attribute_and_character_point_percent;
+    }
+    if let Some(limit_break_percent) = event
+        .limit_breaks
+        .get(&card.rarity)
+        .and_then(|by_rank| by_rank.get(&card.limit_break_rank))
+    {
+        percent += limit_break_percent;
+    }
+    percent
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -738,6 +778,7 @@ mod tests {
                 visual: 3.0,
             }),
             event_attribute_and_character_parameter_percent: 20.0,
+            event_attribute_and_character_point_percent: 20.0,
             limit_breaks,
         };
         let bonus = CharacterBonusConfig {
@@ -773,6 +814,7 @@ mod tests {
         );
         assert_eq!(prepared.skill.duration, 7.0);
         assert_eq!(prepared.skill.score_up, 1.15);
+        assert_eq!(event_point_bonus_percent(&prepared, &event), 102.0);
     }
 
     #[test]

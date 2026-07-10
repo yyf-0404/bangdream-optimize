@@ -5,16 +5,16 @@ import {
   assetImage,
   serverIconUrls,
   starIconUrls,
-} from '../assets/index.js?v=2';
-import { attributeSwatch } from '../ui/attribute.js?v=2';
-import { cardPreviewItem as createCardPreviewItem } from '../ui/card-preview.js?v=2';
-import { emptyMessage } from '../ui/dom.js?v=2';
+} from '../assets/index.js?v=3';
+import { attributeSwatch } from '../ui/attribute.js?v=3';
+import { cardPreviewItem as createCardPreviewItem } from '../ui/card-preview.js?v=3';
+import { emptyMessage } from '../ui/dom.js?v=3';
 import {
   attributeLabel,
   numericStringSort,
   optionText,
   positiveIntegerOrUndefined,
-} from '../utils.js?v=2';
+} from '../utils.js?v=3';
 
 const ATTRIBUTE_FILTERS = ['powerful', 'cool', 'happy', 'pure'];
 const RARITY_FILTERS = [1, 2, 3, 4, 5];
@@ -44,7 +44,6 @@ export function createReferenceView({
   characterLabel,
   supportedEventRecords,
   eventLabel,
-  normalizedActivityMode,
 }) {
   const cardFilters = {
     bands: null,
@@ -104,7 +103,7 @@ export function createReferenceView({
       elements.eventOptions,
       supportedEventRecords(),
       eventLabel,
-      `events:${server}:${normalizedActivityMode(elements.activityMode.value)}`,
+      `events:${server}:${getPlayer()?.calculationMode ?? 'maximize'}:all`,
       {
         descending: true,
       },

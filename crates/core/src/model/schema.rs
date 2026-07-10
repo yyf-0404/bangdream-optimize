@@ -22,6 +22,11 @@ pub enum EventType {
     Medley,
     Versus,
     Challenge,
+    Festival,
+    #[serde(rename = "live_try")]
+    LiveTry,
+    #[serde(rename = "mission_live")]
+    MissionLive,
 }
 
 impl EventType {
@@ -30,6 +35,9 @@ impl EventType {
             Self::Medley => "medley",
             Self::Versus => "versus",
             Self::Challenge => "challenge",
+            Self::Festival => "festival",
+            Self::LiveTry => "live_try",
+            Self::MissionLive => "mission_live",
         }
     }
 }
@@ -501,7 +509,7 @@ pub struct CalculationMetrics {
 impl Default for CalculationMetrics {
     fn default() -> Self {
         Self {
-            core_version: env!("CARGO_PKG_VERSION").to_owned(),
+            core_version: env!("BANGDREAM_OPTIMIZE_APP_VERSION").to_owned(),
             card_count: 0,
             song_count: 0,
             item_combinations_before: 0,
@@ -560,6 +568,36 @@ pub struct SongBuildResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn festival_event_type_round_trips_as_lowercase() {
+        let event_type: EventType = serde_json::from_str(r#""festival""#).unwrap();
+
+        assert_eq!(event_type, EventType::Festival);
+        assert_eq!(event_type.as_str(), "festival");
+        assert_eq!(serde_json::to_string(&event_type).unwrap(), r#""festival""#);
+    }
+
+    #[test]
+    fn mission_live_event_type_round_trips_with_underscore() {
+        let event_type: EventType = serde_json::from_str(r#""mission_live""#).unwrap();
+
+        assert_eq!(event_type, EventType::MissionLive);
+        assert_eq!(event_type.as_str(), "mission_live");
+        assert_eq!(
+            serde_json::to_string(&event_type).unwrap(),
+            r#""mission_live""#
+        );
+    }
+
+    #[test]
+    fn live_try_event_type_round_trips_with_underscore() {
+        let event_type: EventType = serde_json::from_str(r#""live_try""#).unwrap();
+
+        assert_eq!(event_type, EventType::LiveTry);
+        assert_eq!(event_type.as_str(), "live_try");
+        assert_eq!(serde_json::to_string(&event_type).unwrap(), r#""live_try""#);
+    }
 
     #[test]
     fn player_card_config_deserializes_legacy_mongodb_shape() {

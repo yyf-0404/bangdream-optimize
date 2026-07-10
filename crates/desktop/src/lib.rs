@@ -1,10 +1,13 @@
 use async_trait::async_trait;
-use bangdream_optimize_core::{BuildResult, ItemSearchOptions, PlayerConfig, Server};
-use bangdream_optimize_data::{
-    BestdoriCachedFilesystemCalculationInputBuilder, BestdoriFilesystemCalculationInputBuilder,
-    BestdoriFilesystemConfig, BestdoriStaticMirrorConfig, CalculationInputBuilder, DataError,
+use bangdream_optimize_core::{
+    BuildResult, ItemSearchOptions, PlayerConfig, ScoreRangeRequest, ScoreRangeResult, Server,
 };
-use bangdream_optimize_service::OptimizerService;
+use bangdream_optimize_data::{
+    update_published_score_range_chart_meta, BestdoriCachedFilesystemCalculator,
+    BestdoriFilesystemCalculator, BestdoriFilesystemConfig, BestdoriStaticMirrorConfig, DataError,
+    MaximizeInputBuilder, ScoreRangeInputBuilder,
+};
+use bangdream_optimize_service::MaximizeService;
 use bangdream_optimize_storage_local::LocalPlayerConfigStore;
 pub use bangdream_optimize_storage_local::UserConfigProfile;
 use serde::Serialize;
@@ -55,17 +58,17 @@ pub enum DesktopGameDataSource {
 pub struct DesktopOptimizer {
     player_store: LocalPlayerConfigStore,
     calculator: DesktopCalculator,
-    service: OptimizerService,
+    service: MaximizeService,
 }
 
 #[derive(Debug, Clone)]
 enum DesktopCalculator {
     Filesystem {
         root: PathBuf,
-        calculator: Arc<Mutex<Option<BestdoriFilesystemCalculationInputBuilder>>>,
+        calculator: Arc<Mutex<Option<BestdoriFilesystemCalculator>>>,
     },
     StaticMirror {
-        calculator: BestdoriCachedFilesystemCalculationInputBuilder,
+        calculator: BestdoriCachedFilesystemCalculator,
     },
 }
 
@@ -124,13 +127,13 @@ impl DesktopOptimizer {
                 ensure_embedded_fix_files(&cache_root)?;
                 let config = BestdoriStaticMirrorConfig::new(cache_root, base_url);
                 DesktopCalculator::StaticMirror {
-                    calculator: BestdoriCachedFilesystemCalculationInputBuilder::new(config)?,
+                    calculator: BestdoriCachedFilesystemCalculator::new(config)?,
                 }
             }
         };
 
         let service =
-            OptimizerService::new(Arc::new(player_store.clone()), Arc::new(calculator.clone()));
+            MaximizeService::new(Arc::new(player_store.clone()), Arc::new(calculator.clone()));
 
         Ok(Self {
             player_store,
@@ -263,6 +266,17 @@ impl DesktopOptimizer {
             .calculate_result_sync(player, server, event_id, options)
     }
 
+    pub fn score_range_for_config(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        request: ScoreRangeRequest,
+    ) -> Result<Vec<ScoreRangeResult>, DataError> {
+        self.calculator
+            .score_range_sync(player, server, event_id, request)
+    }
+
     pub async fn calculate_for_player_async(
         &self,
         player_id: i64,
@@ -305,6 +319,26 @@ impl DesktopCalculator {
                     calculator.clear_loaded_calculator()?;
                 }
                 calculator.calculate_result_sync(player, server, event_id, options)
+            }
+        }
+    }
+
+    fn score_range_sync(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        request: ScoreRangeRequest,
+    ) -> Result<Vec<ScoreRangeResult>, DataError> {
+        match self {
+            Self::Filesystem { root, calculator } => score_range_from_cached_filesystem(
+                root, calculator, player, server, event_id, request,
+            ),
+            Self::StaticMirror { calculator } => {
+                if ensure_embedded_fix_files(calculator.cache_root())? {
+                    calculator.clear_loaded_calculator()?;
+                }
+                calculator.score_range_sync(player, server, event_id, request)
             }
         }
     }
@@ -386,8 +420,8 @@ impl DesktopCalculator {
 }
 
 #[async_trait]
-impl CalculationInputBuilder for DesktopCalculator {
-    async fn calculate_result(
+impl MaximizeInputBuilder for DesktopCalculator {
+    async fn maximize(
         &self,
         player: PlayerConfig,
         server: Server,
@@ -398,9 +432,22 @@ impl CalculationInputBuilder for DesktopCalculator {
     }
 }
 
+#[async_trait]
+impl ScoreRangeInputBuilder for DesktopCalculator {
+    async fn score_range(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        request: ScoreRangeRequest,
+    ) -> Result<Vec<ScoreRangeResult>, DataError> {
+        self.score_range_sync(player, server, event_id, request)
+    }
+}
+
 fn calculate_from_cached_filesystem(
     root: &Path,
-    calculator: &Mutex<Option<BestdoriFilesystemCalculationInputBuilder>>,
+    calculator: &Mutex<Option<BestdoriFilesystemCalculator>>,
     player: PlayerConfig,
     server: Server,
     event_id: Option<u32>,
@@ -408,7 +455,7 @@ fn calculate_from_cached_filesystem(
 ) -> Result<BuildResult, DataError> {
     let mut calculator = calculator_lock(calculator)?;
     if calculator.is_none() {
-        *calculator = Some(BestdoriFilesystemCalculationInputBuilder::load(
+        *calculator = Some(BestdoriFilesystemCalculator::load(
             BestdoriFilesystemConfig::from_root(root.to_path_buf()),
         )?);
     }
@@ -418,10 +465,32 @@ fn calculate_from_cached_filesystem(
         .calculate_result_sync(player, server, event_id, options)
 }
 
+fn score_range_from_cached_filesystem(
+    root: &Path,
+    calculator: &Mutex<Option<BestdoriFilesystemCalculator>>,
+    player: PlayerConfig,
+    server: Server,
+    event_id: Option<u32>,
+    request: ScoreRangeRequest,
+) -> Result<Vec<ScoreRangeResult>, DataError> {
+    let config = BestdoriFilesystemConfig::from_root(root.to_path_buf());
+    let generated = update_published_score_range_chart_meta(&config, server)?;
+    let mut calculator = calculator_lock(calculator)?;
+    if generated {
+        *calculator = None;
+    }
+    if calculator.is_none() {
+        *calculator = Some(BestdoriFilesystemCalculator::load(config)?);
+    }
+    calculator
+        .as_ref()
+        .expect("filesystem calculator was loaded")
+        .score_range_sync(player, server, event_id, request)
+}
+
 fn calculator_lock(
-    calculator: &Mutex<Option<BestdoriFilesystemCalculationInputBuilder>>,
-) -> Result<std::sync::MutexGuard<'_, Option<BestdoriFilesystemCalculationInputBuilder>>, DataError>
-{
+    calculator: &Mutex<Option<BestdoriFilesystemCalculator>>,
+) -> Result<std::sync::MutexGuard<'_, Option<BestdoriFilesystemCalculator>>, DataError> {
     calculator.lock().map_err(|err| DataError::Storage {
         message: format!("desktop game-data calculator cache lock is poisoned: {err}"),
     })

@@ -1,5 +1,5 @@
 import { clearFieldValidationMessage, setFieldValidationMessage } from '../ui/validation.js';
-import { confirmDialog } from '../ui/confirm.js?v=2';
+import { confirmDialog } from '../ui/confirm.js?v=3';
 
 export function createFormActions({
   elements,

@@ -1,5 +1,5 @@
-import { assetImage } from '../assets/index.js?v=2';
-import { attributeSwatch } from './attribute.js?v=2';
+import { assetImage } from '../assets/index.js?v=3';
+import { attributeSwatch } from './attribute.js?v=3';
 
 export function cardPreviewContent({
   id,

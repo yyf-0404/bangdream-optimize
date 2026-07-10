@@ -5,8 +5,8 @@ import {
   normalizedAttribute,
   positiveIntegerOrDefault,
   positiveIntegerOrUndefined,
-} from '../utils.js?v=2';
-import { CUSTOM_EVENT_ID } from './event.js?v=2';
+} from '../utils.js?v=3';
+import { CUSTOM_EVENT_ID } from './event.js?v=3';
 
 const SERVER_INDEX = {
   jp: 0,
@@ -18,6 +18,7 @@ const SERVER_INDEX = {
 
 export function createPlayerModel({
   normalizedActivityMode,
+  normalizedCalculationMode,
   eventWithParameterBonusFix,
   defaultEventTypeForMode,
   supportedEventTypeOrDefault,
@@ -25,14 +26,18 @@ export function createPlayerModel({
   normalizeCardTrainingStatus,
 }) {
   function normalizedPlayer(player) {
+    const calculationMode = normalizedCalculationMode(player.calculationMode);
+    const server = normalizedServer(player.server);
     return {
       playerId: integerOrZero(player.playerId),
-      server: normalizedServer(player.server),
+      server,
       currentEvent: player.currentEvent,
+      calculationMode,
       activityMode: normalizedActivityMode(player.activityMode),
+      scoreRange: normalizedScoreRange(player.scoreRange, server),
       eventSongs: player.eventSongs ?? {},
       eventPresets: normalizedEventPresets(player.eventPresets),
-      eventOverrides: normalizedEventOverrides(player.eventOverrides),
+      eventOverrides: normalizedEventOverrides(player.eventOverrides, calculationMode),
       cardList: normalizedCards(player.cardList),
       areaItem: normalizedAreaItems(player.areaItem),
       characterBouns: normalizedCharacterBonuses(player.characterBouns),
@@ -50,10 +55,10 @@ export function createPlayerModel({
     return normalized;
   }
 
-  function normalizedEventOverrides(overrides = {}) {
+  function normalizedEventOverrides(overrides = {}, calculationMode = 'maximize') {
     const normalized = {};
     for (const [eventId, event] of Object.entries(overrides ?? {})) {
-      normalized[eventId] = editableEventOverride(event);
+      normalized[eventId] = editableEventOverride(event, calculationMode);
     }
     return normalized;
   }
@@ -74,20 +79,26 @@ export function createPlayerModel({
       ...cloneJson(override),
     };
     if (!event.eventType) {
-      event.eventType = defaultEventTypeForMode(player?.activityMode);
+      event.eventType = defaultEventTypeForMode(
+        player?.activityMode,
+        player?.calculationMode,
+      );
     }
     if (!Object.keys(event).length) {
       return undefined;
     }
     return {
       ...event,
-      ...editableEventOverride(event),
+      ...editableEventOverride(event, player?.calculationMode),
     };
   }
 
-  function editableEventOverride(event = {}) {
+  function editableEventOverride(event = {}, calculationMode = 'maximize') {
+    const eventType = typeof event.eventType === 'string' && event.eventType.trim()
+      ? event.eventType
+      : supportedEventTypeOrDefault(event.eventType, calculationMode);
     return {
-      eventType: supportedEventTypeOrDefault(event.eventType),
+      eventType,
       attributes: normalizedEventAttributes(event.attributes),
       characters: normalizedEventCharacters(event.characters),
       members: normalizedEventMembers(event.members),
@@ -98,6 +109,19 @@ export function createPlayerModel({
         event.eventCharacterParameterBonus,
       ),
       limitBreaks: Array.isArray(event.limitBreaks) ? cloneJson(event.limitBreaks) : [],
+    };
+  }
+
+  function normalizedScoreRange(value = {}, server = 'cn') {
+    const autoBaseMultiplier = Number(value.autoBaseMultiplier);
+    return {
+      currentPt: nonNegativeIntegerOrDefault(value.currentPt, 0),
+      targetTotalPt: nonNegativeIntegerOrDefault(value.targetTotalPt, 0),
+      autoBaseMultiplier: [0.5, 0.75].includes(autoBaseMultiplier)
+        ? autoBaseMultiplier
+        : server === 'jp' ? 0.75 : 0.5,
+      missionSupportPtBonus: nonNegativeIntegerOrUndefined(value.missionSupportPtBonus),
+      maxResults: 1,
     };
   }
 
@@ -138,6 +162,16 @@ export function createPlayerModel({
     normalizedServer,
     normalizedStatRate,
   };
+}
+
+function nonNegativeIntegerOrDefault(value, fallback) {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number >= 0 ? number : fallback;
+}
+
+function nonNegativeIntegerOrUndefined(value) {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number >= 0 ? number : undefined;
 }
 
 export function normalizedServer(value) {

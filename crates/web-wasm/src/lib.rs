@@ -1,10 +1,10 @@
 use bangdream_optimize_core::{
     AreaItemDefinition, BuildResult, CardDefinition, EventType, ItemSearchOptions, PlayerConfig,
-    PreferredItemTarget, Server,
+    PreferredItemTarget, ScoreRangeChartMetaFile, ScoreRangeRequest, ScoreRangeResult, Server,
 };
 use bangdream_optimize_data::{
-    chart_from_bestdori, event_bonus, BestdoriData, CalculationDataSnapshot, DataError,
-    SnapshotCalculationInputBuilder,
+    chart_from_bestdori, event_bonus, published_score_range_song_selections, BestdoriData,
+    DataError, GameDataSnapshot, SnapshotMaximizeInputBuilder, SnapshotScoreRangeInputBuilder,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -43,11 +43,48 @@ pub struct WebChartInput {
     pub data: Value,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebScoreRangePayload {
+    pub cards: Value,
+    pub characters: Value,
+    pub skills: Value,
+    pub area_items: Value,
+    #[serde(default)]
+    pub cards_fix: Option<Value>,
+    #[serde(default)]
+    pub skills_fix: Option<Value>,
+    #[serde(default)]
+    pub area_items_fix: Option<Value>,
+    pub event: Value,
+    pub songs: BTreeMap<String, Value>,
+    pub score_range_chart_meta: ScoreRangeChartMetaFile,
+    pub player: PlayerConfig,
+    pub server: Server,
+    #[serde(default)]
+    pub event_id: Option<u32>,
+    pub request: ScoreRangeRequest,
+    pub now_millis: u64,
+}
+
 #[wasm_bindgen(js_name = calculateFromStaticData)]
 pub fn calculate_from_static_data(payload_json: &str) -> Result<String, JsValue> {
     let payload: WebCalculationPayload =
         serde_json::from_str(payload_json).map_err(|err| JsValue::from_str(&err.to_string()))?;
     calculate_payload(payload)
+        .and_then(|result| {
+            serde_json::to_string(&result).map_err(|err| DataError::JsonString {
+                message: err.to_string(),
+            })
+        })
+        .map_err(|err| JsValue::from_str(&err.to_string()))
+}
+
+#[wasm_bindgen(js_name = scoreRangeFromStaticData)]
+pub fn score_range_from_static_data(payload_json: &str) -> Result<String, JsValue> {
+    let payload: WebScoreRangePayload =
+        serde_json::from_str(payload_json).map_err(|err| JsValue::from_str(&err.to_string()))?;
+    score_range_payload(payload)
         .and_then(|result| {
             serde_json::to_string(&result).map_err(|err| DataError::JsonString {
                 message: err.to_string(),
@@ -76,12 +113,12 @@ pub fn calculate_payload(payload: WebCalculationPayload) -> Result<BuildResult, 
 
     let card_definitions = card_definitions(&payload.player, &game_data)?;
     let area_item_definitions = area_item_definitions(&payload.player, payload.server, &game_data)?;
-    let mut snapshot = CalculationDataSnapshot::new(
+    let mut snapshot = GameDataSnapshot::new(
         card_definitions,
         area_item_definitions,
         BTreeMap::from([(
             event_id,
-            bangdream_optimize_data::EventCalculationData {
+            bangdream_optimize_data::EventData {
                 event_type,
                 event_bonus: event_bonus(&payload.event)?,
                 preferred: preferred_item_target(&payload.event),
@@ -98,11 +135,83 @@ pub fn calculate_payload(payload: WebCalculationPayload) -> Result<BuildResult, 
         );
     }
 
-    SnapshotCalculationInputBuilder::new(snapshot).calculate_result_sync(
+    SnapshotMaximizeInputBuilder::new(snapshot).maximize_sync(
         payload.player,
         payload.server,
         Some(event_id),
         payload.options,
+    )
+}
+
+pub fn score_range_payload(
+    payload: WebScoreRangePayload,
+) -> Result<Vec<ScoreRangeResult>, DataError> {
+    let event_id = payload
+        .event_id
+        .or(payload.player.current_event)
+        .ok_or(DataError::MissingCurrentEvent)?;
+    let event_type = event_type(&payload.event)?;
+    payload
+        .score_range_chart_meta
+        .validate()
+        .map_err(|message| DataError::InvalidField {
+            field: "scoreRangeChartMeta",
+            value: message,
+        })?;
+    let mut game_data = BestdoriData::from_values(
+        payload.cards,
+        payload.characters,
+        payload.skills,
+        payload.area_items,
+    )?;
+    game_data.apply_repairs(
+        payload.cards_fix,
+        payload.skills_fix,
+        payload.area_items_fix,
+    )?;
+
+    let card_definitions = card_definitions(&payload.player, &game_data)?;
+    let area_item_definitions = area_item_definitions(&payload.player, payload.server, &game_data)?;
+    let mut snapshot = GameDataSnapshot::new(
+        card_definitions,
+        area_item_definitions,
+        BTreeMap::from([(
+            event_id,
+            bangdream_optimize_data::EventData {
+                event_type,
+                event_bonus: event_bonus(&payload.event)?,
+                preferred: preferred_item_target(&payload.event),
+            },
+        )]),
+    );
+    let selections = published_score_range_song_selections(
+        &payload.songs,
+        payload.server,
+        payload.now_millis,
+        |song_id, difficulty| {
+            payload
+                .score_range_chart_meta
+                .contains_chart(song_id, difficulty)
+        },
+    )?;
+    for selection in selections {
+        let level = song_level(&payload.songs, selection.song_id, selection.difficulty)?;
+        let meta = payload
+            .score_range_chart_meta
+            .chart(selection.song_id, selection.difficulty)
+            .cloned()
+            .ok_or(DataError::MissingEntity {
+                kind: "score-range chart meta",
+                id: format!("{}:{}", selection.song_id, selection.difficulty),
+            })?;
+        snapshot.insert_score_range_chart(selection.song_id, selection.difficulty, level, meta);
+    }
+
+    SnapshotScoreRangeInputBuilder::new(snapshot).score_range_sync(
+        payload.player,
+        payload.server,
+        Some(event_id),
+        payload.request,
     )
 }
 
@@ -156,6 +265,9 @@ fn event_type(event: &Value) -> Result<EventType, DataError> {
         Some("medley") => Ok(EventType::Medley),
         Some("versus") => Ok(EventType::Versus),
         Some("challenge") => Ok(EventType::Challenge),
+        Some("festival") => Ok(EventType::Festival),
+        Some("live_try") => Ok(EventType::LiveTry),
+        Some("mission_live") => Ok(EventType::MissionLive),
         Some(value) => Err(DataError::InvalidField {
             field: "eventType",
             value: value.to_owned(),
@@ -209,6 +321,30 @@ mod tests {
         AreaItemConfig, CharacterBonusConfig, PlayerCardConfig, SongSelection, StatRate,
     };
     use serde_json::json;
+
+    #[test]
+    fn parses_festival_event_type() {
+        assert_eq!(
+            event_type(&json!({ "eventType": "festival" })).unwrap(),
+            EventType::Festival,
+        );
+    }
+
+    #[test]
+    fn parses_mission_live_event_type() {
+        assert_eq!(
+            event_type(&json!({ "eventType": "mission_live" })).unwrap(),
+            EventType::MissionLive,
+        );
+    }
+
+    #[test]
+    fn parses_live_try_event_type() {
+        assert_eq!(
+            event_type(&json!({ "eventType": "live_try" })).unwrap(),
+            EventType::LiveTry,
+        );
+    }
 
     #[test]
     fn calculates_from_static_payload() {

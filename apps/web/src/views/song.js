@@ -1,5 +1,5 @@
-import { emptyMessage } from '../ui/dom.js?v=2';
-import { difficultyLabel } from '../utils.js?v=2';
+import { emptyMessage } from '../ui/dom.js?v=3';
+import { difficultyLabel } from '../utils.js?v=3';
 
 export function createSongView({
   rows,
@@ -66,6 +66,7 @@ export function createSongView({
       medley: 3,
       challenge: 3,
       versus: 1,
+      festival: 1,
     }[String(event?.eventType)] ?? 3;
     return songs.slice(0, count);
   }

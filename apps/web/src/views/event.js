@@ -1,10 +1,10 @@
-import { emptyMessage } from '../ui/dom.js?v=2';
-import { iconButton } from '../ui/icons.js?v=2';
+import { emptyMessage } from '../ui/dom.js?v=3';
+import { iconButton } from '../ui/icons.js?v=3';
 import {
   ATTRIBUTE_VALUES,
   compactJoin,
   formatNumberInput,
-} from '../utils.js?v=2';
+} from '../utils.js?v=3';
 
 export function createEventView({
   elements,

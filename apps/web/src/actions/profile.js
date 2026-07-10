@@ -1,6 +1,6 @@
-import { confirmDialog } from '../ui/confirm.js?v=2';
-import { createCompactProfileCodec } from '../data/compact-profile.js?v=2';
-import { copyTextToClipboard } from '../ui/clipboard.js?v=2';
+import { confirmDialog } from '../ui/confirm.js?v=3';
+import { createCompactProfileCodec } from '../data/compact-profile.js?v=3';
+import { copyTextToClipboard } from '../ui/clipboard.js?v=3';
 import { setFieldValidationMessage, clearFieldValidationMessage } from '../ui/validation.js';
 
 export function createProfileActions({
@@ -248,7 +248,18 @@ export function createProfileActions({
       const playerId = parseEntityId(playerIdInput.value, '玩家 ID');
       const server = normalizedServer(elements.playerServer.value);
       if (server !== 'cn') {
-        throw new Error('游戏账号导入仅支持国服');
+        setStatus('导入主乐队配置');
+        const profile = await fetchBestdoriPlayerProfile(playerId, server);
+        const player = normalizedPlayer(readPlayer());
+        player.playerId = playerId;
+        player.server = server;
+        importMainBandCards(player, profile);
+        importMainBandCharacterBonuses(player, profile);
+        importEnabledAreaItems(player, profile);
+        writePlayer(player);
+        renderConfigForms(player);
+        setStatus('主乐队配置已导入');
+        return;
       }
       setStatus('从游戏账号导入配置');
       const imported = await importBangDreamUserData(playerId);

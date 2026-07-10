@@ -60,6 +60,11 @@ pub fn event_bonus(event_data: &Value) -> Result<EventBonus, DataError> {
         .and_then(|value| value.get("parameterPercent"))
         .and_then(Value::as_f64)
         .unwrap_or_default();
+    let event_attribute_and_character_point_percent = event_data
+        .get("eventAttributeAndCharacterBonus")
+        .and_then(|value| value.get("pointPercent"))
+        .and_then(Value::as_f64)
+        .unwrap_or_default();
 
     let mut limit_breaks: BTreeMap<u8, BTreeMap<u8, f64>> = BTreeMap::new();
     for value in optional_array(event_data, "limitBreaks")
@@ -81,6 +86,7 @@ pub fn event_bonus(event_data: &Value) -> Result<EventBonus, DataError> {
         members,
         event_character_parameter_bonus,
         event_attribute_and_character_parameter_percent,
+        event_attribute_and_character_point_percent,
         limit_breaks,
     })
 }
@@ -98,7 +104,7 @@ mod tests {
             "characters": [{"characterId": 7, "percent": 10}],
             "members": [{"situationId": 101, "percent": 50}],
             "eventCharacterParameterBonus": {"performance": 1, "technique": 2, "visual": 3},
-            "eventAttributeAndCharacterBonus": {"parameterPercent": 20},
+            "eventAttributeAndCharacterBonus": {"parameterPercent": 20, "pointPercent": 30},
             "limitBreaks": [{"rarity": 4, "rank": 2, "percent": 3}]
         }))
         .unwrap();
@@ -107,5 +113,6 @@ mod tests {
         assert_eq!(event.characters[0].character_id, 7);
         assert_eq!(event.members[0].card_id, 101);
         assert_eq!(event.limit_breaks[&4][&2], 3.0);
+        assert_eq!(event.event_attribute_and_character_point_percent, 30.0);
     }
 }

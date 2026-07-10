@@ -1,12 +1,13 @@
 [package]
 name = "bangdream-optimize-sync-bestdori"
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
 bangdream-optimize-core.workspace = true
+bangdream-optimize-data.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

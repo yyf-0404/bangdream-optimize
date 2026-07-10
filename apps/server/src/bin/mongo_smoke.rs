@@ -1,7 +1,7 @@
 use bangdream_optimize_core::{BuildResult, ItemSearchOptions, Server, SongSelection};
 use bangdream_optimize_data::{
-    BestdoriCachedFilesystemCalculationInputBuilder, BestdoriFilesystemCalculationInputBuilder,
-    BestdoriFilesystemConfig, BestdoriStaticMirrorConfig, CalculationInputBuilder,
+    BestdoriCachedFilesystemCalculator, BestdoriFilesystemCalculator, BestdoriFilesystemConfig,
+    BestdoriStaticMirrorConfig, MaximizeInputBuilder,
 };
 use bangdream_optimize_storage_mongodb::MongoPlayerConfigStore;
 use std::{
@@ -180,17 +180,15 @@ fn server_from_env() -> Result<Server, Box<dyn Error>> {
     }
 }
 
-fn calculator_from_env() -> Result<Box<dyn CalculationInputBuilder>, Box<dyn Error>> {
+fn calculator_from_env() -> Result<Box<dyn MaximizeInputBuilder>, Box<dyn Error>> {
     if let Some(base_url) = env::var("BANGDREAM_OPTIMIZE_GAME_DATA_BASE_URL")
         .ok()
         .filter(|value| !value.trim().is_empty())
     {
         let cache_root = required_env("BANGDREAM_OPTIMIZE_GAME_DATA_CACHE_ROOT")?;
-        return Ok(Box::new(
-            BestdoriCachedFilesystemCalculationInputBuilder::new(BestdoriStaticMirrorConfig::new(
-                cache_root, base_url,
-            ))?,
-        ));
+        return Ok(Box::new(BestdoriCachedFilesystemCalculator::new(
+            BestdoriStaticMirrorConfig::new(cache_root, base_url),
+        )?));
     }
 
     let root = env::var("BANGDREAM_OPTIMIZE_GAME_DATA_ROOT")
@@ -206,7 +204,7 @@ fn calculator_from_env() -> Result<Box<dyn CalculationInputBuilder>, Box<dyn Err
         .into());
     }
 
-    Ok(Box::new(BestdoriFilesystemCalculationInputBuilder::load(
+    Ok(Box::new(BestdoriFilesystemCalculator::load(
         BestdoriFilesystemConfig::from_root(root),
     )?))
 }

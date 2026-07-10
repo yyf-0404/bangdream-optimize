@@ -1,8 +1,8 @@
-import { emptyMessage, unwrapCell } from '../ui/dom.js?v=2';
+import { emptyMessage, unwrapCell } from '../ui/dom.js?v=3';
 import {
   formatRatePercent,
   formatRatePercentInput,
-} from '../utils.js?v=2';
+} from '../utils.js?v=3';
 
 export function createPlayerView({
   elements,

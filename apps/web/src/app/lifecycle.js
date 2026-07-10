@@ -12,7 +12,11 @@ const CHANGE_BINDINGS = [
   ['playerProfileName', 'handlePlayerProfileNameChange'],
   ['playerId', 'handlePlayerIdChange'],
   ['playerServer', 'handlePlayerServerChange'],
-  ['activityMode', 'handleActivityModeChange'],
+  ['calculationMode', 'handleCalculationModeChange'],
+  ['scoreRangeCurrentPt', 'handleScoreRangeInputChange'],
+  ['scoreRangeTargetTotalPt', 'handleScoreRangeInputChange'],
+  ['scoreRangeAutoBaseMultiplier', 'handleScoreRangeInputChange'],
+  ['scoreRangeMissionSupportPt', 'handleScoreRangeInputChange'],
   ['eventSearch', 'handleEventSearchChange'],
   ['eventCombinedPercent', 'handleEventScalarChange'],
   ['eventCharacterParamPerformance', 'handleEventCharacterParamChange'],
@@ -77,6 +81,9 @@ export function createAppLifecycle({
 }) {
   const VALIDATION_RULES = [
     ['eventSearch', validateEventSearch],
+    ['scoreRangeCurrentPt', validateNonNegativeInteger('当前 PT', { required: true })],
+    ['scoreRangeTargetTotalPt', validateNonNegativeInteger('目标总 PT', { required: true })],
+    ['scoreRangeMissionSupportPt', validateNonNegativeInteger('支援 PT 加成')],
     ['eventCombinedPercent', validateNonNegativeNumber('综合力')],
     ['eventCharacterParamPerformance', validateNonNegativeNumber('演出')],
     ['eventCharacterParamTechnique', validateNonNegativeNumber('技巧')],

@@ -1,16 +1,26 @@
 import {
   numericStringSort,
   positiveIntegerOrUndefined,
-} from '../utils.js?v=2';
+} from '../utils.js?v=3';
 
 const DEFAULT_EVENT_DIFFICULTY = 3;
-const ACTIVITY_MODES = {
-  medley: ['medley'],
-  single: ['challenge', 'versus'],
+const CALCULATION_EVENT_TYPES = {
+  maximize: {
+    medley: ['medley'],
+    single: ['challenge', 'versus'],
+  },
+  scoreRange: {
+    medley: ['medley'],
+    single: ['challenge', 'versus', 'live_try', 'festival', 'mission_live'],
+  },
 };
-const SUPPORTED_EVENT_TYPES = [...ACTIVITY_MODES.medley, ...ACTIVITY_MODES.single];
 const DEFAULT_EVENT_TYPE = 'challenge';
+const HIDDEN_EVENT_IDS = new Set([5001]);
 export const CUSTOM_EVENT_ID = 0;
+
+export function isHiddenEventId(value) {
+  return HIDDEN_EVENT_IDS.has(Number(value));
+}
 
 export function createEventModel({
   getSongRecords,
@@ -63,8 +73,8 @@ export function createEventModel({
     );
   }
 
-  function defaultSongListForMode(mode, event) {
-    return fixedSongListForMode([], mode, event);
+  function defaultSongListForMode(mode, event, cachedSongs = []) {
+    return fixedSongListForMode(cachedSongs, mode, event);
   }
 
   function fixedSongListForMode(cachedSongs, mode, event) {
@@ -95,9 +105,9 @@ export function createEventModel({
     }));
   }
 
-  function defaultEditableEvent(mode) {
+  function defaultEditableEvent(mode, calculationMode = 'maximize') {
     return {
-      eventType: defaultEventTypeForMode(mode),
+      eventType: defaultEventTypeForMode(mode, calculationMode),
       attributes: [],
       characters: [],
       members: [],
@@ -152,28 +162,36 @@ export function activityModeForEvent(event) {
   return event?.eventType === 'medley' ? 'medley' : 'single';
 }
 
+export function normalizedCalculationMode(value) {
+  return value === 'scoreRange' ? 'scoreRange' : 'maximize';
+}
+
 export function normalizedActivityMode(value) {
   return value === 'medley' ? 'medley' : 'single';
 }
 
-export function eventMatchesActivityMode(event, mode) {
-  return eventTypesForMode(mode).includes(String(event?.eventType));
+export function eventMatchesActivityMode(event, mode, calculationMode = 'maximize') {
+  return eventTypesForMode(mode, calculationMode).includes(String(event?.eventType));
 }
 
-export function eventTypesForMode(mode) {
-  return ACTIVITY_MODES[normalizedActivityMode(mode)];
+export function eventTypesForMode(mode, calculationMode = 'maximize') {
+  return CALCULATION_EVENT_TYPES[normalizedCalculationMode(calculationMode)][
+    normalizedActivityMode(mode)
+  ];
 }
 
-export function defaultEventTypeForMode(mode) {
+export function defaultEventTypeForMode(mode, _calculationMode = 'maximize') {
   return normalizedActivityMode(mode) === 'medley' ? 'medley' : DEFAULT_EVENT_TYPE;
 }
 
-export function supportedEventTypeOrDefault(value) {
-  return isSupportedEventType(value) ? value : DEFAULT_EVENT_TYPE;
+export function supportedEventTypeOrDefault(value, calculationMode = 'maximize') {
+  return isSupportedEventType(value, calculationMode) ? value : DEFAULT_EVENT_TYPE;
 }
 
-export function isSupportedEventType(value) {
-  return SUPPORTED_EVENT_TYPES.includes(String(value));
+export function isSupportedEventType(value, calculationMode = 'maximize') {
+  const type = String(value);
+  const modes = CALCULATION_EVENT_TYPES[normalizedCalculationMode(calculationMode)];
+  return modes.medley.includes(type) || modes.single.includes(type);
 }
 
 function collectSongEntries(value, entries) {

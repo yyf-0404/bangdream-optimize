@@ -5,18 +5,20 @@ export function createEventContext({
   readOptionalInteger,
   optionText,
   eventLabel,
-  normalizedActivityMode,
+  normalizedCalculationMode,
+  activityModeForEvent,
   isSupportedEventType,
-  eventMatchesActivityMode,
+  isHiddenEventId,
   ensureSongListForMode,
   buildEditableEventSnapshot,
 }) {
   function normalizeCurrentActivityForMode(player) {
     const eventId = selectedEventId(player);
-    assertSupportedKnownEvent(eventId);
+    assertSupportedKnownEvent(eventId, player.calculationMode);
     const event = editableEventSnapshot(eventId, player);
-    if (event && !eventMatchesActivityMode(event, player.activityMode)) {
-      throw new Error(`当前模式不能选择 ${event.eventType} 活动`);
+    if (event) {
+      assertSupportedEvent(event, player.calculationMode);
+      player.activityMode = activityModeForEvent(event);
     }
     ensureSongListForMode(player, eventId, event);
   }
@@ -25,33 +27,35 @@ export function createEventContext({
     if (!state.core?.events) {
       return undefined;
     }
-    const mode = normalizedActivityMode(elements.activityMode.value);
+    const calculationMode = selectedCalculationMode();
     const records = {};
     for (const [eventId, event] of Object.entries(state.core.events)) {
-      if (isSupportedEventType(event?.eventType) && eventMatchesActivityMode(event, mode)) {
+      if (
+        !isHiddenEventId(eventId)
+        && isSupportedEventType(event?.eventType, calculationMode)
+      ) {
         records[eventId] = event;
       }
     }
     return records;
   }
 
-  function assertSupportedEvent(event) {
-    if (!isSupportedEventType(event?.eventType)) {
+  function assertSupportedEvent(event, calculationMode = selectedCalculationMode()) {
+    if (!isSupportedEventType(event?.eventType, calculationMode)) {
       throw new Error(`不支持的活动类型：${event?.eventType ?? '未知'}`);
     }
   }
 
-  function assertSupportedKnownEvent(eventId) {
+  function assertSupportedKnownEvent(eventId, calculationMode = selectedCalculationMode()) {
     if (Number(eventId) === customEventId) {
       return;
     }
+    if (isHiddenEventId(eventId)) {
+      throw new Error(`活动 ${eventId} 不可用`);
+    }
     const event = state.core?.events?.[String(eventId)];
     if (event) {
-      assertSupportedEvent(event);
-      const mode = normalizedActivityMode(elements.activityMode.value);
-      if (!eventMatchesActivityMode(event, mode)) {
-        throw new Error(`当前模式不能选择 ${event.eventType} 活动`);
-      }
+      assertSupportedEvent(event, calculationMode);
     }
   }
 
@@ -79,6 +83,12 @@ export function createEventContext({
       player.currentEvent = eventId;
       player.eventSongs[String(eventId)] ??= [];
     }
+  }
+
+  function selectedCalculationMode() {
+    return normalizedCalculationMode(
+      elements.calculationMode.querySelector('input[name="calculation-mode"]:checked')?.value,
+    );
   }
 
   function editableEventSnapshot(eventId, player) {

@@ -11,14 +11,14 @@ use bangdream_optimize_bangdream_account::{
 };
 use bangdream_optimize_core::{
     calculate_from_candidates, BuildResult, CalculationMetrics, CandidateBuildRequest, EventType,
-    ItemSearchOptions, PlayerConfig, Server,
+    ItemSearchOptions, PlayerConfig, ScoreRangeRequest, Server,
 };
 use bangdream_optimize_data::{
-    BestdoriCachedFilesystemCalculationInputBuilder, BestdoriFilesystemCalculationInputBuilder,
-    BestdoriFilesystemConfig, BestdoriStaticMirrorConfig, CalculationInputBuilder, DataError,
-    PlayerConfigStore,
+    BestdoriCachedFilesystemCalculator, BestdoriFilesystemCalculator, BestdoriFilesystemConfig,
+    BestdoriStaticMirrorConfig, DataError, MaximizeInputBuilder, PlayerConfigStore,
+    ScoreRangeInputBuilder,
 };
-use bangdream_optimize_service::OptimizerService;
+use bangdream_optimize_service::{MaximizeService, ScoreRangeService};
 use bangdream_optimize_storage_mongodb::MongoPlayerConfigStore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -45,7 +45,9 @@ const DEFAULT_GAME_DATA_SYNC_INTERVAL_SECONDS: u64 = 60 * 60;
 
 #[derive(Clone, Default)]
 struct AppState {
-    optimizer: Option<OptimizerService>,
+    maximize_service: Option<MaximizeService>,
+    score_range_service: Option<ScoreRangeService>,
+    score_range_searcher: Option<Arc<dyn ScoreRangeInputBuilder>>,
     bangdream_importer: Option<BangDreamAccountImporter>,
     telemetry: TelemetryLogger,
 }
@@ -66,10 +68,17 @@ impl AppState {
             None => None,
         };
 
-        let calculator = calculator_from_env()?;
-        let optimizer = match (player_store, calculator) {
+        let maximizer = maximizer_from_env()?;
+        let maximize_service = match (player_store.clone(), maximizer) {
             (Some(player_store), Some(calculator)) => {
-                Some(OptimizerService::new(player_store, calculator))
+                Some(MaximizeService::new(player_store, calculator))
+            }
+            _ => None,
+        };
+        let score_range_searcher = score_range_searcher_from_env()?;
+        let score_range_service = match (player_store, score_range_searcher.clone()) {
+            (Some(player_store), Some(searcher)) => {
+                Some(ScoreRangeService::new(player_store, searcher))
             }
             _ => None,
         };
@@ -82,7 +91,9 @@ impl AppState {
         };
 
         Ok(Self {
-            optimizer,
+            maximize_service,
+            score_range_service,
+            score_range_searcher,
             bangdream_importer,
             telemetry: TelemetryLogger::from_env(),
         })
@@ -262,6 +273,10 @@ fn bestdori_config_from_env() -> Option<BestdoriFilesystemConfig> {
         "BANGDREAM_OPTIMIZE_BESTDORI_EVENTS",
     );
     override_path(&mut config.songs_path, "BANGDREAM_OPTIMIZE_BESTDORI_SONGS");
+    override_optional_path(
+        &mut config.score_range_chart_meta_path,
+        "BANGDREAM_OPTIMIZE_BESTDORI_SCORE_RANGE_CHART_META",
+    );
     override_path(
         &mut config.charts_dir,
         "BANGDREAM_OPTIMIZE_BESTDORI_CHARTS_DIR",
@@ -294,19 +309,32 @@ fn bestdori_config_from_env() -> Option<BestdoriFilesystemConfig> {
     Some(config)
 }
 
-fn calculator_from_env() -> Result<Option<Arc<dyn CalculationInputBuilder>>, String> {
+fn maximizer_from_env() -> Result<Option<Arc<dyn MaximizeInputBuilder>>, String> {
     if let Some(config) = bestdori_static_mirror_config_from_env() {
         return Ok(Some(Arc::new(
-            BestdoriCachedFilesystemCalculationInputBuilder::new(config)
-                .map_err(|err| err.to_string())?,
-        ) as Arc<dyn CalculationInputBuilder>));
+            BestdoriCachedFilesystemCalculator::new(config).map_err(|err| err.to_string())?,
+        ) as Arc<dyn MaximizeInputBuilder>));
     }
 
     match bestdori_config_from_env() {
         Some(config) => Ok(Some(Arc::new(
-            BestdoriFilesystemCalculationInputBuilder::load(config)
-                .map_err(|err| err.to_string())?,
-        ) as Arc<dyn CalculationInputBuilder>)),
+            BestdoriFilesystemCalculator::load(config).map_err(|err| err.to_string())?,
+        ) as Arc<dyn MaximizeInputBuilder>)),
+        None => Ok(None),
+    }
+}
+
+fn score_range_searcher_from_env() -> Result<Option<Arc<dyn ScoreRangeInputBuilder>>, String> {
+    if let Some(config) = bestdori_static_mirror_config_from_env() {
+        return Ok(Some(Arc::new(
+            BestdoriCachedFilesystemCalculator::new(config).map_err(|err| err.to_string())?,
+        ) as Arc<dyn ScoreRangeInputBuilder>));
+    }
+
+    match bestdori_config_from_env() {
+        Some(config) => Ok(Some(Arc::new(
+            BestdoriFilesystemCalculator::load(config).map_err(|err| err.to_string())?,
+        ) as Arc<dyn ScoreRangeInputBuilder>)),
         None => Ok(None),
     }
 }
@@ -1100,13 +1128,51 @@ struct ApiError {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CalcResultRequest {
+struct MaximizeRequest {
     player_id: i64,
     server: Server,
     #[serde(default)]
     event_id: Option<u32>,
     #[serde(default)]
     options: ItemSearchOptions,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScoreRangeApiRequest {
+    player_id: i64,
+    server: Server,
+    #[serde(default)]
+    event_id: Option<u32>,
+    current_pt: u64,
+    target_total_pt: u64,
+    #[serde(default)]
+    auto_base_multiplier: Option<f64>,
+    #[serde(default)]
+    mission_support_pt_bonus: Option<u64>,
+    #[serde(default = "default_score_range_max_results")]
+    max_results: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScoreRangeFromConfigApiRequest {
+    player: PlayerConfig,
+    server: Server,
+    #[serde(default)]
+    event_id: Option<u32>,
+    current_pt: u64,
+    target_total_pt: u64,
+    #[serde(default)]
+    auto_base_multiplier: Option<f64>,
+    #[serde(default)]
+    mission_support_pt_bonus: Option<u64>,
+    #[serde(default = "default_score_range_max_results")]
+    max_results: usize,
+}
+
+fn default_score_range_max_results() -> usize {
+    20
 }
 
 #[derive(Debug, Deserialize)]
@@ -1181,7 +1247,7 @@ fn build_app(
     state: AppState,
     web_root: Option<PathBuf>,
     game_data_root: Option<PathBuf>,
-    enable_calc_routes: bool,
+    enable_maximize_routes: bool,
 ) -> Router {
     let mut app = Router::new().route("/health", get(health)).route(
         "/bestdori/player/{server}/{player_id}",
@@ -1195,13 +1261,22 @@ fn build_app(
         );
     }
 
-    if enable_calc_routes {
-        app = app.route("/v1/calc-result", post(calc_result)).route(
-            "/v1/calc-result/from-candidates",
-            post(calc_from_candidates),
-        );
+    if enable_maximize_routes {
+        app = app
+            .route("/v1/maximize", post(maximize_result))
+            .route("/v1/score-range", post(score_range_result))
+            .route("/v1/score-range/from-config", post(score_range_from_config))
+            .route("/v1/calc-result", post(maximize_result))
+            .route(
+                "/v1/maximize/from-candidates",
+                post(maximize_from_candidates),
+            )
+            .route(
+                "/v1/calc-result/from-candidates",
+                post(maximize_from_candidates),
+            );
     } else {
-        tracing::info!("calculation routes are disabled");
+        tracing::info!("maximize routes are disabled");
     }
 
     let mut app = app.with_state(state);
@@ -1383,16 +1458,16 @@ fn bangdream_import_error_response(err: BangDreamImportError) -> axum::response:
         .into_response()
 }
 
-async fn calc_result(
+async fn maximize_result(
     State(state): State<AppState>,
-    Json(request): Json<CalcResultRequest>,
+    Json(request): Json<MaximizeRequest>,
 ) -> impl IntoResponse {
-    let Some(optimizer) = state.optimizer.as_ref() else {
-        return service_unavailable("optimizer service is not configured");
+    let Some(maximize_service) = state.maximize_service.as_ref() else {
+        return service_unavailable("maximize service is not configured");
     };
 
-    match optimizer
-        .calculate_for_player(
+    match maximize_service
+        .maximize_for_player(
             request.player_id,
             request.server,
             request.event_id,
@@ -1401,31 +1476,75 @@ async fn calc_result(
         .await
     {
         Ok(result) => {
-            state.telemetry.log_result(
-                "calcResult",
-                Some(request.server),
-                request.event_id,
-                &result,
-            );
+            state
+                .telemetry
+                .log_result("maximize", Some(request.server), request.event_id, &result);
             ok_response(result)
         }
         Err(err) => data_error_response(err),
     }
 }
 
-async fn calc_from_candidates(
+async fn score_range_result(
+    State(state): State<AppState>,
+    Json(request): Json<ScoreRangeApiRequest>,
+) -> impl IntoResponse {
+    let Some(service) = state.score_range_service.as_ref() else {
+        return service_unavailable("score-range service is not configured");
+    };
+    let search = ScoreRangeRequest {
+        // The data adapter replaces this placeholder with the selected event's actual type.
+        event_type: EventType::Festival,
+        current_pt: request.current_pt,
+        target_total_pt: request.target_total_pt,
+        auto_base_multiplier: request.auto_base_multiplier,
+        mission_support_pt_bonus: request.mission_support_pt_bonus,
+        max_results: request.max_results.clamp(1, 100),
+    };
+    match service
+        .score_range_for_player(request.player_id, request.server, request.event_id, search)
+        .await
+    {
+        Ok(result) => ok_response(result),
+        Err(err) => data_error_response(err),
+    }
+}
+
+async fn score_range_from_config(
+    State(state): State<AppState>,
+    Json(request): Json<ScoreRangeFromConfigApiRequest>,
+) -> impl IntoResponse {
+    let Some(searcher) = state.score_range_searcher.as_ref() else {
+        return service_unavailable("score-range searcher is not configured");
+    };
+    let search = ScoreRangeRequest {
+        // The data adapter replaces this placeholder with the selected event's actual type.
+        event_type: EventType::Festival,
+        current_pt: request.current_pt,
+        target_total_pt: request.target_total_pt,
+        auto_base_multiplier: request.auto_base_multiplier,
+        mission_support_pt_bonus: request.mission_support_pt_bonus,
+        max_results: request.max_results.clamp(1, 100),
+    };
+    match searcher
+        .score_range(request.player, request.server, request.event_id, search)
+        .await
+    {
+        Ok(result) => ok_response(result),
+        Err(err) => data_error_response(err),
+    }
+}
+
+async fn maximize_from_candidates(
     State(state): State<AppState>,
     Json(request): Json<CandidateBuildRequest>,
 ) -> impl IntoResponse {
     let requested_event_id = Some(request.event_id);
     match calculate_from_candidates(request) {
         Ok(result) => {
-            state.telemetry.log_result(
-                "calcResultFromCandidates",
-                None,
-                requested_event_id,
-                &result,
-            );
+            state
+                .telemetry
+                .log_result("maximizeFromCandidates", None, requested_event_id, &result);
             ok_response(result)
         }
         Err(err) => (
@@ -1439,10 +1558,10 @@ async fn calc_from_candidates(
     }
 }
 
-fn ok_response(result: BuildResult) -> axum::response::Response {
+fn ok_response<T: Serialize>(result: T) -> axum::response::Response {
     (
         StatusCode::OK,
-        Json(ApiResponse::<BuildResult> {
+        Json(ApiResponse::<T> {
             status: "ok",
             data: result,
         }),
@@ -1475,9 +1594,10 @@ fn data_error_response(err: DataError) -> axum::response::Response {
         | DataError::HttpStatus { .. }
         | DataError::JsonString { .. }
         | DataError::NotImplemented => StatusCode::SERVICE_UNAVAILABLE,
-        DataError::Chart(_) | DataError::Preparation(_) | DataError::Calculation(_) => {
-            StatusCode::BAD_REQUEST
-        }
+        DataError::Chart(_)
+        | DataError::Preparation(_)
+        | DataError::Maximize(_)
+        | DataError::ScoreRange(_) => StatusCode::BAD_REQUEST,
     };
 
     (
@@ -1527,6 +1647,21 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
     use tower::ServiceExt;
+
+    #[test]
+    fn score_range_api_distinguishes_missing_mission_support_from_explicit_zero() {
+        let missing: ScoreRangeApiRequest = serde_json::from_str(
+            r#"{"playerId":1,"server":"jp","currentPt":0,"targetTotalPt":100}"#,
+        )
+        .unwrap();
+        let explicit_zero: ScoreRangeApiRequest = serde_json::from_str(
+            r#"{"playerId":1,"server":"jp","currentPt":0,"targetTotalPt":100,"missionSupportPtBonus":0}"#,
+        )
+        .unwrap();
+
+        assert_eq!(missing.mission_support_pt_bonus, None);
+        assert_eq!(explicit_zero.mission_support_pt_bonus, Some(0));
+    }
 
     struct TestDir {
         path: PathBuf,
@@ -1619,6 +1754,38 @@ mod tests {
         assert_body_contains(response, "web app").await;
 
         let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/v1/maximize")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"playerId":1,"server":"jp"}"#))
+                    .expect("failed to build maximize request"),
+            )
+            .await
+            .expect("maximize request should complete");
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_body_contains(response, "maximize service is not configured").await;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/v1/score-range")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"playerId":1,"server":"jp","currentPt":0,"targetTotalPt":100}"#,
+                    ))
+                    .expect("failed to build score-range request"),
+            )
+            .await
+            .expect("score-range request should complete");
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_body_contains(response, "score-range service is not configured").await;
+
+        let response = app
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
@@ -1630,11 +1797,11 @@ mod tests {
             .await
             .expect("calc-result request should complete");
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_body_contains(response, "optimizer service is not configured").await;
+        assert_body_contains(response, "maximize service is not configured").await;
     }
 
     #[tokio::test]
-    async fn can_disable_calc_routes_for_bestdori_proxy_only_deployments() {
+    async fn can_disable_maximize_routes_for_bestdori_proxy_only_deployments() {
         let app = build_app(AppState::default(), None, None, false);
 
         let response = app

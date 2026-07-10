@@ -2,19 +2,23 @@ import {
   attributeLabel,
   bandLabel,
   compactJoin,
+  fireCostForMultiplier,
   formatInteger,
   formatMs,
   magazineLabel,
   selectedBandLabel,
-} from '../utils.js?v=2';
+  totalFireCost,
+} from '../utils.js?v=3';
 import {
   assetImage,
   attributeIconUrls,
   bandIconUrls,
-} from '../assets/index.js?v=2';
-import { cardPreviewItem } from '../ui/card-preview.js?v=2';
-import { emptyMessage } from '../ui/dom.js?v=2';
-import { renderDifficultyList } from './song.js?v=2';
+} from '../assets/index.js?v=3';
+import { cardPreviewItem } from '../ui/card-preview.js?v=3';
+import { emptyMessage } from '../ui/dom.js?v=3';
+import { renderDifficultyList } from './song.js?v=3';
+
+const POINT_BONUS_EVENT_TYPES = new Set(['challenge', 'live_try', 'mission_live']);
 
 export function renderMetrics(metricsElement, metrics) {
   metricsElement.textContent = '';
@@ -36,10 +40,20 @@ export function renderMetrics(metricsElement, metrics) {
   }
 }
 
-export function renderResultSummary(resultElement, result, deps) {
+export function renderResultSummary(resultElement, result, deps, { diagnostic } = {}) {
   resultElement.textContent = '';
-  resultElement.hidden = !result;
+  const failureDiagnostic = diagnostic?.error ? diagnostic : undefined;
+  resultElement.hidden = !result && !failureDiagnostic;
+  if (failureDiagnostic) {
+    renderFailureDiagnostic(resultElement, failureDiagnostic);
+    return;
+  }
   if (!result) {
+    return;
+  }
+
+  if (Array.isArray(result)) {
+    renderScoreRangeSummary(resultElement, result, deps);
     return;
   }
 
@@ -72,6 +86,184 @@ export function renderResultSummary(resultElement, result, deps) {
   }
   songSection.append(title, list);
   resultElement.append(songSection);
+}
+
+function renderFailureDiagnostic(resultElement, diagnostic) {
+  const error = diagnostic.error ?? {};
+  const overview = document.createElement('section');
+  overview.className = 'result-overview';
+  overview.append(
+    resultStat('状态', '计算失败', 'danger'),
+    resultStat('错误类型', error.name ?? 'Error'),
+    resultStat('活动', diagnostic.eventId == null ? '-' : `ID ${diagnostic.eventId}`),
+  );
+
+  const section = document.createElement('section');
+  section.className = 'result-section result-diagnostic';
+  const title = document.createElement('h3');
+  title.textContent = '结果诊断';
+  const details = document.createElement('dl');
+  details.className = 'result-diagnostic-grid';
+  details.append(
+    diagnosticItem('错误信息', error.message ?? '未知错误'),
+    diagnosticItem('运行阶段', diagnostic.phase ?? 'calculation'),
+    diagnosticItem('运行时', diagnostic.runtime ?? 'unknown'),
+    diagnosticItem('执行位置', error.executionContext ?? '-'),
+  );
+  section.append(title, details);
+
+  if (error.stack) {
+    const stackDetails = document.createElement('details');
+    stackDetails.className = 'result-diagnostic-stack';
+    const summary = document.createElement('summary');
+    summary.textContent = '调用栈';
+    const stack = document.createElement('pre');
+    stack.textContent = error.stack;
+    stackDetails.append(summary, stack);
+    section.append(stackDetails);
+  }
+
+  resultElement.append(overview, section);
+}
+
+function diagnosticItem(label, value) {
+  const wrapper = document.createElement('div');
+  const term = document.createElement('dt');
+  term.textContent = label;
+  const detail = document.createElement('dd');
+  detail.textContent = String(value ?? '-');
+  wrapper.append(term, detail);
+  return wrapper;
+}
+
+function renderScoreRangeSummary(resultElement, results, deps) {
+  const first = results[0];
+  if (!first) {
+    resultElement.append(emptyMessage('没有精确命中目标 PT 的方案', 'result-empty'));
+    return;
+  }
+
+  const overview = document.createElement('section');
+  overview.className = 'result-overview score-range-overview';
+  const reportedFireCost = Number(first.totalFireCost);
+  const fireCost = Number.isSafeInteger(reportedFireCost) && reportedFireCost >= 0
+    ? reportedFireCost
+    : totalFireCost(first.plays);
+  const overviewStats = [
+    resultStat('目标增量', `${formatInteger(first.targetDeltaPt)} PT`, 'strong'),
+    resultStat('演奏次数', `${formatInteger(first.playCount)} 局`),
+    resultStat('总火耗', `${formatInteger(fireCost)} 火`),
+    resultStat('综合力', formatInteger(first.totalStat)),
+  ];
+  if (POINT_BONUS_EVENT_TYPES.has(String(first.eventType))) {
+    overview.classList.add('has-point-bonus');
+    overviewStats.push(
+      resultStat('活动加成', `${formatBasisPoints(first.pointBonusBasisPoints)}%`),
+    );
+  }
+  overview.append(...overviewStats);
+  resultElement.append(overview, renderScoreRangeContent(first, deps));
+}
+
+function renderScoreRangeContent(result, deps) {
+  const content = document.createElement('div');
+  content.className = 'score-range-result-content';
+
+  if (result.items) {
+    content.append(renderSelectedItems(result.items, deps));
+  }
+  content.append(renderScoreRangeTeam(result.teamCardIds, deps));
+
+  const playSection = document.createElement('section');
+  playSection.className = 'result-section score-range-play-section';
+  const title = document.createElement('h3');
+  title.textContent = '演奏安排';
+  const plays = document.createElement('div');
+  plays.className = 'score-range-play-list';
+  for (const play of result.plays ?? []) {
+    plays.append(renderScoreRangePlay(play, deps));
+  }
+  if (!plays.childElementCount) {
+    plays.append(emptyMessage('没有演奏明细', 'result-empty'));
+  }
+  playSection.append(title, plays);
+  content.append(playSection);
+  return content;
+}
+
+function renderScoreRangeTeam(cardIds, deps) {
+  const section = document.createElement('section');
+  section.className = 'result-skill-order';
+  const title = document.createElement('div');
+  title.className = 'result-item result-skill-order-title';
+  const label = document.createElement('span');
+  label.textContent = '队伍';
+  title.append(label);
+  const preview = document.createElement('div');
+  preview.className = 'result-skill-preview';
+  for (const [index, cardId] of (cardIds ?? []).entries()) {
+    preview.append(resultSkillCard(cardId, {
+      isCaptain: false,
+      orderIndex: index,
+    }, deps));
+  }
+  if (!preview.childElementCount) {
+    preview.append(emptyMessage('没有队伍卡片', 'card-preview-empty'));
+  }
+  section.append(title, preview);
+  return section;
+}
+
+function renderScoreRangePlay(play, deps) {
+  const row = document.createElement('article');
+  row.className = 'result-song score-range-play';
+  const header = document.createElement('div');
+  header.className = 'result-song-header';
+  const cover = assetImage(
+    deps.songCoverUrls(play.songId),
+    'song-cover',
+    deps.songLabel(play.songId),
+  );
+  const content = document.createElement('div');
+  content.className = 'result-song-content';
+  const title = document.createElement('div');
+  title.className = 'result-song-title';
+  const name = document.createElement('strong');
+  name.textContent = deps.songLabel(play.songId);
+  const meta = document.createElement('span');
+  meta.className = 'result-song-meta';
+  meta.textContent = compactJoin([
+    `ID ${play.songId}`,
+    `${fireCostForMultiplier(play.fireMultiplier)} 火`,
+    `${play.count} 局`,
+  ], ' · ');
+  title.append(name, meta);
+  const difficulties = renderDifficultyList(
+    deps.getSongRecord?.(play.songId),
+    play.difficulty,
+  );
+  difficulties.classList.add('result-song-difficulty-list');
+  content.append(title, difficulties);
+  const pt = document.createElement('div');
+  pt.className = 'result-song-score';
+  pt.textContent = `${formatInteger(play.pt)} PT`;
+  if (cover) {
+    header.append(cover);
+  } else {
+    header.classList.add('no-cover');
+  }
+  header.append(content, pt);
+
+  const details = document.createElement('div');
+  details.className = 'result-song-details';
+  details.append(resultItem('单局得分', formatInteger(play.score)));
+  row.append(header, details);
+  return row;
+}
+
+function formatBasisPoints(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? (number / 100).toFixed(2).replace(/\.00$/, '') : '0';
 }
 
 function resultStat(label, value, tone) {

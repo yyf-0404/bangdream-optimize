@@ -37,8 +37,8 @@ function Ensure-RustTarget {
 }
 
 function Get-DesktopVersion {
-    $config = Get-Content -LiteralPath "apps/desktop/src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json
-    return [string] $config.version
+    $package = Get-Content -LiteralPath "apps/web/package.json" -Raw | ConvertFrom-Json
+    return [string] $package.version
 }
 
 function Get-PlatformName {

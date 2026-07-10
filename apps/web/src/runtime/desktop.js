@@ -1,4 +1,4 @@
-import { samplePlayerConfig } from '../storage/user.js?v=2';
+import { samplePlayerConfig } from '../storage/user.js?v=3';
 
 export function isDesktopRuntimeAvailable() {
   return getInvoke() != null;
@@ -9,6 +9,7 @@ export async function createDesktopRuntime() {
   if (!invoke) {
     throw new Error('Tauri runtime is not available');
   }
+  await loadOptionalDesktopConfig();
   const config = readRuntimeConfig();
 
   return {
@@ -57,6 +58,13 @@ export async function createDesktopRuntime() {
         eventId,
         options,
       }),
+    scoreRange: ({ player, server, eventId, request }) =>
+      invokeJson(invoke, 'score_range_for_config', {
+        player,
+        server,
+        eventId,
+        request,
+      }),
   };
 }
 
@@ -98,6 +106,14 @@ function normalizeApiBase(baseUrl) {
 
 function readRuntimeConfig() {
   return globalThis.BANGDREAM_OPTIMIZE_CONFIG ?? {};
+}
+
+async function loadOptionalDesktopConfig() {
+  try {
+    await import('../../config.desktop.js?v=3');
+  } catch (error) {
+    console.warn(`desktop-config-load-error: ${error?.message ?? String(error)}`);
+  }
 }
 
 async function saveJsonFileWithPicker(invoke, { fileName, text }) {

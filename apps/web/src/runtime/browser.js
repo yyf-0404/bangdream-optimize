@@ -1,4 +1,4 @@
-import { createGameDataClient } from '../data/game-sync.js?v=2';
+import { createGameDataClient } from '../data/game-sync.js?v=3';
 import {
   clearPlayerConfigCache,
   createPlayerConfig,
@@ -10,9 +10,9 @@ import {
   samplePlayerConfig,
   savePlayerConfig,
   selectPlayerConfig,
-} from '../storage/user.js?v=2';
+} from '../storage/user.js?v=3';
 
-const WASM_ASSET_VERSION = '20260624-v0.1.1';
+const ASSET_VERSION = '3';
 
 export async function createBrowserRuntime({ onProgress } = {}) {
   const config = readRuntimeConfig();
@@ -29,6 +29,10 @@ export async function createBrowserRuntime({ onProgress } = {}) {
     calculateOnMainThread: async (payloadJson) => {
       const wasm = await getWasm();
       return wasm.calculateFromStaticData(payloadJson);
+    },
+    scoreRangeOnMainThread: async (payloadJson) => {
+      const wasm = await getWasm();
+      return wasm.scoreRangeFromStaticData(payloadJson);
     },
   });
 
@@ -72,19 +76,38 @@ export async function createBrowserRuntime({ onProgress } = {}) {
       const resultJson = await calculationWorker.calculate(JSON.stringify(payload));
       return JSON.parse(resultJson);
     },
+    scoreRange: async ({ player, server, eventId, request, core }) => {
+      const payload = await gameData.buildScoreRangePayload({
+        player,
+        server,
+        eventId,
+        request,
+        core,
+      });
+      const resultJson = await calculationWorker.scoreRange(JSON.stringify(payload));
+      return JSON.parse(resultJson);
+    },
   };
 }
 
-function createCalculationWorkerClient({ calculateOnMainThread }) {
+function createCalculationWorkerClient({ calculateOnMainThread, scoreRangeOnMainThread }) {
   let worker = null;
   let nextId = 1;
   let disabled = false;
   const pending = new Map();
 
   function calculate(payloadJson) {
+    return run('calculate', payloadJson, calculateOnMainThread);
+  }
+
+  function scoreRange(payloadJson) {
+    return run('scoreRange', payloadJson, scoreRangeOnMainThread);
+  }
+
+  function run(type, payloadJson, runOnMainThread) {
     const activeWorker = ensureWorker();
     if (!activeWorker) {
-      return calculateOnMainThread(payloadJson);
+      return runOnMainThread(payloadJson);
     }
 
     const id = nextId;
@@ -93,7 +116,7 @@ function createCalculationWorkerClient({ calculateOnMainThread }) {
       pending.set(id, { resolve, reject });
       activeWorker.postMessage({
         id,
-        type: 'calculate',
+        type,
         payloadJson,
       });
     });
@@ -108,7 +131,7 @@ function createCalculationWorkerClient({ calculateOnMainThread }) {
     }
     try {
       worker = new Worker(
-        new URL(`./browser-worker.js?v=${WASM_ASSET_VERSION}`, import.meta.url),
+        new URL(`./browser-worker.js?v=${ASSET_VERSION}`, import.meta.url),
         { type: 'module' },
       );
       worker.addEventListener('message', handleWorkerMessage);
@@ -131,7 +154,7 @@ function createCalculationWorkerClient({ calculateOnMainThread }) {
     if (ok) {
       request.resolve(resultJson);
     } else {
-      request.reject(new Error(error || '计算 Worker 执行失败'));
+      request.reject(errorFromWorker(error));
     }
   }
 
@@ -148,7 +171,25 @@ function createCalculationWorkerClient({ calculateOnMainThread }) {
     pending.clear();
   }
 
-  return { calculate };
+  return { calculate, scoreRange };
+}
+
+function errorFromWorker(payload) {
+  const detail = payload && typeof payload === 'object' ? payload : {};
+  const message = typeof payload === 'string'
+    ? payload
+    : detail.message || '计算 Worker 执行失败';
+  const error = new Error(message);
+  if (typeof detail.name === 'string' && detail.name) {
+    error.name = detail.name;
+  }
+  if (typeof detail.stack === 'string' && detail.stack) {
+    error.stack = detail.stack;
+  }
+  if (typeof detail.executionContext === 'string' && detail.executionContext) {
+    error.executionContext = detail.executionContext;
+  }
+  return error;
 }
 
 function downloadJsonFile(fileName, text) {
@@ -236,9 +277,9 @@ function normalizeApiBase(baseUrl) {
 
 async function loadWasm() {
   try {
-    const module = await import(`../../pkg/bangdream_optimize_web_wasm.js?v=${WASM_ASSET_VERSION}`);
+    const module = await import(`../../pkg/bangdream_optimize_web_wasm.js?v=${ASSET_VERSION}`);
     await module.default(new URL(
-      `../../pkg/bangdream_optimize_web_wasm_bg.wasm?v=${WASM_ASSET_VERSION}`,
+      `../../pkg/bangdream_optimize_web_wasm_bg.wasm?v=${ASSET_VERSION}`,
       import.meta.url,
     ));
     return module;

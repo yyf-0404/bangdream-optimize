@@ -1,8 +1,10 @@
+import { totalFireCost } from '../utils.js?v=3';
+
 const DB_NAME = 'bangdream-optimize-result-cache-v1';
 const DB_VERSION = 1;
 const STORE = 'result-cache';
 const CACHE_KEY = 'entries';
-const CACHE_SCHEMA_VERSION = 2;
+const CACHE_SCHEMA_VERSION = 4;
 
 export const RESULT_CACHE_LIMIT = 20;
 
@@ -47,22 +49,31 @@ function normalizeEntry(entry) {
     return undefined;
   }
   const key = String(entry.key || '').trim();
-  if (!key || Number(entry.cacheVersion) !== CACHE_SCHEMA_VERSION) {
+  const cacheVersion = Number(entry.cacheVersion);
+  if (!key || (cacheVersion !== 2 && cacheVersion !== CACHE_SCHEMA_VERSION)) {
     return undefined;
   }
+  const calculationMode = entry.calculationMode === 'scoreRange' ? 'scoreRange' : 'maximize';
+  const result = cloneJson(entry.result);
   return {
     cacheVersion: CACHE_SCHEMA_VERSION,
     key,
     eventId: Number(entry.eventId) || 0,
     eventLabel: typeof entry.eventLabel === 'string' ? entry.eventLabel : `活动 ${Number(entry.eventId) || 0}`,
     server: typeof entry.server === 'string' ? entry.server : '',
+    calculationMode,
     activityMode: typeof entry.activityMode === 'string' ? entry.activityMode : 'medley',
     totalScore: safeNumber(entry.totalScore),
     totalStat: safeNumber(entry.totalStat),
     songCount: safeInteger(entry.songCount),
+    targetDeltaPt: safeNumber(entry.targetDeltaPt),
+    playCount: safeInteger(entry.playCount),
+    totalFireCost: safeInteger(entry.totalFireCost)
+      ?? safeInteger(result?.[0]?.totalFireCost)
+      ?? (calculationMode === 'scoreRange' ? totalFireCost(result?.[0]?.plays) : undefined),
     createdAt: safeNumber(entry.createdAt, Date.now()),
     accessedAt: safeNumber(entry.accessedAt, Date.now()),
-    result: cloneJson(entry.result),
+    result,
     diagnostic: cloneJson(entry.diagnostic),
   };
 }

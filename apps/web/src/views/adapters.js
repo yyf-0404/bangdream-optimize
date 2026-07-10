@@ -23,7 +23,7 @@ export function createViewAdapters({
     renderMetricsView(elements.metrics, metrics);
   }
 
-  function renderResultSummary(result) {
+  function renderResultSummary(result, options) {
     renderResultSummaryView(elements.resultSummary, result, {
       selectedBandId,
       songCoverUrls,
@@ -36,7 +36,7 @@ export function createViewAdapters({
       cardIconUrls,
       cardAttribute,
       attributeFallback,
-    });
+    }, options);
   }
 
   function mergedEntityIds(records = {}, selected = {}) {

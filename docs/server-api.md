@@ -54,6 +54,7 @@ globalThis.BANGDREAM_OPTIMIZE_CONFIG = {
 
 - `RUST_LOG=info`
 - `BANGDREAM_OPTIMIZE_GAME_DATA_BASE_URL`
+- `BANGDREAM_OPTIMIZE_BESTDORI_SCORE_RANGE_CHART_META`：覆盖 score-range 模板文件路径
 - `BANGDREAM_OPTIMIZE_GAME_DATA_CACHE_ROOT`
 - `BANGDREAM_OPTIMIZE_BESTDORI_ROOT`
 - `BANGDREAM_OPTIMIZE_GAME_DATA_SYNC_ENABLED`：启动时执行一次游戏资源同步，并可选按配置文件/参数执行定期更新。
@@ -61,7 +62,7 @@ globalThis.BANGDREAM_OPTIMIZE_CONFIG = {
 - `BANGDREAM_OPTIMIZE_GAME_DATA_SYNC_CONFIG`：读取同步配置文件（JSON）。
 - `BANGDREAM_OPTIMIZE_GAME_DATA_SYNC_COMMAND`：指定用于执行同步的可执行文件，未配置时会尝试自动发现。
 - `BANGDREAM_OPTIMIZE_ENABLE_CALC_ROUTES=false`：关闭
-  `/v1/calc-result` 与 `/v1/calc-result/from-candidates`，仅保留
+  `/v1/maximize`、`/v1/score-range`、`/v1/calc-result` 与候选计算路由，仅保留
   `/bestdori/player/...`、`/game-data` 与站点根目录；若同时开启
   国服游戏账号导入，也会保留
   `/bangdream/user-data/import`。该模式适用于仅作导入/静态代理且不对外暴露计算 API
@@ -204,8 +205,10 @@ Content-Type: application/json
 ## 计算玩家
 
 ```http
-POST /v1/calc-result
+POST /v1/maximize
 ```
+
+兼容路由：`POST /v1/calc-result`。
 
 请求体：
 
@@ -252,7 +255,7 @@ POST /v1/calc-result
     },
     "solver": "avx2",
     "metrics": {
-      "coreVersion": "0.1.0",
+      "coreVersion": "0.2.0",
       "cardCount": 1950,
       "songCount": 3,
       "itemCombinationsBefore": 120,
@@ -276,11 +279,107 @@ POST /v1/calc-result
 }
 ```
 
+## 目标 PT 区间搜索
+
+```http
+POST /v1/score-range
+```
+
+请求体：
+
+```json
+{
+  "playerId": 1008604961,
+  "server": "jp",
+  "eventId": 287,
+  "currentPt": 100000,
+  "targetTotalPt": 101000,
+  "autoBaseMultiplier": 0.75,
+  "maxResults": 20
+}
+```
+
+`autoBaseMultiplier` 可选值为 `0.5` 或 `0.75`。省略时保持兼容行为：日服使用 `0.75`，
+其他服务器使用 `0.5`。
+
+`mission_live` 还必须显式传入 `missionSupportPtBonus`，其值是
+`floor(支援队伍综合力 / 3000)`；明确传入 `0` 合法，省略会返回 `400`。其他活动忽略该字段。
+
+接口只返回重复同一首 `(songId, difficulty)` 的方案。搜索在所有队伍、道具和歌曲之间先全局
+最小化演奏次数，再在次数相同时最小化实际总火耗；`1/5/10/15` 倍分别消耗 `0/1/2/3`
+火。响应只包含该最优层中的任意见证，达到
+`maxResults` 后可以提前结束；最优层结果不足上限时不会用较差方案补足。
+
+不依赖 MongoDB、直接提供完整配置的 API 客户端可以调用：
+
+```http
+POST /v1/score-range/from-config
+```
+
+字段与 `/v1/score-range` 相同，但用 `player` 替代 `playerId`：
+
+```json
+{
+  "player": {
+    "playerId": 1008604961,
+    "currentEvent": 287,
+    "cardList": {},
+    "areaItem": {},
+    "characterBouns": {}
+  },
+  "server": "jp",
+  "eventId": 287,
+  "currentPt": 100000,
+  "targetTotalPt": 101000,
+  "autoBaseMultiplier": 0.75,
+  "maxResults": 20
+}
+```
+
+该入口不读取 MongoDB 玩家配置。官方 Web 前端不调用该入口，而是读取静态 score-range
+模板并在浏览器 WASM 中计算；服务端入口与浏览器使用相同模板文件和 `songs/all` 可用性判断。
+
+响应中的每项包含五张卡、区域道具、综合力、活动 PT 加成和演奏动作：
+
+```json
+{
+  "eventType": "versus",
+  "targetDeltaPt": 1000,
+  "teamCardIds": [1, 2, 3, 4, 5],
+  "totalStat": 400000,
+  "pointBonusBasisPoints": 0,
+  "items": {
+    "band": "1",
+    "attribute": "cool",
+    "magazine": "performance"
+  },
+  "playCount": 1,
+  "distinctSongCount": 1,
+  "totalFireCost": 1,
+  "totalFireMultiplier": 5,
+  "plays": [
+    {
+      "songId": 1,
+      "difficulty": 3,
+      "fireMultiplier": 5,
+      "score": 1000000,
+      "pt": 1000,
+      "count": 1
+    }
+  ]
+}
+```
+
+`totalFireCost` 是搜索使用的实际火耗。`totalFireMultiplier` 是各局火倍率乘以次数后的旧统计值，
+仅为兼容保留，不参与最优解比较。
+
 ## 从候选队伍计算
 
 ```http
-POST /v1/calc-result/from-candidates
+POST /v1/maximize/from-candidates
 ```
+
+兼容路由：`POST /v1/calc-result/from-candidates`。
 
 该路由接受已经构建好的候选队伍，仅执行最后的候选选择。
 主要用于测试、诊断，或外部调用方自行构建候选队伍的场景。

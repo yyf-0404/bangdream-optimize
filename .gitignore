@@ -2,6 +2,7 @@
 /apps/desktop/src-tauri/target/
 /apps/desktop/src-tauri/gen/
 /apps/web/pkg/
+/apps/web/config.desktop.js
 /var/game-data/*
 !/var/game-data/
 !/var/game-data/cardsCNfix.json

@@ -1,25 +1,27 @@
 import { clearFieldValidationMessage, setFieldValidationMessage } from '../ui/validation.js';
-import { ATTRIBUTE_VALUES } from '../utils.js?v=2';
+import { ATTRIBUTE_VALUES } from '../utils.js?v=3';
 
 const DEFAULT_EVENT_BONUS_PERCENT = 10;
 const DEFAULT_EVENT_ATTRIBUTES = ATTRIBUTE_VALUES;
 
 export function createActivityActions({
-  state,
   elements,
   customEventId,
   normalizedPlayer,
-  normalizedActivityMode,
+  normalizedCalculationMode,
+  activityModeForEvent,
   defaultEditableEvent,
   defaultEventTypeForMode,
   defaultSongListForMode,
   ensureSongListForMode,
   eventMatchesActivityMode,
+  isHiddenEventId,
   editableEventOverride,
   fixedSongListForMode,
   normalizedEventAttributes,
   normalizedEventCharacters,
   normalizedEventMembers,
+  serverIndex,
   readFiniteInput,
   readOptionalInteger,
   ensureCore,
@@ -82,14 +84,14 @@ export function createActivityActions({
   function switchToCustomEvent(player) {
     const sourceEventId = player.currentEvent;
     const sourceEvent = editableEventSnapshot(sourceEventId, player)
-      ?? defaultEditableEvent(player.activityMode);
+      ?? defaultEditableEvent(player.activityMode, player.calculationMode);
     const sourceSongs = sourceEventId == null
       ? []
       : player.eventSongs[String(sourceEventId)] ?? [];
     player.currentEvent = customEventId;
     player.eventOverrides[customEventId] = {
-      ...editableEventOverride(sourceEvent),
-      eventType: defaultEventTypeForMode(player.activityMode),
+      ...editableEventOverride(sourceEvent, player.calculationMode),
+      eventType: defaultEventTypeForMode(player.activityMode, player.calculationMode),
     };
     player.eventSongs[customEventId] = fixedSongListForMode(
       sourceSongs,
@@ -105,21 +107,24 @@ export function createActivityActions({
       event?.startAt,
     ];
     for (const value of values) {
-      const sources = Array.isArray(value) ? value : [value];
-      const numbers = sources
-        .map(Number)
-        .filter((number) => Number.isFinite(number) && number > 0);
-      if (numbers.length > 0) {
-        return Math.max(...numbers);
+      const scopedValue = Array.isArray(value) ? value[serverIndex()] : value;
+      const timestamp = Number(scopedValue);
+      if (Number.isFinite(timestamp) && timestamp > 0) {
+        return timestamp;
       }
     }
     return 0;
   }
 
-  function recentEventForMode(events, mode) {
+  function eventSupported(event, calculationMode) {
+    return eventMatchesActivityMode(event, 'single', calculationMode)
+      || eventMatchesActivityMode(event, 'medley', calculationMode);
+  }
+
+  function recentSupportedEvent(events, calculationMode) {
     let selected;
     for (const [eventId, event] of Object.entries(events ?? {})) {
-      if (!eventMatchesActivityMode(event, mode)) {
+      if (isHiddenEventId(eventId) || !eventSupported(event, calculationMode)) {
         continue;
       }
       const id = Number.parseInt(eventId, 10);
@@ -138,44 +143,57 @@ export function createActivityActions({
     return selected;
   }
 
-  async function handleActivityModeChange() {
+  async function handleCalculationModeChange() {
     try {
-      const requestedMode = normalizedActivityMode(elements.activityMode.value);
+      const selected = elements.calculationMode
+        .querySelector('input[name="calculation-mode"]:checked')?.value;
+      const calculationMode = normalizedCalculationMode(selected);
+      const previewPlayer = normalizedPlayer(readPlayer());
+      previewPlayer.calculationMode = calculationMode;
+      renderConfigForms(previewPlayer);
       const core = await ensureCore({ refreshManifest: true });
       const player = normalizedPlayer(readPlayer());
-      player.activityMode = requestedMode;
-      const eventId = player.currentEvent;
-      const event = core?.events?.[String(eventId)];
-      if (eventId === customEventId) {
+      const previousEventId = player.currentEvent;
+      player.calculationMode = calculationMode;
+      const event = isHiddenEventId(previousEventId)
+        ? undefined
+        : editableEventSnapshot(previousEventId, player);
+
+      if (previousEventId === customEventId) {
         const key = String(customEventId);
-        player.eventOverrides[key] = {
-          ...defaultEditableEvent(player.activityMode),
-          ...(player.eventOverrides[key] ?? {}),
-          eventType: defaultEventTypeForMode(player.activityMode),
-        };
+        if (!eventSupported(event, calculationMode)) {
+          player.eventOverrides[key] = {
+            ...defaultEditableEvent(player.activityMode, calculationMode),
+            ...(player.eventOverrides[key] ?? {}),
+            eventType: defaultEventTypeForMode(player.activityMode, calculationMode),
+          };
+        }
+        player.activityMode = activityModeForEvent(player.eventOverrides[key]);
         ensureSongListForMode(player, customEventId, player.eventOverrides[key]);
-      } else if (!event || !eventMatchesActivityMode(event, player.activityMode)) {
-        const recent = recentEventForMode(core?.events, player.activityMode);
+      } else if (!event || !eventSupported(event, calculationMode)) {
+        const recent = recentSupportedEvent(core?.events, calculationMode);
         if (!recent) {
-          throw new Error('没有可用于当前模式的活动');
+          throw new Error('没有可用于当前计算目标的活动');
         }
         player.currentEvent = recent.id;
+        player.activityMode = activityModeForEvent(recent.event);
         cacheLoadedEventPreset(player, recent.id, recent.event, { overwrite: true });
         player.eventSongs[String(recent.id)] = defaultSongListForMode(
           player.activityMode,
           recent.event,
+          player.eventSongs[String(recent.id)],
         );
-        delete player.eventOverrides[String(recent.id)];
-      } else if (eventId != null) {
-        ensureSongListForMode(player, eventId, event);
+      } else {
+        player.activityMode = activityModeForEvent(event);
+        ensureSongListForMode(player, previousEventId, event);
       }
+
       writePlayer(player);
       renderReferenceOptions();
       renderConfigForms(player);
-      if (player.currentEvent !== eventId) {
-        setStatus('已切换到最近活动');
-      }
+      setStatus(calculationMode === 'scoreRange' ? '已切换到目标 PT' : '已切换到最高得分');
     } catch (error) {
+      renderConfigForms(readPlayer());
       setError(error);
     }
   }
@@ -194,6 +212,11 @@ export function createActivityActions({
       return;
     }
 
+    if (isHiddenEventId(eventId)) {
+      setFieldValidationMessage(input, new Error(`活动 ${eventId} 不可用`));
+      return;
+    }
+
     if (eventId === customEventId) {
       const player = normalizedPlayer(readPlayer());
       switchToCustomEvent(player);
@@ -207,13 +230,15 @@ export function createActivityActions({
       const core = await ensureCore({ refreshManifest: true });
       const player = normalizedPlayer(readPlayer());
       const event = await loadEventRecord(eventId, core);
-      assertSupportedEvent(event);
-      if (!eventMatchesActivityMode(event, player.activityMode)) {
-        throw new Error(`当前模式不能选择 ${event.eventType} 活动`);
-      }
+      assertSupportedEvent(event, player.calculationMode);
       player.currentEvent = eventId;
+      player.activityMode = activityModeForEvent(event);
       cacheLoadedEventPreset(player, eventId, event);
-      player.eventSongs[String(eventId)] = defaultSongListForMode(player.activityMode, event);
+      player.eventSongs[String(eventId)] = defaultSongListForMode(
+        player.activityMode,
+        event,
+        player.eventSongs[String(eventId)],
+      );
       delete player.eventOverrides[String(eventId)];
       writePlayer(player);
       renderConfigForms(player);
@@ -233,7 +258,11 @@ export function createActivityActions({
   function handleCustomEvent() {
     try {
       const player = normalizedPlayer(readPlayer());
-      player.activityMode = normalizedActivityMode(elements.activityMode.value);
+      player.calculationMode = normalizedCalculationMode(
+        elements.calculationMode.querySelector(
+          'input[name="calculation-mode"]:checked',
+        )?.value,
+      );
       switchToCustomEvent(player);
       renderConfigForms(player);
       setStatus('已切换为自定义活动');
@@ -341,8 +370,11 @@ export function createActivityActions({
         return parsed;
       })();
       if (value !== undefined) {
-        assertSupportedKnownEvent(value);
+        assertSupportedKnownEvent(value, player.calculationMode);
         const event = editableEventSnapshot(value, player);
+        if (event) {
+          player.activityMode = activityModeForEvent(event);
+        }
         player.currentEvent = value;
         ensureSongListForMode(player, value, event);
         writePlayer(player);
@@ -355,7 +387,7 @@ export function createActivityActions({
   }
 
   return {
-    handleActivityModeChange,
+    handleCalculationModeChange,
     handleAddEventAttribute,
     handleAddEventCharacter,
     handleAddEventMember,

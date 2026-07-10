@@ -75,6 +75,7 @@ export function eventTypeLabel(value) {
     medley: '组曲',
     challenge: '挑战',
     versus: '对邦',
+    festival: 'Festival',
   }[value] ?? String(value ?? '-');
 }
 
@@ -91,6 +92,23 @@ export function difficultyLabel(value) {
 export function formatInteger(value) {
   const number = Number(value);
   return Number.isFinite(number) ? new Intl.NumberFormat('zh-CN').format(number) : '-';
+}
+
+export function fireCostForMultiplier(value) {
+  return {
+    1: 0,
+    5: 1,
+    10: 2,
+    15: 3,
+  }[Number(value)] ?? 0;
+}
+
+export function totalFireCost(plays = []) {
+  return (Array.isArray(plays) ? plays : []).reduce((total, play) => {
+    const count = Number(play?.count);
+    const normalizedCount = Number.isSafeInteger(count) && count > 0 ? count : 0;
+    return total + fireCostForMultiplier(play?.fireMultiplier) * normalizedCount;
+  }, 0);
 }
 
 export function formatMs(value) {

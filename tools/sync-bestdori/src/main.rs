@@ -1,4 +1,7 @@
-use bangdream_optimize_core::PlayerConfig;
+use bangdream_optimize_core::{
+    PlayerConfig, ScoreRangeChartMeta, ScoreRangeChartMetaFile, SCORE_RANGE_CHART_META_PATH,
+};
+use bangdream_optimize_data::chart_from_bestdori;
 use reqwest::{
     blocking::Client,
     header::{ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED},
@@ -74,6 +77,9 @@ enum SyncError {
     #[error("file {path} must contain a JSON object or array")]
     InvalidJsonShape { path: String },
 
+    #[error("could not build score-range chart meta for {path}: {message}")]
+    ScoreRangeChartMeta { path: String, message: String },
+
     #[error("sync worker panicked")]
     WorkerPanic,
 }
@@ -101,6 +107,7 @@ struct SyncOptions {
     all_event_details: bool,
     all_charts: bool,
     all_card_details: bool,
+    generate_score_range_meta_only: bool,
     concurrency: usize,
     retries: usize,
 }
@@ -117,6 +124,7 @@ impl Default for SyncOptions {
             all_event_details: false,
             all_charts: false,
             all_card_details: false,
+            generate_score_range_meta_only: false,
             concurrency: DEFAULT_CONCURRENCY,
             retries: DEFAULT_RETRIES,
         }
@@ -184,6 +192,10 @@ fn sync_bestdori(mut options: SyncOptions) -> Result<(), SyncError> {
         path: options.out_dir.display().to_string(),
         source,
     })?;
+
+    if options.generate_score_range_meta_only {
+        return generate_score_range_chart_meta_only(&options.out_dir);
+    }
 
     let mut player_card_ids = BTreeSet::new();
     for player_file in &options.player_files {
@@ -264,6 +276,24 @@ fn sync_bestdori(mut options: SyncOptions) -> Result<(), SyncError> {
         options.retries,
     )?);
 
+    if !options.charts.is_empty() {
+        let (path, file) =
+            generate_score_range_chart_meta(&options.out_dir, &options.charts, options.all_charts)?;
+        manifest.files.insert(path, file);
+    } else if options.out_dir.join(SCORE_RANGE_CHART_META_PATH).exists() {
+        let data = read_bytes(&options.out_dir.join(SCORE_RANGE_CHART_META_PATH))?;
+        manifest.files.insert(
+            SCORE_RANGE_CHART_META_PATH.to_owned(),
+            ManifestFile {
+                hash: sha256_hex(&data),
+                size: data.len(),
+                source: None,
+                etag: None,
+                last_modified: None,
+            },
+        );
+    }
+
     write_split_manifests(&options.out_dir, &manifest, &generated_at)?;
 
     Ok(())
@@ -313,6 +343,9 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<SyncOptions, Syn
             "--all-event-details" => options.all_event_details = true,
             "--all-charts" => options.all_charts = true,
             "--all-card-details" => options.all_card_details = true,
+            "--generate-score-range-meta-only" => {
+                options.generate_score_range_meta_only = true;
+            }
             "--concurrency" => {
                 options.concurrency =
                     parse_usize_arg("--concurrency", &next_value(&mut args, "--concurrency")?)?;
@@ -349,6 +382,8 @@ Options:\n\
   --all-event-details  Fetch full event detail for every event in events.json\n\
   --all-charts         Fetch every chart listed in songs.json\n\
   --all-card-details   Fetch every cards/{{id}}.json detail listed in cards.json\n\
+  --generate-score-range-meta-only\n\
+                       Rebuild score-range chart meta from existing local files\n\
   --concurrency <n>    Parallel remote downloads, default 8\n\
   --retries <n>        Retry transient remote errors, default 2\n\
 "
@@ -505,6 +540,104 @@ fn chart_selections_from_songs_json(songs: &Value) -> Result<BTreeSet<ChartSelec
         }
     }
     Ok(charts)
+}
+
+fn generate_score_range_chart_meta(
+    out_dir: &Path,
+    charts: &BTreeSet<ChartSelection>,
+    replace_existing: bool,
+) -> Result<(String, ManifestFile), SyncError> {
+    let output_path = out_dir.join(SCORE_RANGE_CHART_META_PATH);
+    let mut output = if replace_existing || !output_path.exists() {
+        ScoreRangeChartMetaFile::new()
+    } else {
+        let data = read_bytes(&output_path)?;
+        serde_json::from_slice::<ScoreRangeChartMetaFile>(&data).map_err(|source| {
+            SyncError::Json {
+                path: output_path.display().to_string(),
+                source,
+            }
+        })?
+    };
+    let songs_path = out_dir.join("api/songs/all.7.json");
+    let songs = read_json_value(&songs_path)?;
+
+    for chart in charts {
+        let difficulty = difficulty_name(chart.difficulty)?;
+        let relative_path = format!("api/charts/{}/{difficulty}.json", chart.song_id);
+        let chart_path = out_dir.join(&relative_path);
+        let chart_data = read_json_value(&chart_path)?;
+        let level = song_level(&songs, chart.song_id, chart.difficulty)?;
+        let chart_data = chart_from_bestdori(level, &chart_data).map_err(|error| {
+            SyncError::ScoreRangeChartMeta {
+                path: relative_path.clone(),
+                message: error.to_string(),
+            }
+        })?;
+        let meta = ScoreRangeChartMeta::from_chart(chart_data).map_err(|error| {
+            SyncError::ScoreRangeChartMeta {
+                path: relative_path,
+                message: error.to_string(),
+            }
+        })?;
+        if meta.is_searchable() {
+            output.insert(chart.song_id, chart.difficulty, meta);
+        } else {
+            output.remove(chart.song_id, chart.difficulty);
+        }
+    }
+
+    output
+        .validate()
+        .map_err(|message| SyncError::ScoreRangeChartMeta {
+            path: SCORE_RANGE_CHART_META_PATH.to_owned(),
+            message,
+        })?;
+    let data = serde_json::to_vec(&output).map_err(|source| SyncError::Json {
+        path: SCORE_RANGE_CHART_META_PATH.to_owned(),
+        source,
+    })?;
+    write_file(&output_path, &data)?;
+    Ok((
+        SCORE_RANGE_CHART_META_PATH.to_owned(),
+        ManifestFile {
+            hash: sha256_hex(&data),
+            size: data.len(),
+            source: None,
+            etag: None,
+            last_modified: None,
+        },
+    ))
+}
+
+fn generate_score_range_chart_meta_only(out_dir: &Path) -> Result<(), SyncError> {
+    let songs = read_json_value(&out_dir.join("api/songs/all.7.json"))?;
+    let charts = chart_selections_from_songs_json(&songs)?;
+    let generated_at = unix_timestamp();
+    let mut manifest = read_existing_manifest(out_dir)?.unwrap_or(Manifest {
+        version: generated_at.clone(),
+        generated_at: generated_at.clone(),
+        files: BTreeMap::new(),
+    });
+    manifest.version = generated_at.clone();
+    manifest.generated_at = generated_at.clone();
+    let (path, file) = generate_score_range_chart_meta(out_dir, &charts, true)?;
+    manifest.files.insert(path, file);
+    write_split_manifests(out_dir, &manifest, &generated_at)
+}
+
+fn song_level(songs: &Value, song_id: u32, difficulty: u8) -> Result<i32, SyncError> {
+    songs
+        .get(song_id.to_string())
+        .and_then(|song| song.get("difficulty"))
+        .and_then(|difficulties| difficulties.get(difficulty.to_string()))
+        .and_then(|difficulty| difficulty.get("playLevel"))
+        .and_then(Value::as_i64)
+        .map(|level| level as i32)
+        .ok_or_else(|| SyncError::ScoreRangeChartMeta {
+            path: "api/songs/all.7.json".to_owned(),
+            message: format!("missing playLevel for {song_id}:{difficulty}"),
+        })
 }
 
 fn object_entries<'a>(
@@ -892,7 +1025,12 @@ fn temp_output_path(path: &Path) -> PathBuf {
 
 fn read_player_config(path: &Path) -> Result<PlayerConfig, SyncError> {
     let data = read_bytes(path)?;
-    serde_json::from_slice(&data).map_err(|source| SyncError::Json {
+    let value: Value = serde_json::from_slice(&data).map_err(|source| SyncError::Json {
+        path: path.display().to_string(),
+        source,
+    })?;
+    let player = value.get("player").cloned().unwrap_or(value);
+    serde_json::from_value(player).map_err(|source| SyncError::Json {
         path: path.display().to_string(),
         source,
     })

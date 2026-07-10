@@ -15,6 +15,12 @@
 - 设置 `BANGDREAM_OPTIMIZE_DESKTOP_GAME_DATA_ROOT` 或 `BANGDREAM_OPTIMIZE_GAME_DATA_ROOT` 使用本地静态镜像目录。
 - 或设置 `BANGDREAM_OPTIMIZE_DESKTOP_GAME_DATA_BASE_URL` 或 `BANGDREAM_OPTIMIZE_GAME_DATA_BASE_URL` 将静态镜像同步到桌面应用数据缓存。
 - 若均未设置，本地开发默认回退到 `var/game-data`。
+- 目标 PT 搜索不从 Bestdori 请求 `api/scoreRangeChartMeta.1.json`。桌面端首次搜索时同步
+  当前服务器已发布的谱面并在本地缓存生成该文件；“同步全部游戏数据”会生成完整模板。
+
+桌面端游戏账号导入地址保存在 Git 忽略的 `../web/config.desktop.js`。首次配置时复制
+`../web/config.desktop.example.js` 并填写 `bangDreamImportApiBaseUrl`；桌面运行时会按需加载，
+浏览器端不会读取该文件。
 
 Tauri crate 有意不加入根 Cargo 工作区，以避免常规工作区测试下载或编译 Tauri。
 

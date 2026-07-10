@@ -3,13 +3,13 @@ import {
   cardTrainingStatusList as cardTrainingStatusListForCard,
   normalizeTrainingStatus,
   songCoverUrls as buildSongCoverUrls,
-} from '../assets/index.js?v=2';
+} from '../assets/index.js?v=3';
 import {
   compactJoin,
   hasText,
   normalizedAttribute,
   positiveIntegerOrUndefined,
-} from '../utils.js?v=2';
+} from '../utils.js?v=3';
 
 export function createGameMeta({
   getCore,

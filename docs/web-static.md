@@ -164,6 +164,7 @@ fix 文件也要保留在该目录；部署步骤中的 `install` 命令会完�
 - `/game-data/api/areaItems/main.5.json`
 - `/game-data/api/events/all.6.json`
 - `/game-data/api/songs/all.7.json`
+- `/game-data/api/scoreRangeChartMeta.1.json`：目标 PT 本地搜索模板
 - `/game-data/api/events/{eventId}.json`
 - `/game-data/api/charts/{songId}/{difficultyName}.json`
 - 可选修正文件：

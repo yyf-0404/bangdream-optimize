@@ -25,13 +25,16 @@ export function createEventActions({
     }
 
     mutator(event);
-    event.eventType = defaultEventTypeForMode(player.activityMode);
-    assertSupportedEvent(event);
-    if (!eventMatchesActivityMode(event, player.activityMode)) {
-      throw new Error(`当前模式不能选择 ${event.eventType} 活动`);
+    event.eventType ||= defaultEventTypeForMode(player.activityMode, player.calculationMode);
+    assertSupportedEvent(event, player.calculationMode);
+    if (!eventMatchesActivityMode(event, player.activityMode, player.calculationMode)) {
+      throw new Error(`当前计算目标不支持 ${event.eventType} 活动`);
     }
     player.currentEvent = eventId;
-    player.eventOverrides[String(eventId)] = editableEventOverride(event);
+    player.eventOverrides[String(eventId)] = editableEventOverride(
+      event,
+      player.calculationMode,
+    );
     ensureSongListForMode(player, eventId, event);
     writePlayer(player);
     renderConfigForms(player);

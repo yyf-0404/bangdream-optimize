@@ -29,6 +29,9 @@ pub enum ChartError {
 
     #[error("duration {duration} is not supported by chart meta")]
     UnsupportedSkillDuration { duration: f64 },
+
+    #[error("compressed Auto scoring requires one common base factor for every chart node")]
+    NonUniformAutoBaseFactor,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,6 +39,237 @@ pub enum ChartError {
 pub enum ChartNodeType {
     Node,
     Skill,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComboMode {
+    Standard,
+    None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimultaneousSkillOrder {
+    BeforeNotes,
+    AfterNotes,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScoreRule {
+    pub base_multiplier: f64,
+    pub combo_mode: ComboMode,
+    pub simultaneous_skill_order: SimultaneousSkillOrder,
+}
+
+impl ScoreRule {
+    pub const STANDARD: Self = Self {
+        base_multiplier: 1.1,
+        combo_mode: ComboMode::Standard,
+        simultaneous_skill_order: SimultaneousSkillOrder::BeforeNotes,
+    };
+
+    pub const AUTO: Self = Self {
+        base_multiplier: 0.5,
+        combo_mode: ComboMode::None,
+        simultaneous_skill_order: SimultaneousSkillOrder::AfterNotes,
+    };
+
+    pub const fn auto_with_base_multiplier(base_multiplier: f64) -> Self {
+        Self {
+            base_multiplier,
+            combo_mode: ComboMode::None,
+            simultaneous_skill_order: SimultaneousSkillOrder::AfterNotes,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AutoMultiplierGroup {
+    pub multiplier: f64,
+    pub count: usize,
+}
+
+/// Exact compressed scorer for an Auto chart and one resolved skill bucket.
+///
+/// Auto has no combo multiplier, so every scoring node has the same base factor. Nodes are
+/// grouped by the skill multiplier active when they score; evaluating a stat then only needs one
+/// floor per distinct multiplier instead of one per chart node.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CompressedAutoScore {
+    base_factor: f64,
+    groups: Vec<AutoMultiplierGroup>,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct NonRateupAutoScoreTemplate {
+    base_factor: f64,
+    inactive_count: usize,
+    active_count: usize,
+    tail_risk: bool,
+}
+
+struct NonRateupTimeline {
+    #[allow(dead_code)]
+    active_count: usize,
+    effective_starts: Vec<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ScoreRangeSkillWindowCounts {
+    pub inactive_nodes: u32,
+    pub active_nodes: [u32; 6],
+    pub tail_risk: bool,
+}
+
+#[cfg(test)]
+impl NonRateupAutoScoreTemplate {
+    pub(crate) fn has_skill_tail_risk(self) -> bool {
+        self.tail_risk
+    }
+
+    pub(crate) fn score(self, stat: i32, score_up: f64) -> i32 {
+        let no_skill = (stat.max(0) as f64 * self.base_factor).floor();
+        let inactive = (no_skill as i64).saturating_mul(self.inactive_count as i64);
+        let active =
+            ((no_skill * (1.0 + score_up)).floor() as i64).saturating_mul(self.active_count as i64);
+        inactive
+            .saturating_add(active)
+            .clamp(i32::MIN as i64, i32::MAX as i64) as i32
+    }
+
+    pub(crate) fn with_score_up(self, score_up: f64) -> CompressedAutoScore {
+        let active_multiplier = 1.0 + score_up;
+        let groups = if active_multiplier.to_bits() == 1.0_f64.to_bits() {
+            vec![AutoMultiplierGroup {
+                multiplier: 1.0,
+                count: self.inactive_count.saturating_add(self.active_count),
+            }]
+        } else {
+            let mut groups = Vec::with_capacity(2);
+            if self.inactive_count != 0 {
+                groups.push(AutoMultiplierGroup {
+                    multiplier: 1.0,
+                    count: self.inactive_count,
+                });
+            }
+            if self.active_count != 0 {
+                groups.push(AutoMultiplierGroup {
+                    multiplier: active_multiplier,
+                    count: self.active_count,
+                });
+            }
+            groups
+        };
+        CompressedAutoScore {
+            base_factor: self.base_factor,
+            groups,
+        }
+    }
+}
+
+impl CompressedAutoScore {
+    pub(crate) fn from_score_range_counts(
+        base_factor: f64,
+        inactive_nodes: u32,
+        active_nodes: [u32; 6],
+        score_up: f64,
+        rateup: bool,
+    ) -> Self {
+        let mut grouped = BTreeMap::<u64, AutoMultiplierGroup>::new();
+        let mut add_group = |multiplier: f64, count: u32| {
+            if count == 0 {
+                return;
+            }
+            grouped
+                .entry(multiplier.to_bits())
+                .and_modify(|group| group.count = group.count.saturating_add(count as usize))
+                .or_insert(AutoMultiplierGroup {
+                    multiplier,
+                    count: count as usize,
+                });
+        };
+
+        add_group(1.0, inactive_nodes);
+        if rateup {
+            for active_count in active_nodes {
+                let mut multiplier = 1.0 + score_up;
+                for _ in 0..active_count {
+                    if sgn(multiplier - 2.5) < 0 {
+                        multiplier += 0.005;
+                    }
+                    add_group(multiplier, 1);
+                }
+            }
+        } else {
+            add_group(
+                1.0 + score_up,
+                active_nodes.into_iter().fold(0_u32, u32::saturating_add),
+            );
+        }
+
+        Self {
+            base_factor,
+            groups: grouped.into_values().collect(),
+        }
+    }
+
+    pub fn score(&self, stat: i32) -> i32 {
+        let no_skill = (stat.max(0) as f64 * self.base_factor).floor();
+        self.groups
+            .iter()
+            .fold(0_i64, |total, group| {
+                total.saturating_add(
+                    ((no_skill * group.multiplier).floor() as i64)
+                        .saturating_mul(group.count as i64),
+                )
+            })
+            .clamp(i32::MIN as i64, i32::MAX as i64) as i32
+    }
+
+    pub fn groups(&self) -> &[AutoMultiplierGroup] {
+        &self.groups
+    }
+
+    pub(crate) fn lower_bound_stat(&self, target: u64) -> Option<i32> {
+        if target > i32::MAX as u64 {
+            return None;
+        }
+        let target = target as i32;
+        if target <= self.score(0) {
+            return Some(0);
+        }
+
+        let group_count = self
+            .groups
+            .iter()
+            .fold(0_usize, |count, group| count.saturating_add(group.count));
+        let estimated_no_skill = (target as u64)
+            .div_ceil(group_count.max(1) as u64)
+            .saturating_add(1);
+        let estimate = if self.base_factor.is_finite() && self.base_factor > 0.0 {
+            (estimated_no_skill as f64 / self.base_factor).ceil()
+        } else {
+            i32::MAX as f64
+        };
+        let mut high = estimate.clamp(1.0, i32::MAX as f64) as i32;
+        while self.score(high) < target {
+            if high == i32::MAX {
+                return None;
+            }
+            high = high.saturating_mul(2).max(high.saturating_add(1));
+        }
+
+        let mut low = 0_i32;
+        while low < high {
+            let middle = low + (high - low) / 2;
+            if self.score(middle) >= target {
+                high = middle;
+            } else {
+                low = middle + 1;
+            }
+        }
+        Some(low)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -96,6 +330,7 @@ pub struct Chart {
     pub score_as_medley: bool,
     pub warning: Vec<SkillWarning>,
     pub meta: ChartMeta,
+    score_rule: ScoreRule,
     score_factors: Vec<f64>,
 }
 
@@ -117,28 +352,292 @@ impl Chart {
             score_as_medley: false,
             warning: Vec::new(),
             meta: ChartMeta::default(),
+            score_rule: ScoreRule::STANDARD,
             score_factors: Vec::new(),
         }
     }
 
     pub fn init(&mut self, combo: i32, is_medley: bool) -> Result<(), ChartError> {
+        self.init_with_rule(combo, is_medley, ScoreRule::STANDARD)
+    }
+
+    pub fn init_auto(&mut self) -> Result<(), ChartError> {
+        self.init_with_rule(0, false, ScoreRule::AUTO)
+    }
+
+    pub fn init_auto_with_base_multiplier(
+        &mut self,
+        base_multiplier: f64,
+    ) -> Result<(), ChartError> {
+        self.init_with_rule(
+            0,
+            false,
+            ScoreRule::auto_with_base_multiplier(base_multiplier),
+        )
+    }
+
+    pub fn skill_node_count(&self) -> usize {
+        self.nodes
+            .iter()
+            .filter(|node| node.node_type == ChartNodeType::Skill)
+            .count()
+    }
+
+    pub(crate) fn score_range_skill_window_counts(
+        &self,
+        duration: f64,
+    ) -> Result<Option<ScoreRangeSkillWindowCounts>, ChartError> {
+        if self.count == 0 {
+            return Err(ChartError::EmptyChart);
+        }
+        if self.skill_node_count() != 6 {
+            return Ok(None);
+        }
+
+        #[derive(Clone, Copy)]
+        struct WindowEvent {
+            time: f64,
+            active_window: Option<usize>,
+        }
+
+        let mut inactive_nodes = 0_u32;
+        let mut active_nodes = [0_u32; 6];
+        let mut active_window = None;
+        let mut skill_count = 0_usize;
+        let mut events = VecDeque::<WindowEvent>::new();
+        let mut effective_starts = Vec::with_capacity(6);
+
+        for node in &self.nodes {
+            if events
+                .front()
+                .is_some_and(|event| sgn(node.time - event.time) > 0)
+            {
+                active_window = events
+                    .pop_front()
+                    .expect("front event exists")
+                    .active_window;
+            }
+
+            if let Some(window) = active_window {
+                active_nodes[window] = active_nodes[window].saturating_add(1);
+            } else {
+                inactive_nodes = inactive_nodes.saturating_add(1);
+            }
+
+            if node.node_type != ChartNodeType::Skill {
+                continue;
+            }
+
+            let window = skill_count;
+            skill_count += 1;
+            if !events.is_empty() {
+                let start_time = events.back().expect("back event exists").time + 0.75;
+                effective_starts.push(start_time);
+                events.push_back(WindowEvent {
+                    time: start_time,
+                    active_window: Some(window),
+                });
+                events.push_back(WindowEvent {
+                    time: start_time + duration + 1.0 / 30.0,
+                    active_window: None,
+                });
+            } else {
+                active_window = Some(window);
+                effective_starts.push(node.time);
+                events.push_back(WindowEvent {
+                    time: node.time + duration + 1.0 / 30.0,
+                    active_window: None,
+                });
+            }
+        }
+
+        let timeline = NonRateupTimeline {
+            active_count: active_nodes.into_iter().map(|count| count as usize).sum(),
+            effective_starts,
+        };
+        Ok(Some(ScoreRangeSkillWindowCounts {
+            inactive_nodes,
+            active_nodes,
+            tail_risk: self.timeline_has_skill_tail_risk(duration, &timeline),
+        }))
+    }
+
+    pub fn compressed_auto_score(
+        &self,
+        skill: TeamCardSkill,
+    ) -> Result<CompressedAutoScore, ChartError> {
+        let base_factor = *self.score_factors.first().ok_or(ChartError::EmptyChart)?;
+        if self
+            .score_factors
+            .iter()
+            .any(|factor| factor.to_bits() != base_factor.to_bits())
+        {
+            return Err(ChartError::NonUniformAutoBaseFactor);
+        }
+
+        let skill_order = [skill; 6];
+        let mut grouped = BTreeMap::<u64, AutoMultiplierGroup>::new();
+        self.for_each_multiplier_for_six_skills(&skill_order, |multiplier| {
+            grouped
+                .entry(multiplier.to_bits())
+                .and_modify(|group| group.count += 1)
+                .or_insert(AutoMultiplierGroup {
+                    multiplier,
+                    count: 1,
+                });
+        })?;
+        Ok(CompressedAutoScore {
+            base_factor,
+            groups: grouped.into_values().collect(),
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn non_rateup_auto_score_template(
+        &self,
+        duration: f64,
+    ) -> Result<NonRateupAutoScoreTemplate, ChartError> {
+        let base_factor = *self.score_factors.first().ok_or(ChartError::EmptyChart)?;
+        if self
+            .score_factors
+            .iter()
+            .any(|factor| factor.to_bits() != base_factor.to_bits())
+        {
+            return Err(ChartError::NonUniformAutoBaseFactor);
+        }
+        let (skill_indices, skill_count) = self.six_skill_indices()?;
+        self.non_rateup_auto_score_template_from_parts(
+            duration,
+            base_factor,
+            skill_indices,
+            skill_count,
+        )
+    }
+
+    #[cfg(test)]
+    fn non_rateup_auto_score_template_from_parts(
+        &self,
+        duration: f64,
+        base_factor: f64,
+        skill_indices: [usize; 6],
+        skill_count: u8,
+    ) -> Result<NonRateupAutoScoreTemplate, ChartError> {
+        let timeline = self.non_rateup_timeline_for_indices(
+            duration,
+            &skill_indices[..usize::from(skill_count)],
+        )?;
+        let tail_risk = self.timeline_has_skill_tail_risk(duration, &timeline);
+        Ok(NonRateupAutoScoreTemplate {
+            base_factor,
+            inactive_count: self.nodes.len().saturating_sub(timeline.active_count),
+            active_count: timeline.active_count,
+            tail_risk,
+        })
+    }
+
+    /// Returns the maximum per-node Auto base factor and node count for score upper bounds.
+    #[cfg(test)]
+    pub(crate) fn optimistic_auto_score_terms(&self) -> Result<(f64, usize), ChartError> {
+        let max_base_factor = self
+            .score_factors
+            .iter()
+            .copied()
+            .reduce(f64::max)
+            .ok_or(ChartError::EmptyChart)?;
+        Ok((max_base_factor, self.count))
+    }
+
+    /// Returns the minimum per-node Auto base factor and node count for score lower bounds.
+    #[cfg(test)]
+    pub(crate) fn pessimistic_auto_score_terms(&self) -> Result<(f64, usize), ChartError> {
+        let min_base_factor = self
+            .score_factors
+            .iter()
+            .copied()
+            .reduce(f64::min)
+            .ok_or(ChartError::EmptyChart)?;
+        Ok((min_base_factor, self.count))
+    }
+
+    /// Treats every node as if it had both maximum base factor and maximum skill multiplier.
+    pub(crate) fn optimistic_auto_score_from_terms(
+        terms: (f64, usize),
+        stat: i32,
+        max_multiplier: f64,
+    ) -> i32 {
+        let (max_base_factor, count) = terms;
+        let no_skill = (stat.max(0) as f64 * max_base_factor).floor();
+        let per_node = (no_skill * max_multiplier.max(1.0)).ceil() as i64;
+        per_node
+            .saturating_mul(count as i64)
+            .clamp(0, i32::MAX as i64) as i32
+    }
+
+    /// Treats every node as if it had both minimum base factor and minimum skill multiplier.
+    pub(crate) fn pessimistic_auto_score_from_terms(
+        terms: (f64, usize),
+        stat: i32,
+        min_multiplier: f64,
+    ) -> i32 {
+        let (min_base_factor, count) = terms;
+        let no_skill = (stat.max(0) as f64 * min_base_factor).floor();
+        let per_node = (no_skill * min_multiplier.clamp(0.0, 1.0)).floor() as i64;
+        per_node
+            .saturating_mul(count as i64)
+            .clamp(0, i32::MAX as i64) as i32
+    }
+
+    /// Returns true when a scoring node lies in the uncertain tail between 1/120 and 1/30
+    /// seconds after the nominal skill duration. Effective starts follow the same queued skill
+    /// scheduling as exact scoring.
+    pub fn has_skill_tail_risk(&self, duration: f64) -> Result<bool, ChartError> {
+        let timeline = self.non_rateup_timeline(duration)?;
+        Ok(self.timeline_has_skill_tail_risk(duration, &timeline))
+    }
+
+    fn timeline_has_skill_tail_risk(&self, duration: f64, timeline: &NonRateupTimeline) -> bool {
+        const TAIL_START: f64 = 1.0 / 120.0;
+        const TAIL_END: f64 = 1.0 / 30.0;
+
+        timeline.effective_starts.iter().any(|&start| {
+            let lower = start + duration + TAIL_START;
+            let upper = start + duration + TAIL_END;
+            let first = self
+                .nodes
+                .partition_point(|node| sgn(node.time - lower) < 0);
+            self.nodes
+                .get(first)
+                .is_some_and(|node| sgn(node.time - upper) <= 0)
+        })
+    }
+
+    pub fn init_with_rule(
+        &mut self,
+        combo: i32,
+        is_medley: bool,
+        score_rule: ScoreRule,
+    ) -> Result<(), ChartError> {
         if self.count == 0 {
             return Err(ChartError::EmptyChart);
         }
 
+        sort_nodes(&mut self.nodes, score_rule.simultaneous_skill_order);
         self.combo = combo;
         self.score_as_medley = is_medley;
+        self.score_rule = score_rule;
         self.warning.clear();
         self.meta = ChartMeta::default();
         self.score_factors.clear();
         self.score_factors.reserve(self.nodes.len());
 
         let mut combo_cursor = combo;
-        let base = 3.0 * (1.0 + 0.01 * (self.level as f64 - 5.0)) / self.count as f64 * 1.1;
+        let base = 3.0 * (1.0 + 0.01 * (self.level as f64 - 5.0)) / self.count as f64;
 
         for (node_idx, node) in self.nodes.iter().enumerate() {
             combo_cursor += 1;
-            let score_factor = base * get_combo_mod(combo_cursor, is_medley);
+            let score_factor = base
+                * score_rule.base_multiplier
+                * combo_mod(combo_cursor, is_medley, score_rule.combo_mode);
             self.score_factors.push(score_factor);
             self.meta.no_skill += score_factor;
 
@@ -155,7 +654,9 @@ impl Chart {
                         break;
                     }
                     temp_combo += 1;
-                    value += base * get_combo_mod(temp_combo, is_medley);
+                    value += base
+                        * score_rule.base_multiplier
+                        * combo_mod(temp_combo, is_medley, score_rule.combo_mode);
                 }
                 skill.insert(duration_key(duration), value);
             }
@@ -174,7 +675,11 @@ impl Chart {
                         break;
                     }
                     temp_combo += 1;
-                    value += base * get_combo_mod(temp_combo, is_medley) * skill_mod / 200.0;
+                    value += base
+                        * score_rule.base_multiplier
+                        * combo_mod(temp_combo, is_medley, score_rule.combo_mode)
+                        * skill_mod
+                        / 200.0;
                 }
                 rateup_skill.insert(duration_key(duration), value);
             }
@@ -440,6 +945,185 @@ impl Chart {
         self.get_score_for_six_skills_scalar(skill_order, stat, is_medley)
     }
 
+    fn for_each_multiplier_for_six_skills(
+        &self,
+        skill_order: &[TeamCardSkill; 6],
+        mut visit: impl FnMut(f64),
+    ) -> Result<(), ChartError> {
+        if self.count == 0 {
+            return Err(ChartError::EmptyChart);
+        }
+
+        let mut skill_count = 0usize;
+        let mut skill_mod = 1.0;
+        let mut rateup = false;
+        let mut events: VecDeque<SkillEvent> = VecDeque::new();
+
+        for node in &self.nodes {
+            if events
+                .front()
+                .map(|event| sgn(node.time - event.time) > 0)
+                .unwrap_or(false)
+            {
+                let event = events.pop_front().expect("front event exists");
+                skill_mod = event.skill_mod;
+                rateup = event.rateup;
+            }
+
+            if rateup && sgn(skill_mod - 2.5) < 0 {
+                skill_mod += 0.005;
+            }
+            visit(skill_mod);
+
+            if node.node_type != ChartNodeType::Skill {
+                continue;
+            }
+            let skill =
+                skill_order
+                    .get(skill_count)
+                    .copied()
+                    .ok_or(ChartError::MissingSkillProfile {
+                        activation: skill_count,
+                    })?;
+
+            if !events.is_empty() {
+                let start_time = events.back().expect("back event exists").time + 0.75;
+                events.push_back(SkillEvent {
+                    time: start_time,
+                    skill_mod: 1.0 + skill.score_up,
+                    rateup: skill.rateup,
+                });
+                events.push_back(SkillEvent {
+                    time: start_time + skill.duration + 1.0 / 30.0,
+                    skill_mod: 1.0,
+                    rateup: false,
+                });
+            } else {
+                skill_mod = 1.0 + skill.score_up;
+                rateup = skill.rateup;
+                events.push_back(SkillEvent {
+                    time: node.time + skill.duration + 1.0 / 30.0,
+                    skill_mod: 1.0,
+                    rateup: false,
+                });
+            }
+            skill_count += 1;
+        }
+        Ok(())
+    }
+
+    fn non_rateup_timeline(&self, duration: f64) -> Result<NonRateupTimeline, ChartError> {
+        if self.count == 0 {
+            return Err(ChartError::EmptyChart);
+        }
+
+        let (skill_indices, skill_count) = self.six_skill_indices()?;
+        self.non_rateup_timeline_for_indices(duration, &skill_indices[..usize::from(skill_count)])
+    }
+
+    fn six_skill_indices(&self) -> Result<([usize; 6], u8), ChartError> {
+        let mut skill_indices = [0_usize; 6];
+        let mut skill_count = 0_usize;
+        for (index, node) in self.nodes.iter().enumerate() {
+            if node.node_type != ChartNodeType::Skill {
+                continue;
+            }
+            let Some(slot) = skill_indices.get_mut(skill_count) else {
+                return Err(ChartError::MissingSkillProfile {
+                    activation: skill_count,
+                });
+            };
+            *slot = index;
+            skill_count += 1;
+        }
+        Ok((skill_indices, skill_count as u8))
+    }
+
+    fn non_rateup_timeline_for_indices(
+        &self,
+        duration: f64,
+        skill_indices: &[usize],
+    ) -> Result<NonRateupTimeline, ChartError> {
+        if self.count == 0 {
+            return Err(ChartError::EmptyChart);
+        }
+
+        let mut effective_starts = Vec::with_capacity(skill_indices.len());
+        let mut events: VecDeque<SkillEvent> = VecDeque::new();
+        let mut next_skill = 0_usize;
+        let mut event_min_index = 0_usize;
+        let mut active_start = None;
+        let mut active_count = 0_usize;
+
+        loop {
+            let next_skill_index = skill_indices.get(next_skill).copied();
+            let next_event_index = events.front().and_then(|event| {
+                let index = self
+                    .nodes
+                    .partition_point(|node| sgn(node.time - event.time) <= 0)
+                    .max(event_min_index);
+                (index < self.nodes.len()).then_some(index)
+            });
+
+            if next_event_index.is_some_and(|event_index| {
+                next_skill_index.is_none_or(|skill_index| event_index <= skill_index)
+            }) {
+                let event_index = next_event_index.expect("event index was checked above");
+                let event = events.pop_front().expect("front event exists");
+                let becomes_active = event.skill_mod.to_bits() != 1.0_f64.to_bits();
+                match (active_start, becomes_active) {
+                    (Some(start), false) => {
+                        active_count = active_count.saturating_add(event_index - start);
+                        active_start = None;
+                    }
+                    (None, true) => active_start = Some(event_index),
+                    _ => {}
+                }
+                event_min_index = event_index.saturating_add(1);
+                continue;
+            }
+
+            let Some(skill_index) = next_skill_index else {
+                break;
+            };
+            next_skill += 1;
+            let node = &self.nodes[skill_index];
+            if events.is_empty() {
+                effective_starts.push(node.time);
+                if active_start.is_none() {
+                    active_start = Some(skill_index.saturating_add(1));
+                }
+                events.push_back(SkillEvent {
+                    time: node.time + duration + 1.0 / 30.0,
+                    skill_mod: 1.0,
+                    rateup: false,
+                });
+                event_min_index = skill_index.saturating_add(1);
+            } else {
+                let start_time = events.back().expect("back event exists").time + 0.75;
+                effective_starts.push(start_time);
+                events.push_back(SkillEvent {
+                    time: start_time,
+                    skill_mod: 2.0,
+                    rateup: false,
+                });
+                events.push_back(SkillEvent {
+                    time: start_time + duration + 1.0 / 30.0,
+                    skill_mod: 1.0,
+                    rateup: false,
+                });
+            }
+        }
+
+        if let Some(start) = active_start {
+            active_count = active_count.saturating_add(self.nodes.len().saturating_sub(start));
+        }
+        Ok(NonRateupTimeline {
+            active_count,
+            effective_starts,
+        })
+    }
+
     fn get_score_for_six_skills_scalar(
         &self,
         skill_order: &[TeamCardSkill; 6],
@@ -663,7 +1347,7 @@ impl Chart {
             }
         }
 
-        base_score(base, combo, is_medley)
+        base_score(base, combo, is_medley, self.score_rule)
     }
 }
 
@@ -787,8 +1471,15 @@ pub fn get_combo_mod(combo: i32, is_medley: bool) -> f64 {
     1.34
 }
 
-fn base_score(base: f64, combo: i32, is_medley: bool) -> f64 {
-    (base * get_combo_mod(combo, is_medley) * 1.1).floor()
+fn combo_mod(combo: i32, is_medley: bool, combo_mode: ComboMode) -> f64 {
+    match combo_mode {
+        ComboMode::Standard => get_combo_mod(combo, is_medley),
+        ComboMode::None => 1.0,
+    }
+}
+
+fn base_score(base: f64, combo: i32, is_medley: bool, score_rule: ScoreRule) -> f64 {
+    (base * combo_mod(combo, is_medley, score_rule.combo_mode) * score_rule.base_multiplier).floor()
 }
 
 fn div_ceil(value: i32, divisor: i32) -> i32 {
@@ -804,6 +1495,20 @@ fn node_sort_value(node_type: ChartNodeType) -> i32 {
         ChartNodeType::Skill => 0,
         ChartNodeType::Node => 1,
     }
+}
+
+fn sort_nodes(nodes: &mut [ChartNode], simultaneous_skill_order: SimultaneousSkillOrder) {
+    nodes.sort_by(|a, b| {
+        let time_order = sgn(a.time - b.time);
+        if time_order != 0 {
+            return time_order.cmp(&0);
+        }
+        let value = |node_type| match simultaneous_skill_order {
+            SimultaneousSkillOrder::BeforeNotes => node_sort_value(node_type),
+            SimultaneousSkillOrder::AfterNotes => -node_sort_value(node_type),
+        };
+        value(a.node_type).cmp(&value(b.node_type))
+    });
 }
 
 fn sgn(value: f64) -> i32 {
@@ -867,6 +1572,49 @@ mod tests {
             chart.skill_delta_at_stat(0, skill(1, 1.0), 1000).unwrap(),
             1650.0
         );
+    }
+
+    #[test]
+    fn auto_rule_uses_half_multiplier_without_combo_bonus() {
+        let mut chart = Chart::new(
+            5,
+            (0..4)
+                .map(|index| ChartNode {
+                    node_type: ChartNodeType::Node,
+                    time: index as f64,
+                })
+                .collect(),
+        );
+        chart.init_auto().unwrap();
+
+        assert_eq!(chart.no_skill_score_at_stat(1000).unwrap(), 1500.0);
+        assert_eq!(chart.get_score(&[], 1000, false).unwrap(), 1500);
+    }
+
+    #[test]
+    fn auto_rule_applies_simultaneous_skill_after_other_notes() {
+        let mut chart = Chart::new(
+            5,
+            vec![
+                ChartNode {
+                    node_type: ChartNodeType::Skill,
+                    time: 0.0,
+                },
+                ChartNode {
+                    node_type: ChartNodeType::Node,
+                    time: 0.0,
+                },
+                ChartNode {
+                    node_type: ChartNodeType::Node,
+                    time: 1.0,
+                },
+            ],
+        );
+        chart.init_auto().unwrap();
+
+        assert_eq!(chart.nodes[0].node_type, ChartNodeType::Node);
+        assert_eq!(chart.nodes[1].node_type, ChartNodeType::Skill);
+        assert_eq!(chart.get_score(&[skill(1, 1.0)], 900, false).unwrap(), 1800);
     }
 
     #[test]
@@ -936,6 +1684,136 @@ mod tests {
                 .get_score_for_six_skills(&skills, 12345, true)
                 .unwrap()
         );
+    }
+
+    #[test]
+    fn compressed_auto_score_matches_exact_six_skill_path() {
+        let mut nodes = Vec::new();
+        for activation in 0..6 {
+            nodes.push(ChartNode {
+                time: activation as f64 * 12.0,
+                node_type: ChartNodeType::Skill,
+            });
+            for offset in [0.5, 1.0, 2.0, 4.0, 6.0] {
+                nodes.push(ChartNode {
+                    time: activation as f64 * 12.0 + offset,
+                    node_type: ChartNodeType::Node,
+                });
+            }
+        }
+        let mut chart = Chart::new(27, nodes);
+        chart.init_auto_with_base_multiplier(0.75).unwrap();
+
+        let mut rateup = skill(1, 1.0);
+        rateup.duration = 7.0;
+        rateup.rateup = true;
+        for skill in [skill(7, 1.2), rateup] {
+            let compressed = chart.compressed_auto_score(skill).unwrap();
+            let template = chart
+                .non_rateup_auto_score_template(skill.duration)
+                .unwrap();
+            let templated = (!skill.rateup).then(|| template.with_score_up(skill.score_up));
+            assert_eq!(
+                template.has_skill_tail_risk(),
+                chart.has_skill_tail_risk(skill.duration).unwrap()
+            );
+            for stat in [1, 12_345, 100_000, 543_210] {
+                assert_eq!(
+                    compressed.score(stat),
+                    chart
+                        .get_score_for_six_skills(&[skill; 6], stat, false)
+                        .unwrap(),
+                );
+                assert!(
+                    compressed.score(stat)
+                        <= Chart::optimistic_auto_score_from_terms(
+                            chart.optimistic_auto_score_terms().unwrap(),
+                            stat,
+                            2.51,
+                        )
+                );
+                if let Some(templated) = &templated {
+                    assert_eq!(templated.score(stat), compressed.score(stat));
+                }
+                if !skill.rateup {
+                    assert_eq!(template.score(stat, skill.score_up), compressed.score(stat));
+                } else {
+                    assert!(template.score(stat, skill.score_up) <= compressed.score(stat));
+                    assert!(compressed.score(stat) <= template.score(stat, 1.51));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn non_rateup_template_matches_queued_skill_timeline() {
+        let mut nodes = Vec::new();
+        for step in 0..120 {
+            nodes.push(ChartNode {
+                time: step as f64 * 0.25,
+                node_type: if step < 18 && step % 3 == 0 {
+                    ChartNodeType::Skill
+                } else {
+                    ChartNodeType::Node
+                },
+            });
+        }
+        let mut chart = Chart::new(25, nodes);
+        chart.init_auto_with_base_multiplier(0.75).unwrap();
+
+        for duration in [0.0, 0.5, 1.0, 2.25, 5.0, 7.5] {
+            let mut skill = skill(1, 1.3);
+            skill.duration = duration;
+            let template = chart
+                .non_rateup_auto_score_template(skill.duration)
+                .unwrap();
+            let compressed = chart.compressed_auto_score(skill).unwrap();
+            assert_eq!(
+                template.has_skill_tail_risk(),
+                chart.has_skill_tail_risk(skill.duration).unwrap()
+            );
+
+            for stat in [1, 12_345, 100_000, 543_210] {
+                assert_eq!(template.score(stat, skill.score_up), compressed.score(stat));
+
+                let mut rateup = skill;
+                rateup.score_up = 1.0;
+                rateup.rateup = true;
+                let rateup_score = chart.compressed_auto_score(rateup).unwrap().score(stat);
+                assert!(template.score(stat, rateup.score_up) <= rateup_score);
+                assert!(rateup_score <= template.score(stat, 1.51));
+            }
+        }
+    }
+
+    #[test]
+    fn skill_tail_risk_uses_closed_conservative_window() {
+        let duration = 5.0;
+        let mut risky_nodes = (0..6)
+            .map(|activation| ChartNode {
+                time: activation as f64 * 20.0,
+                node_type: ChartNodeType::Skill,
+            })
+            .collect::<Vec<_>>();
+        risky_nodes.push(ChartNode {
+            time: duration + 1.0 / 120.0,
+            node_type: ChartNodeType::Node,
+        });
+        let risky = Chart::new(20, risky_nodes);
+        assert!(risky.has_skill_tail_risk(duration).unwrap());
+
+        let mut safe_nodes = (0..6)
+            .map(|activation| ChartNode {
+                time: activation as f64 * 20.0,
+                node_type: ChartNodeType::Skill,
+            })
+            .collect::<Vec<_>>();
+        safe_nodes.push(ChartNode {
+            time: duration + 0.05,
+            node_type: ChartNodeType::Node,
+        });
+        let safe = Chart::new(20, safe_nodes);
+        assert!(!safe.has_skill_tail_risk(duration).unwrap());
     }
 
     #[test]

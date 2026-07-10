@@ -1,5 +1,6 @@
-import { confirmDialog } from '../ui/confirm.js?v=2';
-import { copyTextToClipboard } from '../ui/clipboard.js?v=2';
+import { confirmDialog } from '../ui/confirm.js?v=3';
+import { copyTextToClipboard } from '../ui/clipboard.js?v=3';
+import { totalFireCost } from '../utils.js?v=3';
 
 export function createCalculationActions({
   state,
@@ -26,7 +27,7 @@ export function createCalculationActions({
   persistResultCache,
   clearPersistedResultCache,
 }) {
-  const RESULT_CACHE_KEY_VERSION = 2;
+  const RESULT_CACHE_KEY_VERSION = 4;
   const calculateButton = elements.calculateButton;
   const calculateButtons = Array.from(elements.calculateButtons || []);
   const calculateButtonLabel = calculateButton?.querySelector('.button-label');
@@ -58,7 +59,9 @@ export function createCalculationActions({
     const serialized = cloneJson({
       cacheVersion: RESULT_CACHE_KEY_VERSION,
       server: player.server,
+      calculationMode: player.calculationMode,
       activityMode: player.activityMode,
+      scoreRange: player.scoreRange,
       eventId,
       eventSearch: player.eventSearch,
       currentEvent: player.currentEvent,
@@ -100,10 +103,16 @@ export function createCalculationActions({
       createdAt: Date.now(),
       accessedAt: Date.now(),
       server: player.server,
+      calculationMode: player.calculationMode,
       activityMode: player.activityMode,
       totalScore: safeNumber(result?.totalScore),
-      totalStat: safeNumber(result?.totalStat),
-      songCount: safeInteger(result?.songs?.length),
+      totalStat: safeNumber(result?.totalStat ?? result?.[0]?.totalStat),
+      songCount: safeInteger(result?.songs?.length ?? result?.[0]?.distinctSongCount),
+      targetDeltaPt: safeNumber(result?.[0]?.targetDeltaPt),
+      playCount: safeInteger(result?.[0]?.playCount),
+      totalFireCost: Array.isArray(result)
+        ? safeInteger(result[0]?.totalFireCost) ?? totalFireCost(result[0]?.plays)
+        : undefined,
     });
     if (nextCache.length > cacheLimit) {
       nextCache.length = cacheLimit;
@@ -136,6 +145,16 @@ export function createCalculationActions({
     activatePage('result');
   }
 
+  function applyFailureDiagnostic(diagnostic) {
+    elements.result.textContent = JSON.stringify(diagnostic, null, 2);
+    renderResultSummary(null, { diagnostic });
+    renderMetrics(null);
+    state.lastDiagnostic = diagnostic;
+    state.activeResultCacheKey = null;
+    renderResultCachePanel(null);
+    activatePage('result');
+  }
+
   async function handleCalculate(event) {
     event.preventDefault();
     if (isCalculating) {
@@ -154,6 +173,7 @@ export function createCalculationActions({
       setStatus('同步数据');
       const player = readPlayer();
       applyEventInputToPlayer(player);
+      applyScoreRangeInputToPlayer(player);
       const eventId = readCurrentEventId(player, readOptionalInteger(elements.eventId.value));
       const core = await ensureCore({ refreshManifest: true });
       normalizeCurrentActivityForMode(player);
@@ -171,14 +191,38 @@ export function createCalculationActions({
         return;
       }
 
+      const scoreRangeRequest = player.calculationMode === 'scoreRange'
+        ? readScoreRangeRequest()
+        : undefined;
       setStatus('计算中');
-      const result = await state.runtime.calculate({
-        player,
-        server: player.server,
-        eventId,
-        options: {},
-        core,
-      });
+      let result;
+      try {
+        result = player.calculationMode === 'scoreRange'
+          ? await calculateScoreRange({
+            player,
+            eventId,
+            core,
+            request: scoreRangeRequest,
+          })
+          : await state.runtime.calculate({
+            player,
+            server: player.server,
+            eventId,
+            options: {},
+            core,
+          });
+      } catch (error) {
+        const diagnostic = await buildDiagnostic({
+          player,
+          server: player.server,
+          eventId,
+          error,
+          phase: 'calculation',
+        });
+        applyFailureDiagnostic(diagnostic);
+        setStatus('计算失败，已生成诊断');
+        return;
+      }
       const diagnostic = await buildDiagnostic({
         player,
         server: player.server,
@@ -201,8 +245,110 @@ export function createCalculationActions({
     }
   }
 
+  async function calculateScoreRange({ player, eventId, core, request }) {
+    if (typeof state.runtime.scoreRange !== 'function') {
+      throw new Error('当前运行时不支持目标 PT 搜索');
+    }
+    return state.runtime.scoreRange({
+      player,
+      server: player.server,
+      eventId,
+      request,
+      core,
+    });
+  }
+
+  function applyScoreRangeInputToPlayer(player) {
+    player.scoreRange = readScoreRangeForm({ strict: false });
+  }
+
+  function readScoreRangeRequest() {
+    const request = readScoreRangeForm({ strict: true });
+    if (request.targetTotalPt <= request.currentPt) {
+      throw new Error('目标总 PT 必须大于当前 PT');
+    }
+    if (
+      elements.scoreRangeMissionSupportPt.required
+      && request.missionSupportPtBonus == null
+    ) {
+      throw new Error('Mission Live 必须填写支援 PT 加成');
+    }
+    return request;
+  }
+
+  function readScoreRangeForm({ strict }) {
+    const currentPt = readFormInteger(
+      elements.scoreRangeCurrentPt,
+      '当前 PT',
+      { fallback: 0, strict },
+    );
+    const targetTotalPt = readFormInteger(
+      elements.scoreRangeTargetTotalPt,
+      '目标总 PT',
+      { fallback: 0, strict },
+    );
+    const autoBaseMultiplier = Number(elements.scoreRangeAutoBaseMultiplier?.value);
+    if (![0.5, 0.75].includes(autoBaseMultiplier)) {
+      throw new Error('Auto 倍率必须为 0.5 或 0.75');
+    }
+    const missionSupportPtBonus = readFormInteger(
+      elements.scoreRangeMissionSupportPt,
+      '支援 PT 加成',
+      { optional: true, strict },
+    );
+    return {
+      eventType: 'festival',
+      currentPt,
+      targetTotalPt,
+      autoBaseMultiplier,
+      missionSupportPtBonus,
+      maxResults: 1,
+    };
+  }
+
+  function readFormInteger(input, label, {
+    fallback,
+    optional = false,
+    strict = true,
+  } = {}) {
+    const value = String(input?.value ?? '').trim();
+    if (!value) {
+      if (optional) {
+        return undefined;
+      }
+      if (!strict) {
+        return fallback;
+      }
+      throw new Error(`${label}不能为空`);
+    }
+    if (!/^\d+$/.test(value)) {
+      if (!strict) {
+        return fallback;
+      }
+      throw new Error(`${label}需为非负整数`);
+    }
+    const number = Number(value);
+    if (!Number.isSafeInteger(number) || number < 0) {
+      if (!strict) {
+        return fallback;
+      }
+      throw new Error(`${label}需为非负整数`);
+    }
+    return number;
+  }
+
+  function handleScoreRangeInputChange() {
+    try {
+      const player = readPlayer();
+      applyScoreRangeInputToPlayer(player);
+      writePlayer(player);
+    } catch (error) {
+      setError(error);
+    }
+  }
+
   async function handleResultCacheAction(event) {
-    const button = event.target.closest('[data-result-cache-action="restore"]');
+    const button = event.target.closest('[data-result-cache-action]');
     if (!button) {
       return;
     }
@@ -211,7 +357,11 @@ export function createCalculationActions({
       return;
     }
     event.preventDefault();
-    await handleRestoreResultCache(cacheKey);
+    if (button.dataset.resultCacheAction === 'restore') {
+      await handleRestoreResultCache(cacheKey);
+    } else if (button.dataset.resultCacheAction === 'delete') {
+      await handleDeleteResultCache(cacheKey);
+    }
   }
 
   async function handleRestoreResultCache(cacheKey) {
@@ -225,6 +375,34 @@ export function createCalculationActions({
       applyResult(cached.result, cached.diagnostic, cacheKey);
       renderResultCachePanel(cacheKey);
       setStatus('已恢复结果缓存');
+    } catch (error) {
+      setError(error);
+    }
+  }
+
+  async function handleDeleteResultCache(cacheKey) {
+    try {
+      const cached = getCachedResult(cacheKey);
+      if (!cached) {
+        setStatus('结果缓存未找到');
+        return;
+      }
+      const confirmed = await confirmDialog({
+        title: '删除结果缓存',
+        lines: [`将删除“${cached.eventLabel || '所选活动'}”的这条结果缓存。`],
+        confirmText: '确认删除',
+        danger: true,
+      });
+      if (!confirmed) {
+        return;
+      }
+      state.resultCache = (state.resultCache || [])
+        .filter((entry) => entry.key !== cacheKey);
+      if (state.activeResultCacheKey === cacheKey) {
+        state.activeResultCacheKey = null;
+      }
+      await persistResultCacheState(state.activeResultCacheKey);
+      setStatus('已删除结果缓存');
     } catch (error) {
       setError(error);
     }
@@ -266,9 +444,19 @@ export function createCalculationActions({
       if (!state.lastDiagnostic) {
         throw new Error('还没有可复制的 score_check 数据');
       }
-      const payload = scoreCheckPayloadFromDiagnostic(state.lastDiagnostic);
+      const isFailure = state.lastDiagnostic.status === 'failed'
+        || state.lastDiagnostic.error != null;
+      const payload = isFailure
+        ? state.lastDiagnostic
+        : Array.isArray(state.lastDiagnostic.result)
+          ? state.lastDiagnostic.result
+          : scoreCheckPayloadFromDiagnostic(state.lastDiagnostic);
       await copyTextToClipboard(JSON.stringify(payload, null, 2));
-      setStatus('score_check JSON 已复制');
+      setStatus(isFailure
+        ? '诊断 JSON 已复制'
+        : Array.isArray(state.lastDiagnostic.result)
+          ? '方案 JSON 已复制'
+          : 'score_check JSON 已复制');
     } catch (error) {
       setError(error);
     }
@@ -320,6 +508,7 @@ export function createCalculationActions({
     handleExportDiagnostics,
     handleResultCacheAction,
     handleClearResultCache,
+    handleScoreRangeInputChange,
   };
 }
 

@@ -14,15 +14,23 @@ Web 启动时读取 `apps/web/config.js`。
 默认指向同源 `/game-data`。
 本地运行时 `./scripts/run-web.sh` 会服务 `apps/web`，并将 `/game-data` 映射到 `var/game-data`。
 后端在 3100 端口同样提供其 `/game-data`，来源于同一镜像。
-用户计算或需要参考数据时，浏览器会读取配置的镜像。
+最高得分计算或需要参考数据时，浏览器会读取配置的镜像。
+目标 PT 搜索按需同步 `api/scoreRangeChartMeta.1.json`，并使用界面选择的 `0.5/0.75` Auto
+倍率在 Web Worker 中由 WASM 本地计算；
+该文件只保存各技能时长下的激活/未激活节点数和尾部风险，不包含服务器可用性。
+活动选择器同时列出受支持的单曲与组曲活动，并根据所选活动自动确定歌曲数量。
+目标 PT 搜索固定只请求首个全局最优方案。
+服务器与浏览器都从 `api/songs/all.7.json` 判断歌曲和难度是否已在目标服务器发布。
+桌面端通过 Tauri 原生命令读取同一模板文件。
 计算时还会在 `api/cards/all.5.json` 中缺少选中卡片等级时同步
 `api/cards/{cardId}.json`。
 用户配置存储在 IndexedDB。
 JSON 编辑器仅用于直接编辑当前 schema。
 
 计算结果可含可选 `metrics`。
-一次成功计算后，UI 可导出诊断 JSON，包括当前玩家配置、结果、metrics、运行时类型，
-若为桌面模式还会附带桌面数据/缓存路径与引用数据计数。
+计算成功后，UI 可导出包含当前玩家配置、结果、metrics 和运行时类型的诊断 JSON。
+计算执行失败时会进入结果页，并生成包含错误信息与调用栈的失败诊断；若为桌面模式，
+诊断还会附带桌面数据/缓存路径与引用数据计数。
 该导出为手动操作，仅用于内部测试。
 
 ## 构建 WASM
@@ -65,20 +73,28 @@ cargo run -p bangdream-optimize-sync-bestdori -- \
   --retries 2
 ```
 
+已有完整谱面目录时，可不联网重建目标 PT 模板及 manifest：
+
+```bash
+cargo run -p bangdream-optimize-sync-bestdori -- \
+  --out var/game-data \
+  --generate-score-range-meta-only
+```
+
 ## 运行服务
 
 服务 `apps/web/` 静态文件。直接打开 `index.html` 不稳定，因浏览器模块、WASM 与 fetch 需要 HTTP 来源。
 
-先启动后端（3100）：
-
-```bash
-./scripts/run-server.sh
-```
-
-再启动 Web（8080）：
+仅使用本地计算时直接启动 Web：
 
 ```bash
 ./scripts/run-web.sh
+```
+
+需要账号导入 API 或由后端托管 `/game-data` 时，再启动后端：
+
+```bash
+./scripts/run-server.sh
 ```
 
 然后打开 `http://127.0.0.1:8080`。
@@ -98,7 +114,7 @@ globalThis.BANGDREAM_OPTIMIZE_CONFIG = {
 };
 ```
 
-本地开发时保持端口分离可用：
+仓库默认在 `127.0.0.1:8080` 自动连接 `127.0.0.1:3100`。其他跨端口开发环境可显式配置：
 
 ```js
 globalThis.BANGDREAM_OPTIMIZE_CONFIG = {
@@ -142,4 +158,4 @@ server {
 上线注意：
 - 前端配置为 `gameDataBaseUrl: '/game-data'`，`apiBaseUrl: ''`，确保请求为同源，不写死 `127.0.0.1`。
 - 国服游戏账号导入启用时，保留 `/bangdream/user-data/import` 到后端的反代。
-- 前端计算不需要 `/v1`；仅在需要对外暴露后端计算 API 时额外配置 `/v1` 反代。
+- 最高得分与目标 PT 搜索均在本地 WASM 中执行，不需要 `/v1` 计算路由。

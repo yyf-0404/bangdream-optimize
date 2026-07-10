@@ -55,11 +55,20 @@ pub(crate) struct RawCandidateBuildRequest<'a> {
 pub fn calculate_from_candidates(
     request: CandidateBuildRequest,
 ) -> Result<BuildResult, BuildError> {
+    if matches!(
+        request.event_type,
+        EventType::Festival | EventType::LiveTry | EventType::MissionLive
+    ) {
+        return Err(BuildError::UnsupportedEventType {
+            event_type: request.event_type.as_str().to_owned(),
+        });
+    }
     validate_candidates(&request)?;
 
     match request.event_type {
         EventType::Medley => calculate_medley(request),
         EventType::Versus | EventType::Challenge => calculate_single_team(request),
+        EventType::Festival | EventType::LiveTry | EventType::MissionLive => unreachable!(),
     }
 }
 
@@ -515,5 +524,21 @@ mod tests {
         assert_eq!(result.total_score, 300);
         assert_eq!(result.total_stat, 6000);
         assert_eq!(result.songs.len(), 3);
+    }
+
+    #[test]
+    fn rejects_festival_candidates_until_fever_is_implemented() {
+        let error = calculate_from_candidates(CandidateBuildRequest {
+            event_id: 100,
+            event_type: EventType::Festival,
+            song_list: Vec::new(),
+            candidates: Vec::new(),
+            current_best: 0,
+            solver_preference: None,
+            items: None,
+        })
+        .unwrap_err();
+
+        assert!(matches!(error, BuildError::UnsupportedEventType { .. }));
     }
 }

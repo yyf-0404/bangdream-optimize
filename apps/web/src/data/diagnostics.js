@@ -3,17 +3,20 @@ export function createDiagnostics({
   getCore,
   appendLog,
 }) {
-  async function buildDiagnostic({ player, server, eventId, result }) {
+  async function buildDiagnostic({ player, server, eventId, result, error, phase }) {
     const runtimeInfo = await readRuntimeInfo();
     const core = getCore();
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       generatedAt: new Date().toISOString(),
+      status: error == null ? 'success' : 'failed',
+      phase: phase ?? (error == null ? 'completed' : 'calculation'),
       runtime: getRuntime()?.kind ?? runtimeInfo?.runtime ?? 'unknown',
       runtimeInfo,
       server,
       eventId: eventId ?? player.currentEvent ?? null,
-      result: cloneJson(result),
+      ...(result === undefined ? {} : { result: cloneJson(result) }),
+      ...(error == null ? {} : { error: serializeError(error) }),
       player: cloneJson(player),
       gameData: {
         cachedCore: Boolean(core),
@@ -44,6 +47,23 @@ export function createDiagnostics({
 
 function cloneJson(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
+function serializeError(error) {
+  const diagnostic = {
+    name: typeof error?.name === 'string' && error.name ? error.name : 'Error',
+    message: error?.message ?? String(error),
+  };
+  if (typeof error?.stack === 'string' && error.stack) {
+    diagnostic.stack = error.stack;
+  }
+  if (typeof error?.executionContext === 'string' && error.executionContext) {
+    diagnostic.executionContext = error.executionContext;
+  }
+  if (error?.cause != null) {
+    diagnostic.cause = error.cause?.message ?? String(error.cause);
+  }
+  return diagnostic;
 }
 
 export function diagnosticFileName(diagnostic) {

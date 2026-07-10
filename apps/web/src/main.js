@@ -1,84 +1,87 @@
-import { createRuntime } from './runtime/index.js?v=2';
-import { characterIconUrls } from './assets/index.js?v=2';
+import { createRuntime } from './runtime/index.js?v=3';
+import { characterIconUrls } from './assets/index.js?v=3';
 import {
   areaItemGroupIconUrls,
   createAreaItemHelpers,
   formatAreaItemRate,
-} from './domain/area.js?v=2';
-import { attributeSwatch } from './ui/attribute.js?v=2';
-import { createActivityActions } from './actions/activity.js?v=2';
-import { createAppLifecycle } from './app/lifecycle.js?v=2';
-import { createInitialState } from './app/state.js?v=2';
+} from './domain/area.js?v=3';
+import { attributeSwatch } from './ui/attribute.js?v=3';
+import { createActivityActions } from './actions/activity.js?v=3';
+import { createAppLifecycle } from './app/lifecycle.js?v=3';
+import { createInitialState } from './app/state.js?v=3';
 import {
   createBestdoriProfileImporter,
   parseBestdoriProfileExport,
-} from './data/bestdori.js?v=2';
-import { createCalculationActions } from './actions/calculation.js?v=2';
+} from './data/bestdori.js?v=3';
+import { createCalculationActions } from './actions/calculation.js?v=3';
 import {
   characterBonusWithRates as buildCharacterBonusWithRates,
   createCharacterBonusHelpers,
-} from './domain/character.js?v=2';
-import { createConfigActions } from './actions/config.js?v=2';
-import { createCoreLoader } from './app/core.js?v=2';
+} from './domain/character.js?v=3';
+import { createConfigActions } from './actions/config.js?v=3';
+import { createCoreLoader } from './app/core.js?v=3';
 import {
   createDiagnostics,
   diagnosticFileName,
-} from './data/diagnostics.js?v=2';
-import { createDownloadActions } from './actions/download.js?v=2';
-import { queryElements } from './app/elements.js?v=2';
+} from './data/diagnostics.js?v=3';
+import { createDownloadActions } from './actions/download.js?v=3';
+import { queryElements } from './app/elements.js?v=3';
 import {
   createEventModel,
   CUSTOM_EVENT_ID,
-} from './models/event.js?v=2';
-import { createEventActions } from './actions/event.js?v=2';
-import { createEventContext } from './app/event.js?v=2';
-import { createFormActions } from './actions/form.js?v=2';
+  isHiddenEventId,
+  normalizedCalculationMode,
+} from './models/event.js?v=3';
+import { createEventActions } from './actions/event.js?v=3';
+import { createEventContext } from './app/event.js?v=3';
+import { createFormActions } from './actions/form.js?v=3';
 import {
   numericStringSort,
   optionText,
   parseEntityId,
   parseNonNegativeInteger,
   readOptionalInteger,
-} from './utils.js?v=2';
-import { createCardView } from './views/card.js?v=2';
-import { createEventView } from './views/event.js?v=2';
-import { createFormCells } from './ui/form.js?v=2';
-import { createGameMeta } from './domain/meta.js?v=2';
+} from './utils.js?v=3';
+import { createCardView } from './views/card.js?v=3';
+import { createEventView } from './views/event.js?v=3';
+import { createFormCells } from './ui/form.js?v=3';
+import { createGameMeta } from './domain/meta.js?v=3';
 import {
   cloneJson,
   createPlayerModel,
   normalizedServer as normalizeServerValue,
   readFiniteInput,
-} from './models/player.js?v=2';
-import { createPageController } from './app/page.js?v=2';
-import { createPlayerStore } from './app/player.js?v=2';
-import { createPlayerView } from './views/player.js?v=2';
-import { createProfileActions } from './actions/profile.js?v=2';
-import { createProfileView } from './views/profile.js?v=2';
+} from './models/player.js?v=3';
+import { createPageController } from './app/page.js?v=3';
+import { createPlayerStore } from './app/player.js?v=3';
+import { createPlayerView } from './views/player.js?v=3';
+import { createProfileActions } from './actions/profile.js?v=3';
+import { createProfileView } from './views/profile.js?v=3';
 import {
   createReferenceView,
   installRecoveringDatalistInput,
-} from './views/reference.js?v=2';
-import { createReferenceData } from './data/reference.js?v=2';
+} from './views/reference.js?v=3';
+import { createReferenceData } from './data/reference.js?v=3';
 import {
   renderMetrics as renderMetricsView,
   renderResultSummary as renderResultSummaryView,
-} from './views/result.js?v=2';
+} from './views/result.js?v=3';
 import {
   RESULT_CACHE_LIMIT,
   createResultCacheStorage,
-} from './data/result-cache.js?v=2';
-import { createResourceActions } from './actions/resource.js?v=2';
-import { createServerContext } from './app/server.js?v=2';
-import { createSongView } from './views/song.js?v=2';
-import { createStatusProxy } from './app/status.js?v=2';
-import { createStatusView } from './views/status.js?v=2';
-import { createViewAdapters } from './views/adapters.js?v=2';
-import { createResultCacheView } from './views/result-cache.js?v=2';
+} from './data/result-cache.js?v=3';
+import { createResourceActions } from './actions/resource.js?v=3';
+import { createServerContext } from './app/server.js?v=3';
+import { createSongView } from './views/song.js?v=3';
+import { createStatusProxy } from './app/status.js?v=3';
+import { createStatusView } from './views/status.js?v=3';
+import { createViewAdapters } from './views/adapters.js?v=3';
+import { createResultCacheView } from './views/result-cache.js?v=3';
 
 // Runtime state and deferred cross-module calls.
 const state = createInitialState();
 const elements = queryElements(document);
+void renderConfiguredAppVersion(elements.appVersion);
 const status = createStatusProxy();
 const resultCacheStorage = createResultCacheStorage({ limit: RESULT_CACHE_LIMIT });
 const resultCacheView = createResultCacheView({ elements });
@@ -100,6 +103,29 @@ const deferred = {
   renderResultSummary: (...args) => renderResultSummary(...args),
   renderSongs: (...args) => songView.renderSongs(...args),
 };
+
+async function renderConfiguredAppVersion(element) {
+  if (!element) {
+    return;
+  }
+  try {
+    const response = await fetch(new URL('../package.json', import.meta.url), {
+      cache: 'no-cache',
+    });
+    if (!response.ok) {
+      return;
+    }
+    const metadata = await response.json();
+    const version = String(metadata?.version ?? '').trim();
+    if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
+      return;
+    }
+    element.textContent = `v${version}`;
+    element.hidden = false;
+  } catch {
+    // Version metadata is informational and must not block application startup.
+  }
+}
 
 // Server, game metadata, and shared form cells.
 const {
@@ -189,6 +215,7 @@ const {
   normalizedStatRate,
 } = createPlayerModel({
   normalizedActivityMode,
+  normalizedCalculationMode,
   eventWithParameterBonusFix,
   defaultEventTypeForMode,
   supportedEventTypeOrDefault,
@@ -212,9 +239,10 @@ const {
   readOptionalInteger,
   optionText,
   eventLabel,
-  normalizedActivityMode,
+  normalizedCalculationMode,
+  activityModeForEvent,
   isSupportedEventType,
-  eventMatchesActivityMode,
+  isHiddenEventId,
   ensureSongListForMode,
   buildEditableEventSnapshot,
 });
@@ -294,7 +322,6 @@ const {
   characterLabel,
   supportedEventRecords,
   eventLabel,
-  normalizedActivityMode,
 });
 
 const {
@@ -529,21 +556,23 @@ const eventActions = createEventActions({
 });
 
 const activityActions = createActivityActions({
-  state,
   elements,
   customEventId: CUSTOM_EVENT_ID,
   normalizedPlayer,
-  normalizedActivityMode,
+  normalizedCalculationMode,
+  activityModeForEvent,
   defaultEditableEvent,
   defaultEventTypeForMode,
   defaultSongListForMode,
   ensureSongListForMode,
   eventMatchesActivityMode,
+  isHiddenEventId,
   editableEventOverride,
   fixedSongListForMode,
   normalizedEventAttributes,
   normalizedEventCharacters,
   normalizedEventMembers,
+  serverIndex,
   readFiniteInput,
   readOptionalInteger,
   ensureCore: deferred.ensureCore,
@@ -595,7 +624,10 @@ const eventView = createEventView({
   customEventId: CUSTOM_EVENT_ID,
   readPlayer,
   editableEventSnapshot,
-  isSupportedEventType,
+  isSupportedEventType: (eventType) => isSupportedEventType(
+    eventType,
+    readPlayer().calculationMode,
+  ),
   eventLabel,
   eventSongsFromPreset,
   eventDateRange,
@@ -636,6 +668,7 @@ const pageController = createPageController({
   normalizePlayer: normalizedPlayer,
   editableEventSnapshot,
   normalizedActivityMode,
+  normalizedCalculationMode,
   activityModeForEvent,
   eventSearchValue,
   renderReferenceOptions,

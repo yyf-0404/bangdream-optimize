@@ -1,10 +1,12 @@
 use crate::{
-    BestdoriFilesystemCalculationInputBuilder, BestdoriFilesystemConfig, CalculationInputBuilder,
-    DataError,
+    published_score_range_song_selections, update_score_range_chart_meta,
+    BestdoriFilesystemCalculationInputBuilder, BestdoriFilesystemConfig, DataError,
+    MaximizeInputBuilder, ScoreRangeInputBuilder,
 };
 use async_trait::async_trait;
 use bangdream_optimize_core::{
-    BuildResult, ItemSearchOptions, PlayerConfig, Server, SongSelection,
+    BuildResult, ItemSearchOptions, PlayerConfig, ScoreRangeRequest, ScoreRangeResult, Server,
+    SongSelection,
 };
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
@@ -34,6 +36,7 @@ const OPTIONAL_REPAIR_FILES: [&str; 4] = [
 
 const DIFFICULTY_NAMES: [&str; 5] = ["easy", "normal", "hard", "expert", "special"];
 const CUSTOM_EVENT_ID: u32 = 0;
+const CHART_SYNC_CONCURRENCY: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct ChartSelection {
@@ -79,7 +82,7 @@ impl BestdoriCachedFilesystemCalculationInputBuilder {
         })
     }
 
-    pub fn calculate_result_sync(
+    pub fn maximize_sync(
         &self,
         player: PlayerConfig,
         server: Server,
@@ -101,6 +104,64 @@ impl BestdoriCachedFilesystemCalculationInputBuilder {
             self.clear_loaded_calculator()?;
         }
         self.calculate_from_cache(player, server, Some(selected_event_id), options)
+    }
+
+    pub fn calculate_result_sync(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        options: ItemSearchOptions,
+    ) -> Result<BuildResult, DataError> {
+        self.maximize_sync(player, server, event_id, options)
+    }
+
+    pub fn score_range_sync(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        request: ScoreRangeRequest,
+    ) -> Result<Vec<ScoreRangeResult>, DataError> {
+        let selected_event_id = event_id
+            .or(player.current_event)
+            .ok_or(DataError::MissingCurrentEvent)?;
+        let changed = self.sync_score_range_for_inner(selected_event_id, &player, server)?;
+        if changed {
+            self.clear_loaded_calculator()?;
+        }
+        self.score_range_from_cache(player, server, Some(selected_event_id), request)
+    }
+
+    fn sync_score_range_for_inner(
+        &self,
+        event_id: u32,
+        player: &PlayerConfig,
+        server: Server,
+    ) -> Result<bool, DataError> {
+        let mut changed = self.sync_for_inner(event_id, &[], Some(player))?;
+        let songs = self.read_json("api/songs/all.7.json")?;
+        let now_millis = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let songs_by_id = songs
+            .as_object()
+            .ok_or(DataError::InvalidField {
+                field: "songs",
+                value: "expected object".to_owned(),
+            })?
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let selections =
+            published_score_range_song_selections(&songs_by_id, server, now_millis, |_, _| true)?;
+        changed |= self.sync_chart_files(&selections)?;
+        let selections = self.cached_chart_selections(&selections)?;
+        let config =
+            BestdoriFilesystemConfig::from_bestdori_api_root(self.config.cache_root.clone());
+        changed |= update_score_range_chart_meta(&config, &songs, &selections)?;
+        Ok(changed)
     }
 
     pub fn sync_for(&self, event_id: u32, song_list: &[SongSelection]) -> Result<(), DataError> {
@@ -222,12 +283,63 @@ impl BestdoriCachedFilesystemCalculationInputBuilder {
         }
 
         let songs = self.read_json("api/songs/all.7.json")?;
-        for song in chart_selections_from_songs_json(&songs)? {
-            changed |=
-                self.sync_file_without_manifest(&chart_path(song.song_id, song.difficulty)?)?;
-        }
+        let selections = chart_selections_from_songs_json(&songs)?
+            .into_iter()
+            .map(|selection| SongSelection {
+                song_id: selection.song_id,
+                difficulty: selection.difficulty,
+            })
+            .collect::<Vec<_>>();
+        changed |= self.sync_chart_files(&selections)?;
+        let selections = self.cached_chart_selections(&selections)?;
+        let config =
+            BestdoriFilesystemConfig::from_bestdori_api_root(self.config.cache_root.clone());
+        changed |= update_score_range_chart_meta(&config, &songs, &selections)?;
 
         Ok(changed)
+    }
+
+    fn sync_chart_files(&self, selections: &[SongSelection]) -> Result<bool, DataError> {
+        let mut changed = false;
+        for chunk in selections.chunks(CHART_SYNC_CONCURRENCY) {
+            let results = std::thread::scope(|scope| {
+                chunk
+                    .iter()
+                    .map(|selection| {
+                        scope.spawn(move || {
+                            let path = chart_path(selection.song_id, selection.difficulty)?;
+                            self.sync_optional_file_without_manifest(&path)
+                        })
+                    })
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .map(|handle| {
+                        handle.join().map_err(|_| DataError::Storage {
+                            message: "chart sync worker panicked".to_owned(),
+                        })?
+                    })
+                    .collect::<Result<Vec<_>, DataError>>()
+            })?;
+            changed |= results.into_iter().any(|result| result);
+        }
+        Ok(changed)
+    }
+
+    fn cached_chart_selections(
+        &self,
+        selections: &[SongSelection],
+    ) -> Result<Vec<SongSelection>, DataError> {
+        selections
+            .iter()
+            .filter_map(|selection| {
+                let path = chart_path(selection.song_id, selection.difficulty);
+                match path.and_then(|path| self.local_path(&path)) {
+                    Ok(path) if path.is_file() => Some(Ok(selection.clone())),
+                    Ok(_) => None,
+                    Err(error) => Some(Err(error)),
+                }
+            })
+            .collect()
     }
 
     fn sync_core_files(
@@ -341,12 +453,48 @@ impl BestdoriCachedFilesystemCalculationInputBuilder {
     }
 
     fn sync_file_without_manifest(&self, path: &str) -> Result<bool, DataError> {
-        let manifest = StaticMirrorManifest {
-            version: None,
-            generated_at: None,
-            files: BTreeMap::new(),
-        };
-        self.sync_file(path, &manifest, None, false, false)
+        self.sync_file_without_manifest_inner(path, false)
+    }
+
+    fn sync_optional_file_without_manifest(&self, path: &str) -> Result<bool, DataError> {
+        self.sync_file_without_manifest_inner(path, true)
+    }
+
+    fn sync_file_without_manifest_inner(
+        &self,
+        path: &str,
+        allow_missing: bool,
+    ) -> Result<bool, DataError> {
+        let local_path = self.local_path(path)?;
+        if local_path.exists() {
+            return Ok(false);
+        }
+
+        let url = self.url(path);
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .map_err(|source| DataError::Http {
+                url: url.clone(),
+                source,
+            })?;
+        let status = response.status();
+        if allow_missing && status.as_u16() == 404 {
+            return Ok(false);
+        }
+        if !status.is_success() {
+            return Err(DataError::HttpStatus {
+                url,
+                status: status.as_u16(),
+            });
+        }
+        let data = response.bytes().map_err(|source| DataError::Http {
+            url: url.clone(),
+            source,
+        })?;
+        write_file(&local_path, &data)?;
+        Ok(true)
     }
 
     fn sync_file(
@@ -414,6 +562,25 @@ impl BestdoriCachedFilesystemCalculationInputBuilder {
             .calculate_result_sync(player, server, event_id, options)
     }
 
+    fn score_range_from_cache(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        request: ScoreRangeRequest,
+    ) -> Result<Vec<ScoreRangeResult>, DataError> {
+        let mut calculator = self.calculator_lock()?;
+        if calculator.is_none() {
+            *calculator = Some(BestdoriFilesystemCalculationInputBuilder::load(
+                BestdoriFilesystemConfig::from_bestdori_api_root(self.config.cache_root.clone()),
+            )?);
+        }
+        calculator
+            .as_ref()
+            .expect("calculator was loaded")
+            .score_range_sync(player, server, event_id, request)
+    }
+
     fn calculator_lock(
         &self,
     ) -> Result<
@@ -463,15 +630,28 @@ impl BestdoriCachedFilesystemCalculationInputBuilder {
 }
 
 #[async_trait]
-impl CalculationInputBuilder for BestdoriCachedFilesystemCalculationInputBuilder {
-    async fn calculate_result(
+impl MaximizeInputBuilder for BestdoriCachedFilesystemCalculationInputBuilder {
+    async fn maximize(
         &self,
         player: PlayerConfig,
         server: Server,
         event_id: Option<u32>,
         options: ItemSearchOptions,
     ) -> Result<BuildResult, DataError> {
-        self.calculate_result_sync(player, server, event_id, options)
+        self.maximize_sync(player, server, event_id, options)
+    }
+}
+
+#[async_trait]
+impl ScoreRangeInputBuilder for BestdoriCachedFilesystemCalculationInputBuilder {
+    async fn score_range(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        request: ScoreRangeRequest,
+    ) -> Result<Vec<ScoreRangeResult>, DataError> {
+        self.score_range_sync(player, server, event_id, request)
     }
 }
 
@@ -712,6 +892,11 @@ fn temp_output_path(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn detects_changed_manifest_metadata() {
@@ -753,6 +938,42 @@ mod tests {
             event_detail_sync_path(287).as_deref(),
             Some("api/events/287.json")
         );
+    }
+
+    #[test]
+    fn optional_chart_sync_skips_http_404() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 1024];
+            let _ = stream.read(&mut request).unwrap();
+            stream
+                .write_all(
+                    b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
+        });
+        let cache_root = std::env::temp_dir().join(format!(
+            "bangdream-optimize-chart-404-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        let builder = BestdoriCachedFilesystemCalculationInputBuilder::new(
+            BestdoriStaticMirrorConfig::new(&cache_root, format!("http://{address}")),
+        )
+        .unwrap();
+
+        assert!(!builder
+            .sync_optional_file_without_manifest("api/charts/1/expert.json")
+            .unwrap());
+        assert!(!cache_root.join("api/charts/1/expert.json").exists());
+
+        server.join().unwrap();
+        let _ = fs::remove_dir_all(cache_root);
     }
 
     #[test]

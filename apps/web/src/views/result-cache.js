@@ -1,9 +1,10 @@
-import { emptyMessage } from '../ui/dom.js?v=2';
+import { emptyMessage } from '../ui/dom.js?v=3';
+import { buttonIcon } from '../ui/icons.js?v=3';
 import {
   compactJoin,
   formatDateTime,
   formatInteger,
-} from '../utils.js?v=2';
+} from '../utils.js?v=3';
 
 export function createResultCacheView({ elements }) {
   function renderResultCache(entries, { activeKey } = {}) {
@@ -34,8 +35,14 @@ export function createResultCacheView({ elements }) {
 
       const stats = document.createElement('p');
       stats.className = 'result-cache-stats';
-      stats.textContent = compactJoin([
-        `模式 ${entry.activityMode === 'medley' ? '组曲' : '单曲'}`,
+      const scoreRange = entry.calculationMode === 'scoreRange';
+      stats.textContent = compactJoin(scoreRange ? [
+        '目标 PT',
+        entry.server ? `服务器 ${entry.server}` : '',
+        entry.targetDeltaPt == null ? '' : `增量 ${formatInteger(entry.targetDeltaPt)}`,
+        entry.playCount == null ? '' : `${entry.playCount} 局`,
+        entry.totalFireCost == null ? '' : `火耗 ${entry.totalFireCost}`,
+      ] : [
         entry.server ? `服务器 ${entry.server}` : '',
         entry.totalScore == null ? '' : `总分 ${formatInteger(entry.totalScore)}`,
         entry.totalStat == null ? '' : `综合力 ${formatInteger(entry.totalStat)}`,
@@ -54,7 +61,16 @@ export function createResultCacheView({ elements }) {
       restoreButton.dataset.resultCacheAction = 'restore';
       restoreButton.dataset.resultCacheKey = String(entry.key);
       restoreButton.className = 'compact-button';
-      actions.append(restoreButton);
+
+      const deleteButton = document.createElement('button');
+      deleteButton.type = 'button';
+      deleteButton.dataset.resultCacheAction = 'delete';
+      deleteButton.dataset.resultCacheKey = String(entry.key);
+      deleteButton.className = 'compact-button result-cache-delete';
+      deleteButton.setAttribute('aria-label', '删除此结果缓存');
+      deleteButton.title = '删除此结果缓存';
+      deleteButton.append(buttonIcon('trash'));
+      actions.append(restoreButton, deleteButton);
 
       content.append(title, stats, time);
       item.append(content, actions);
