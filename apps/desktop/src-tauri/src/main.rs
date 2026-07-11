@@ -306,7 +306,7 @@ fn desktop_config(app: &AppHandle) -> Result<DesktopConfig, Box<dyn std::error::
     } else if let Some(root) = project_game_data_root() {
         DesktopGameDataSource::Filesystem { root }
     } else {
-        DesktopGameDataSource::StaticMirror {
+        DesktopGameDataSource::BestdoriApi {
             base_url: "https://bestdori.com".to_owned(),
             cache_root,
         }

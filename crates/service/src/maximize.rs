@@ -132,6 +132,7 @@ mod tests {
                     stat: 100,
                     team_card_ids: vec![1, 2, 3, 4, 5],
                     captain_card_id: 1,
+                    skill_queue_risk: false,
                 }],
                 items: None,
                 solver: None,

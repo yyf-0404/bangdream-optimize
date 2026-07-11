@@ -1,87 +1,67 @@
 use crate::model::{
     chart::{Chart, TeamCardSkill},
-    dp::{DpChartModel, DpModelError, ModelTerm, SongMode},
+    dp::{DpModelError, SongMode},
     preparation::{AreaItemPercent, PreparedCard},
     schema::SelectedAreaItems,
 };
-pub use bangdream_optimize_single_dp::SingleDpResult as SingleSongDpResult;
-use bangdream_optimize_single_dp::{
-    solve_single_dp, SingleDpCard, SingleDpError, SingleDpInput, SingleDpTerm, TEAM_SIZE,
-};
 use thiserror::Error;
 
+mod exact;
+
 #[derive(Debug, Error)]
-pub enum SingleSongDpError {
+pub enum SingleSongError {
     #[error("at least five cards are required to build a team, got {count}")]
     NotEnoughCards { count: usize },
 
-    #[error("no valid single-song DP result found")]
+    #[error("no valid single-song result found")]
     NoResult,
 
     #[error("DP model error: {0}")]
     Model(#[from] DpModelError),
+
+    #[error("team prune error: {0}")]
+    Prune(#[from] crate::medley::team::TeamBuildError),
 }
 
-impl From<SingleDpError> for SingleSongDpError {
-    fn from(error: SingleDpError) -> Self {
-        match error {
-            SingleDpError::NotEnoughCards { count } => Self::NotEnoughCards { count },
-            SingleDpError::NoResult => Self::NoResult,
-        }
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingleSongResult {
+    pub score: i32,
+    pub stat: i32,
+    pub team_card_ids: Vec<u32>,
+    pub captain_card_id: u32,
 }
 
-pub fn calculate_single_song_dp(
+pub fn calculate_single_song(
     cards: &[PreparedCard],
     chart: &Chart,
     area_item_percent: &AreaItemPercent,
     selected_items: &SelectedAreaItems,
     mode: SongMode,
-) -> Result<SingleSongDpResult, SingleSongDpError> {
-    let input = single_dp_input(cards, chart, area_item_percent, selected_items, mode)?;
-    solve_single_dp(&input).map_err(Into::into)
+) -> Result<SingleSongResult, SingleSongError> {
+    let active_indices = crate::medley::single_team_pruned_card_indices(
+        cards,
+        chart,
+        area_item_percent,
+        selected_items,
+        mode,
+    )?;
+    let cards = numeric_card_sources_for_indices(
+        cards,
+        &active_indices,
+        area_item_percent,
+        selected_items,
+        mode,
+    )?;
+    exact::solve(&cards, chart)
 }
 
-fn single_dp_input(
-    cards: &[PreparedCard],
-    chart: &Chart,
-    area_item_percent: &AreaItemPercent,
-    selected_items: &SelectedAreaItems,
-    mode: SongMode,
-) -> Result<SingleDpInput, SingleSongDpError> {
-    let cards = numeric_card_sources(cards, area_item_percent, selected_items, mode)?;
-    let anchor_stat = estimate_single_anchor_stat(&cards);
-    let model = DpChartModel::from_chart_with_anchor(chart, anchor_stat)?;
-    let mut numeric_cards = Vec::with_capacity(cards.len());
-
-    for card in cards {
-        let mut normal_terms = [SingleDpTerm::ZERO; TEAM_SIZE];
-        for (position, term) in normal_terms.iter_mut().enumerate() {
-            *term = single_dp_term(model.skill_term(chart, position, card.skill)?);
-        }
-
-        numeric_cards.push(SingleDpCard {
-            card_id: card.card_id,
-            group_id: card.character_id,
-            stat: card.stat,
-            normal_terms,
-            captain_term: single_dp_term(model.skill_term(chart, TEAM_SIZE, card.skill)?),
-        });
-    }
-
-    Ok(SingleDpInput {
-        d: model.d,
-        c: model.c,
-        cards: numeric_cards,
-    })
-}
-
+#[cfg(test)]
 fn numeric_card_sources(
     cards: &[PreparedCard],
     area_item_percent: &AreaItemPercent,
     selected_items: &SelectedAreaItems,
     mode: SongMode,
-) -> Result<Vec<NumericCardSource>, SingleSongDpError> {
+) -> Result<Vec<NumericCardSource>, SingleSongError> {
     cards
         .iter()
         .filter(|card| mode.allows(card))
@@ -89,14 +69,38 @@ fn numeric_card_sources(
             Ok(NumericCardSource {
                 card_id: card.card_id,
                 character_id: card.character_id,
-                stat: card
-                    .add_up_stat(
-                        area_item_percent,
-                        &selected_items.band,
-                        &selected_items.attribute,
-                        selected_items.magazine.as_str(),
-                    )
-                    .floor() as i32,
+                stat: card.add_up_stat(
+                    area_item_percent,
+                    &selected_items.band,
+                    &selected_items.attribute,
+                    selected_items.magazine.as_str(),
+                ),
+                skill: mode.resolve_skill(card)?,
+            })
+        })
+        .collect()
+}
+
+fn numeric_card_sources_for_indices(
+    cards: &[PreparedCard],
+    indices: &[usize],
+    area_item_percent: &AreaItemPercent,
+    selected_items: &SelectedAreaItems,
+    mode: SongMode,
+) -> Result<Vec<NumericCardSource>, SingleSongError> {
+    indices
+        .iter()
+        .map(|&idx| {
+            let card = &cards[idx];
+            Ok(NumericCardSource {
+                card_id: card.card_id,
+                character_id: card.character_id,
+                stat: card.add_up_stat(
+                    area_item_percent,
+                    &selected_items.band,
+                    &selected_items.attribute,
+                    selected_items.magazine.as_str(),
+                ),
                 skill: mode.resolve_skill(card)?,
             })
         })
@@ -107,40 +111,8 @@ fn numeric_card_sources(
 struct NumericCardSource {
     card_id: u32,
     character_id: u32,
-    stat: i32,
+    stat: f64,
     skill: TeamCardSkill,
-}
-
-fn estimate_single_anchor_stat(cards: &[NumericCardSource]) -> i32 {
-    let mut cards = cards.iter().collect::<Vec<_>>();
-    cards.sort_by(|left, right| {
-        right
-            .stat
-            .cmp(&left.stat)
-            .then_with(|| left.card_id.cmp(&right.card_id))
-    });
-
-    let mut characters = Vec::with_capacity(TEAM_SIZE);
-    let mut stat = 0;
-    for card in cards {
-        if characters.contains(&card.character_id) {
-            continue;
-        }
-        characters.push(card.character_id);
-        stat += card.stat;
-        if characters.len() == TEAM_SIZE {
-            break;
-        }
-    }
-
-    stat.max(1)
-}
-
-fn single_dp_term(term: ModelTerm) -> SingleDpTerm {
-    SingleDpTerm {
-        sb: term.sb,
-        c: term.c,
-    }
 }
 
 #[cfg(test)]
@@ -152,8 +124,10 @@ mod tests {
         schema::{Attribute, Magazine},
     };
 
+    const TEAM_SIZE: usize = 5;
+
     #[test]
-    fn single_song_dp_matches_bruteforce_model() {
+    fn single_song_exact_matches_bruteforce() {
         let mut chart = chart();
         chart.init(0, false).unwrap();
         let cards = vec![
@@ -167,15 +141,15 @@ mod tests {
         let selected_items = selected_items();
         let area = AreaItemPercent::empty();
 
-        let dp = calculate_single_song_dp(&cards, &chart, &area, &selected_items, SongMode::Mixed)
-            .unwrap();
-        let input =
-            single_dp_input(&cards, &chart, &area, &selected_items, SongMode::Mixed).unwrap();
-        let brute = brute_force_single_song(&input);
+        let exact =
+            calculate_single_song(&cards, &chart, &area, &selected_items, SongMode::Mixed).unwrap();
+        let numeric =
+            numeric_card_sources(&cards, &area, &selected_items, SongMode::Mixed).unwrap();
+        let brute = brute_force_single_song(&numeric, &chart);
 
-        assert_eq!(dp.score, brute.score);
-        assert_eq!(dp.stat, brute.stat);
-        assert_eq!(dp.captain_card_id, brute.captain_card_id);
+        assert_eq!(exact.score, brute.score);
+        assert_eq!(exact.stat, brute.stat);
+        assert_eq!(exact.captain_card_id, brute.captain_card_id);
     }
 
     #[test]
@@ -199,9 +173,8 @@ mod tests {
         let area = AreaItemPercent::empty();
 
         let mixed =
-            calculate_single_song_dp(&cards, &chart, &area, &selected_items, SongMode::Mixed)
-                .unwrap();
-        let unified = calculate_single_song_dp(
+            calculate_single_song(&cards, &chart, &area, &selected_items, SongMode::Mixed).unwrap();
+        let unified = calculate_single_song(
             &cards,
             &chart,
             &area,
@@ -214,7 +187,7 @@ mod tests {
     }
 
     #[test]
-    fn single_song_dp_drops_dominated_same_character_card() {
+    fn single_song_exact_drops_dominated_same_character_card() {
         let mut chart = chart();
         chart.init(0, false).unwrap();
         let cards = vec![
@@ -228,37 +201,101 @@ mod tests {
         let selected_items = selected_items();
         let area = AreaItemPercent::empty();
 
-        let dp = calculate_single_song_dp(&cards, &chart, &area, &selected_items, SongMode::Mixed)
-            .unwrap();
+        let result =
+            calculate_single_song(&cards, &chart, &area, &selected_items, SongMode::Mixed).unwrap();
 
-        assert!(dp.team_card_ids.contains(&2));
-        assert!(!dp.team_card_ids.contains(&1));
+        assert!(result.team_card_ids.contains(&2));
+        assert!(!result.team_card_ids.contains(&1));
     }
 
-    fn brute_force_single_song(input: &SingleDpInput) -> SingleSongDpResult {
-        let mut best: Option<SingleSongDpResult> = None;
+    #[test]
+    fn single_song_exact_floors_stat_after_summing_the_full_team() {
+        let mut chart = chart();
+        chart.init(0, false).unwrap();
+        let mut cards = (1..=5)
+            .map(|card_id| prepared_card(card_id, card_id, 1, Attribute::Cool, 1000, 0.10))
+            .collect::<Vec<_>>();
+        for card in &mut cards {
+            card.event_add_stat.performance = 0.3;
+        }
+
+        let result = calculate_single_song(
+            &cards,
+            &chart,
+            &AreaItemPercent::empty(),
+            &selected_items(),
+            SongMode::Mixed,
+        )
+        .unwrap();
+
+        assert_eq!(result.stat, 15_001);
+    }
+
+    #[test]
+    fn strict_exact_single_coverage_fallback_matches_bruteforce_with_queued_rateup_skills() {
+        let mut chart = overlapping_chart();
+        chart.init(0, false).unwrap();
+        assert!(
+            !chart.warning.is_empty(),
+            "fixture must exercise the single-song arbitrary-window coverage fallback"
+        );
+        let durations = [3.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 8.0];
+        let mut cards = (0..8)
+            .map(|idx| {
+                prepared_card(
+                    idx as u32 + 1,
+                    idx as u32 + 1,
+                    1,
+                    Attribute::Cool,
+                    900 + idx as i32 * 37,
+                    0.40 + idx as f64 * 0.10,
+                )
+            })
+            .collect::<Vec<_>>();
+        for (idx, card) in cards.iter_mut().enumerate() {
+            card.skill.duration = durations[idx];
+            if idx == 2 || idx == 4 || idx == 6 {
+                card.skill.rateup = true;
+                card.skill.score_up = 1.0;
+                card.score_up.default = 1.0;
+            }
+        }
+        let area = AreaItemPercent::empty();
+        let selected_items = selected_items();
+        let exact =
+            calculate_single_song(&cards, &chart, &area, &selected_items, SongMode::Mixed).unwrap();
+        let numeric =
+            numeric_card_sources(&cards, &area, &selected_items, SongMode::Mixed).unwrap();
+        let brute = brute_force_single_song(&numeric, &chart);
+
+        assert_eq!(exact.score, brute.score);
+        assert_eq!(exact.stat, brute.stat);
+    }
+
+    fn brute_force_single_song(cards: &[NumericCardSource], chart: &Chart) -> SingleSongResult {
+        let mut best: Option<SingleSongResult> = None;
         let mut selected = Vec::new();
 
-        enumerate_card_sets(&input.cards, 0, &mut selected, &mut |team| {
+        enumerate_card_sets(cards, 0, &mut selected, &mut |team| {
             for order in permutations(team) {
                 for captain_idx in 0..TEAM_SIZE {
-                    let mut sa = 0;
-                    let mut sb = 0.0;
-                    let mut c = 0.0;
-                    for (position, &card_idx) in order.iter().enumerate() {
-                        let card = &input.cards[card_idx];
-                        let term = card.normal_terms[position];
+                    let mut sa = 0.0;
+                    let mut skills = Vec::with_capacity(TEAM_SIZE + 1);
+                    for &card_idx in &order {
+                        let card = &cards[card_idx];
                         sa += card.stat;
-                        sb += term.sb;
-                        c += term.c;
+                        skills.push(card.skill);
                     }
-                    let captain_card = &input.cards[order[captain_idx]];
-                    sb += captain_card.captain_term.sb;
-                    c += captain_card.captain_term.c;
-                    let candidate = SingleSongDpResult {
-                        score: input.score(sa, sb, c),
-                        stat: sa,
-                        team_card_ids: order.iter().map(|&idx| input.cards[idx].card_id).collect(),
+                    let captain_card = &cards[order[captain_idx]];
+                    skills.push(captain_card.skill);
+                    let skills: [TeamCardSkill; TEAM_SIZE + 1] = skills.try_into().unwrap();
+                    let stat = crate::floor_team_stat([sa]);
+                    let candidate = SingleSongResult {
+                        score: chart
+                            .get_score_for_six_skills(&skills, stat, false)
+                            .unwrap(),
+                        stat,
+                        team_card_ids: order.iter().map(|&idx| cards[idx].card_id).collect(),
                         captain_card_id: captain_card.card_id,
                     };
                     if best
@@ -275,7 +312,7 @@ mod tests {
     }
 
     fn enumerate_card_sets(
-        cards: &[SingleDpCard],
+        cards: &[NumericCardSource],
         start: usize,
         selected: &mut Vec<usize>,
         callback: &mut impl FnMut(&[usize]),
@@ -295,7 +332,7 @@ mod tests {
         for idx in start..cards.len() {
             if selected
                 .iter()
-                .any(|&selected_idx| cards[selected_idx].group_id == cards[idx].group_id)
+                .any(|&selected_idx| cards[selected_idx].character_id == cards[idx].character_id)
             {
                 continue;
             }
@@ -345,6 +382,24 @@ mod tests {
             });
         }
         Chart::new(5, nodes)
+    }
+
+    fn overlapping_chart() -> Chart {
+        let mut nodes = Vec::new();
+        for idx in 0..6 {
+            let start = idx as f64 * 5.25;
+            nodes.push(ChartNode {
+                node_type: ChartNodeType::Skill,
+                time: start,
+            });
+            for offset in [0.5, 1.5, 2.5, 3.5, 4.5] {
+                nodes.push(ChartNode {
+                    node_type: ChartNodeType::Node,
+                    time: start + offset,
+                });
+            }
+        }
+        Chart::new(27, nodes)
     }
 
     fn prepared_card(

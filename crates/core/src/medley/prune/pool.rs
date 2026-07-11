@@ -7,9 +7,11 @@ use super::hard::{
 };
 use super::signature::{seed_signatures, signature_can_complete_with_card, MedleyPruneSignature};
 use super::stats::{MedleyPruneTrace, SignaturePoolStats};
+use crate::medley::team::medley_chart_item_score_upper_bound;
 use crate::model::chart::Chart;
 use crate::model::preparation::PreparedCard;
 use crate::timing::Timer;
+use bangdream_optimize_team_prune::DominanceGraph;
 use std::collections::BTreeMap;
 
 const TEAM_SIZE: usize = 5;
@@ -33,21 +35,35 @@ pub(in crate::medley) fn signature_candidate_pools(
     MedleyPruneTrace,
 ) {
     let trace_start = Timer::start();
+    let signatures_start = Timer::start();
+    let signatures = seed_signatures(cards);
+    let signatures_ms = elapsed_ms(signatures_start);
     let upper_start = Timer::start();
-    let mut upper_bounds = MedleyPruneUpperBounds::new(cards, charts, profiles);
+    let best_any_team_scores = charts
+        .iter()
+        .enumerate()
+        .map(|(chart_idx, chart)| {
+            medley_chart_item_score_upper_bound(cards, profiles, chart, chart_idx, &signatures)
+        })
+        .collect::<Vec<_>>();
+    let mut upper_bounds = MedleyPruneUpperBounds::with_best_any_team_scores(
+        cards,
+        charts,
+        profiles,
+        &best_any_team_scores,
+    );
+    let chart_eligibility_masks =
+        upper_bounds.card_chart_eligibility_masks(&signatures, current_best);
     let mut trace = MedleyPruneTrace {
         upper_bounds_init_ms: elapsed_ms(upper_start),
+        signatures_ms,
+        signature_count: signatures.len(),
         ..MedleyPruneTrace::default()
     };
     let mut pools = Vec::new();
     let mut stats = Vec::new();
 
-    let signatures_start = Timer::start();
-    let signatures = seed_signatures(cards);
-    trace.signatures_ms = elapsed_ms(signatures_start);
-    trace.signature_count = signatures.len();
-
-    for signature in signatures {
+    for signature in signatures.iter().copied() {
         let active_start = Timer::start();
         let (active_card_indices, mut signature_stats) = signature_active_card_indices(
             cards,
@@ -56,6 +72,9 @@ pub(in crate::medley) fn signature_candidate_pools(
             current_best,
             signature,
             &mut upper_bounds,
+            &best_any_team_scores,
+            &chart_eligibility_masks,
+            MEDLEY_TEAM_COUNT,
         );
         let active_ms = elapsed_ms(active_start);
         trace.active_indices_ms += active_ms;
@@ -97,29 +116,30 @@ fn signature_active_card_indices(
     current_best: i32,
     signature: MedleyPruneSignature,
     upper_bounds: &mut MedleyPruneUpperBounds<'_>,
+    best_any_team_scores: &[f64],
+    chart_eligibility_masks: &[u8],
+    team_count: usize,
 ) -> (Vec<usize>, SignaturePoolStats) {
-    let mut active = Vec::new();
     let mut stats = SignaturePoolStats {
         signature: Some(signature),
         ..SignaturePoolStats::default()
     };
-    let contribution_context_start = Timer::start();
-    let mut contribution_dominance =
-        MedleyContributionDominance::new(cards, charts, profiles, current_best);
-    stats.trace.contribution_context_ms += elapsed_ms(contribution_context_start);
     let allowed_indices = cards
         .iter()
         .enumerate()
         .filter_map(|(idx, card)| signature.allows(card).then_some(idx))
         .collect::<Vec<_>>();
     stats.allowed_count = allowed_indices.len();
-    let hard_graph_start = Timer::start();
-    let hard_dominance_graph =
-        hard_dominance_graph_for_indices(cards, profiles, signature, &allowed_indices);
-    stats.trace.hard_graph_ms += elapsed_ms(hard_graph_start);
-    let mut contribution_dominance_graph = None;
 
-    for &idx in &allowed_indices {
+    let same_shape_indices = super::contribution::same_shape_contribution_active_indices(
+        cards, charts, profiles, signature, team_count,
+    );
+    stats.score_contribution_same_pruned += allowed_indices
+        .len()
+        .saturating_sub(same_shape_indices.len());
+
+    let mut eligible_indices = Vec::new();
+    for idx in same_shape_indices {
         let completion_start = Timer::start();
         if !signature_can_complete_with_card(cards, idx, signature) {
             stats.trace.completion_ms += elapsed_ms(completion_start);
@@ -136,65 +156,205 @@ fn signature_active_card_indices(
             continue;
         }
         stats.trace.upper_bound_ms += elapsed_ms(upper_bound_start);
+        eligible_indices.push(idx);
+    }
 
-        let hard_cover_start = Timer::start();
-        let same_cover = same_character_cover(&hard_dominance_graph, idx, cards);
-        stats.max_same_character_cover = stats.max_same_character_cover.max(same_cover);
-        if same_cover >= MEDLEY_TEAM_COUNT {
-            stats.trace.hard_cover_ms += elapsed_ms(hard_cover_start);
-            stats.same_character_pruned += 1;
-            continue;
+    let mut active = eligible_indices;
+    loop {
+        stats.fixed_point_passes += 1;
+        let pass_input_count = active.len();
+        let same_stage = staged_dominance_graphs(
+            cards,
+            charts,
+            profiles,
+            signature,
+            current_best,
+            &active,
+            best_any_team_scores,
+            chart_eligibility_masks,
+        );
+        stats.trace.hard_graph_ms += same_stage.hard_graph_ms;
+        stats.trace.contribution_context_ms += same_stage.contribution_context_ms;
+        stats.trace.contribution_graph_ms += same_stage.contribution_graph_ms;
+        stats.trace.contribution_graph_count += 1;
+        let mut same_survivors = Vec::new();
+        for (local_idx, &raw_idx) in active.iter().enumerate() {
+            let cover_start = Timer::start();
+            let hard_cover = same_character_cover(
+                &same_stage.hard_graph,
+                local_idx,
+                &same_stage.cards,
+                team_count,
+            );
+            let combined_cover = same_character_cover(
+                &same_stage.contribution_graph,
+                local_idx,
+                &same_stage.cards,
+                team_count,
+            );
+            stats.trace.hard_cover_ms += elapsed_ms(cover_start);
+            stats.max_same_character_cover = stats.max_same_character_cover.max(hard_cover);
+            stats.max_score_contribution_same_cover =
+                stats.max_score_contribution_same_cover.max(combined_cover);
+            if combined_cover >= team_count {
+                if hard_cover >= team_count {
+                    stats.same_character_pruned += 1;
+                } else {
+                    stats.score_contribution_same_pruned += 1;
+                }
+            } else {
+                same_survivors.push(raw_idx);
+            }
         }
 
-        let hard_cross_cover = cross_cover(&hard_dominance_graph, idx, cards);
-        stats.trace.hard_cover_ms += elapsed_ms(hard_cover_start);
-        stats.max_cross_character_cover = stats.max_cross_character_cover.max(hard_cross_cover);
-        if hard_cross_cover > 0 {
-            stats.cross_character_pruned += 1;
-            continue;
-        }
-
-        if contribution_dominance_graph.is_none() {
-            let contribution_graph_start = Timer::start();
-            contribution_dominance_graph = Some(contribution_dominance_graph_for_signature(
-                cards,
+        let cross_stage = staged_dominance_graphs(
+            cards,
+            charts,
+            profiles,
+            signature,
+            current_best,
+            &same_survivors,
+            best_any_team_scores,
+            chart_eligibility_masks,
+        );
+        stats.trace.hard_graph_ms += cross_stage.hard_graph_ms;
+        stats.trace.contribution_context_ms += cross_stage.contribution_context_ms;
+        stats.trace.contribution_graph_ms += cross_stage.contribution_graph_ms;
+        stats.trace.contribution_graph_count += 1;
+        let mut next_active = Vec::new();
+        for (local_idx, &raw_idx) in same_survivors.iter().enumerate() {
+            let cover_start = Timer::start();
+            let hard_cover = cross_cover(
+                &cross_stage.hard_graph,
+                local_idx,
+                &cross_stage.cards,
                 signature,
-                &hard_dominance_graph,
-                &mut contribution_dominance,
-            ));
-            stats.trace.contribution_graph_ms += elapsed_ms(contribution_graph_start);
-            stats.trace.contribution_graph_count += 1;
-        }
-        let contribution_dominance_graph = contribution_dominance_graph
-            .as_ref()
-            .expect("contribution graph is initialized before use");
-        let contribution_cover_start = Timer::start();
-        let contribution_same_cover =
-            same_character_cover(contribution_dominance_graph, idx, cards);
-        stats.max_score_contribution_same_cover = stats
-            .max_score_contribution_same_cover
-            .max(contribution_same_cover);
-        if contribution_same_cover >= MEDLEY_TEAM_COUNT {
-            stats.trace.contribution_cover_ms += elapsed_ms(contribution_cover_start);
-            stats.score_contribution_same_pruned += 1;
-            continue;
-        }
-
-        let contribution_cross_cover = cross_cover(contribution_dominance_graph, idx, cards);
-        stats.trace.contribution_cover_ms += elapsed_ms(contribution_cover_start);
-        stats.max_score_contribution_cross_cover = stats
-            .max_score_contribution_cross_cover
-            .max(contribution_cross_cover);
-        if contribution_cross_cover > 0 {
-            stats.score_contribution_cross_pruned += 1;
-            continue;
+                team_count,
+                &cross_stage.chart_eligibility_masks,
+                charts.len(),
+            );
+            let combined_cover = cross_cover(
+                &cross_stage.contribution_graph,
+                local_idx,
+                &cross_stage.cards,
+                signature,
+                team_count,
+                &cross_stage.chart_eligibility_masks,
+                charts.len(),
+            );
+            stats.trace.contribution_cover_ms += elapsed_ms(cover_start);
+            stats.max_cross_character_cover = stats.max_cross_character_cover.max(hard_cover);
+            stats.max_score_contribution_cross_cover =
+                stats.max_score_contribution_cross_cover.max(combined_cover);
+            if combined_cover > 0 {
+                if hard_cover > 0 {
+                    stats.cross_character_pruned += 1;
+                } else {
+                    stats.score_contribution_cross_pruned += 1;
+                }
+            } else {
+                next_active.push(raw_idx);
+            }
         }
 
-        active.push(idx);
+        let reached_fixed_point = next_active.len() == pass_input_count;
+        active = next_active;
+        if reached_fixed_point {
+            break;
+        }
     }
 
     stats.active_count = active.len();
     (active, stats)
+}
+
+struct StagedDominanceGraphs {
+    cards: Vec<PreparedCard>,
+    chart_eligibility_masks: Vec<u8>,
+    hard_graph: DominanceGraph,
+    contribution_graph: DominanceGraph,
+    hard_graph_ms: f64,
+    contribution_context_ms: f64,
+    contribution_graph_ms: f64,
+}
+
+fn staged_dominance_graphs(
+    cards: &[PreparedCard],
+    charts: &[Chart],
+    profiles: &[MedleyCardPruneProfile],
+    signature: MedleyPruneSignature,
+    current_best: i32,
+    indices: &[usize],
+    best_any_team_scores: &[f64],
+    chart_eligibility_masks: &[u8],
+) -> StagedDominanceGraphs {
+    let stage_cards = indices
+        .iter()
+        .map(|&idx| cards[idx].clone())
+        .collect::<Vec<_>>();
+    let stage_profiles = indices
+        .iter()
+        .map(|&idx| profiles[idx].clone())
+        .collect::<Vec<_>>();
+    let stage_chart_eligibility_masks = indices
+        .iter()
+        .map(|&idx| chart_eligibility_masks[idx])
+        .collect::<Vec<_>>();
+    let local_indices = (0..stage_cards.len()).collect::<Vec<_>>();
+    let hard_start = Timer::start();
+    let hard_graph =
+        hard_dominance_graph_for_indices(&stage_cards, &stage_profiles, signature, &local_indices);
+    let hard_graph_ms = elapsed_ms(hard_start);
+    let context_start = Timer::start();
+    let mut contribution = MedleyContributionDominance::with_best_any_team_scores(
+        &stage_cards,
+        charts,
+        &stage_profiles,
+        current_best,
+        best_any_team_scores,
+    );
+    let contribution_context_ms = elapsed_ms(context_start);
+    let contribution_start = Timer::start();
+    let contribution_graph = contribution_dominance_graph_for_signature(
+        &stage_cards,
+        signature,
+        &hard_graph,
+        &mut contribution,
+    );
+    let contribution_graph_ms = elapsed_ms(contribution_start);
+    StagedDominanceGraphs {
+        cards: stage_cards,
+        chart_eligibility_masks: stage_chart_eligibility_masks,
+        hard_graph,
+        contribution_graph,
+        hard_graph_ms,
+        contribution_context_ms,
+        contribution_graph_ms,
+    }
+}
+
+pub(in crate::medley) fn single_team_active_card_indices(
+    cards: &[PreparedCard],
+    chart: &Chart,
+    profiles: &[MedleyCardPruneProfile],
+    signature: MedleyPruneSignature,
+) -> Vec<usize> {
+    let charts = std::slice::from_ref(chart);
+    let mut upper_bounds = MedleyPruneUpperBounds::new(cards, charts, profiles);
+    let contribution_score_upper_bounds = vec![0.0; charts.len()];
+    let chart_eligibility_masks = vec![1_u8; cards.len()];
+    signature_active_card_indices(
+        cards,
+        charts,
+        profiles,
+        0,
+        signature,
+        &mut upper_bounds,
+        &contribution_score_upper_bounds,
+        &chart_eligibility_masks,
+        1,
+    )
+    .0
 }
 
 fn elapsed_ms(start: Timer) -> f64 {
@@ -263,6 +423,7 @@ mod tests {
     use super::*;
     use crate::medley::team::adjusted_card_stats;
     use crate::medley::test_support::{medley_charts, prepared_card, selected_cool_items};
+    use crate::model::chart::{ChartNode, ChartNodeType};
     use crate::model::preparation::{AreaItemPercent, ScoreUp, StatValue};
     use crate::model::schema::Attribute;
 
@@ -275,8 +436,33 @@ mod tests {
             adjusted_card_stats(cards, &AreaItemPercent::empty(), &selected_cool_items());
         let profiles = medley_card_prune_profiles(cards, &charts, &card_stats).unwrap();
         let mut upper_bounds = MedleyPruneUpperBounds::new(cards, &charts, &profiles);
+        let contribution_score_upper_bounds = vec![0.0; charts.len()];
+        let chart_eligibility_masks = vec![(1_u8 << charts.len()) - 1; cards.len()];
 
-        signature_active_card_indices(cards, &charts, &profiles, 0, signature, &mut upper_bounds).0
+        signature_active_card_indices(
+            cards,
+            &charts,
+            &profiles,
+            0,
+            signature,
+            &mut upper_bounds,
+            &contribution_score_upper_bounds,
+            &chart_eligibility_masks,
+            MEDLEY_TEAM_COUNT,
+        )
+        .0
+    }
+
+    fn single_active_indices_for_signature(
+        cards: &[PreparedCard],
+        signature: MedleyPruneSignature,
+    ) -> Vec<usize> {
+        let chart = medley_charts().remove(0);
+        let card_stats =
+            adjusted_card_stats(cards, &AreaItemPercent::empty(), &selected_cool_items());
+        let profiles =
+            medley_card_prune_profiles(cards, std::slice::from_ref(&chart), &card_stats).unwrap();
+        single_team_active_card_indices(cards, &chart, &profiles, signature)
     }
 
     fn strong_card(card_id: u32, character_id: u32, attribute: Attribute) -> PreparedCard {
@@ -413,5 +599,95 @@ mod tests {
         let active = active_indices_for_signature(&cards, MedleyPruneSignature::Mixed);
 
         assert!(active.contains(&0));
+    }
+
+    #[test]
+    fn single_team_prunes_after_one_same_character_dominator() {
+        let mut cards = vec![prepared_card(1, 1, 1, Attribute::Cool)];
+        cards.push(strong_card(2, 1, Attribute::Cool));
+        for character_id in 2..=5 {
+            cards.push(prepared_card(
+                100 + character_id,
+                character_id,
+                1,
+                Attribute::Cool,
+            ));
+        }
+
+        let active = single_active_indices_for_signature(&cards, MedleyPruneSignature::Mixed);
+
+        assert!(!active.contains(&0));
+    }
+
+    #[test]
+    fn single_team_prunes_with_cross_character_cover_for_one_team() {
+        let mut cards = vec![prepared_card(1, 99, 1, Attribute::Cool)];
+        for character_id in 1..=5 {
+            cards.push(strong_card(
+                character_id * 100,
+                character_id,
+                Attribute::Cool,
+            ));
+        }
+
+        let active = single_active_indices_for_signature(&cards, MedleyPruneSignature::Mixed);
+
+        assert!(!active.contains(&0));
+    }
+
+    #[test]
+    fn overlap_warning_keeps_fast_additive_meta_pruning() {
+        let mut cards = vec![prepared_card(1, 1, 1, Attribute::Cool)];
+        for idx in 0..3 {
+            cards.push(strong_card(10 + idx, 1, Attribute::Cool));
+        }
+        for character_id in 2..=5 {
+            cards.push(prepared_card(
+                100 + character_id,
+                character_id,
+                1,
+                Attribute::Cool,
+            ));
+        }
+
+        let nodes = (0..6)
+            .flat_map(|idx| {
+                [
+                    ChartNode {
+                        node_type: ChartNodeType::Skill,
+                        time: idx as f64 * 8.0,
+                    },
+                    ChartNode {
+                        node_type: ChartNodeType::Node,
+                        time: idx as f64 * 8.0 + 1.0,
+                    },
+                ]
+            })
+            .collect();
+        let mut chart = Chart::new(5, nodes);
+        chart.init(0, false).unwrap();
+        assert!(!chart.warning.is_empty());
+        let charts = vec![chart.clone(), chart.clone(), chart];
+        let card_stats =
+            adjusted_card_stats(&cards, &AreaItemPercent::empty(), &selected_cool_items());
+        let profiles = medley_card_prune_profiles(&cards, &charts, &card_stats).unwrap();
+        let mut upper_bounds = MedleyPruneUpperBounds::new(&cards, &charts, &profiles);
+        let contribution_score_upper_bounds = vec![0.0; charts.len()];
+        let chart_eligibility_masks = vec![(1_u8 << charts.len()) - 1; cards.len()];
+
+        let active = signature_active_card_indices(
+            &cards,
+            &charts,
+            &profiles,
+            i32::MAX,
+            MedleyPruneSignature::Mixed,
+            &mut upper_bounds,
+            &contribution_score_upper_bounds,
+            &chart_eligibility_masks,
+            MEDLEY_TEAM_COUNT,
+        )
+        .0;
+
+        assert!(!active.contains(&0));
     }
 }

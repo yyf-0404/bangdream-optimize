@@ -18,6 +18,5 @@ node --check apps/web/config.js
 
 cargo check --workspace --all-targets
 cargo test -p bangdream-optimize-medley-solver
-cargo test -p bangdream-optimize-single-dp
 cargo test -p bangdream-optimize-desktop
 cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml

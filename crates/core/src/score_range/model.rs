@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub const FIRE_MULTIPLIERS: [u32; 4] = [1, 5, 10, 15];
-pub const SCORE_RANGE_CHART_META_SCHEMA_VERSION: u32 = 1;
-pub const SCORE_RANGE_CHART_META_PATH: &str = "api/scoreRangeChartMeta.1.json";
+pub const SCORE_RANGE_CHART_META_SCHEMA_VERSION: u32 = 2;
+pub const SCORE_RANGE_CHART_META_PATH: &str = "api/scoreRangeChartMeta.2.json";
 pub const SCORE_RANGE_SKILL_DURATIONS_MILLIS: [i32; 17] = [
     3000, 3500, 4000, 4500, 5000, 5500, 5600, 5700, 6000, 6200, 6400, 6500, 6800, 7000, 7200, 7500,
     8000,
@@ -35,6 +35,7 @@ pub struct ScoreRangeDurationTemplate {
     pub inactive_nodes: u32,
     pub active_nodes: [u32; 6],
     pub tail_risk: bool,
+    pub skill_queue_risk: bool,
 }
 
 impl ScoreRangeDurationTemplate {
@@ -73,6 +74,7 @@ impl ScoreRangeChartMeta {
                 inactive_nodes: counts.inactive_nodes,
                 active_nodes: counts.active_nodes,
                 tail_risk: counts.tail_risk,
+                skill_queue_risk: counts.skill_queue_risk,
             });
         }
         Ok(Self { templates })
@@ -255,10 +257,10 @@ impl ScoreRangeSong {
     }
 
     pub fn is_safe_for_duration(&self, duration: f64) -> Result<bool, crate::ChartError> {
-        Ok(!self
+        let template = self
             .duration_model((duration * 1000.0).round() as i32)?
-            .template
-            .tail_risk)
+            .template;
+        Ok(!template.tail_risk && !template.skill_queue_risk)
     }
 
     pub(crate) fn optimistic_auto_score_terms(&self) -> Result<(f64, usize), crate::ChartError> {
@@ -303,6 +305,10 @@ pub(crate) struct ScoreRangeSongDuration {
 impl ScoreRangeSongDuration {
     pub(crate) fn has_skill_tail_risk(self) -> bool {
         self.template.tail_risk
+    }
+
+    pub(crate) fn has_skill_queue_risk(self) -> bool {
+        self.template.skill_queue_risk
     }
 
     pub(crate) fn score(self, stat: i32, score_up: f64) -> i32 {
@@ -457,5 +463,39 @@ mod tests {
 
         assert_eq!(jp.compressed_score(skill).unwrap().score(600), 1_350);
         assert_eq!(en.compressed_score(skill).unwrap().score(600), 900);
+    }
+
+    #[test]
+    fn queued_skill_song_is_unsafe_for_score_range() {
+        let selection = SongSelection {
+            song_id: 1,
+            difficulty: 3,
+        };
+        let queued = Chart::new(
+            5,
+            (0..6)
+                .map(|index| ChartNode {
+                    node_type: ChartNodeType::Skill,
+                    time: index as f64 * 4.0,
+                })
+                .collect(),
+        );
+        let safe = Chart::new(
+            5,
+            (0..6)
+                .map(|index| ChartNode {
+                    node_type: ChartNodeType::Skill,
+                    time: index as f64 * 10.0,
+                })
+                .collect(),
+        );
+
+        let queued = ScoreRangeSong::new(selection.clone(), queued).unwrap();
+        let safe = ScoreRangeSong::new(selection, safe).unwrap();
+
+        assert!(!queued.is_safe_for_duration(5.0).unwrap());
+        assert!(safe.is_safe_for_duration(5.0).unwrap());
+        assert!(queued.duration_model(5_000).unwrap().has_skill_queue_risk());
+        assert!(!safe.duration_model(5_000).unwrap().has_skill_queue_risk());
     }
 }

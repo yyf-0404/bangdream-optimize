@@ -67,6 +67,10 @@ export function renderResultSummary(resultElement, result, deps, { diagnostic } 
   );
   resultElement.append(overview);
 
+  const riskySongs = songs.filter((song) => song.skillQueueRisk === true);
+  if (riskySongs.length > 0) {
+    resultElement.append(renderSkillQueueRisk(riskySongs, deps));
+  }
   if (result.items) {
     resultElement.append(renderSelectedItems(result.items, deps));
   }
@@ -86,6 +90,23 @@ export function renderResultSummary(resultElement, result, deps, { diagnostic } 
   }
   songSection.append(title, list);
   resultElement.append(songSection);
+}
+
+function renderSkillQueueRisk(songs, deps) {
+  const warning = document.createElement('section');
+  warning.className = 'result-risk';
+  warning.setAttribute('role', 'alert');
+  const title = document.createElement('strong');
+  title.textContent = '技能重叠提示';
+  const detail = document.createElement('p');
+  const labels = songs.map((song) => compactJoin([
+    deps.songLabel(song.songId),
+    `ID ${song.songId}`,
+    `难度 ${song.difficulty}`,
+  ], ' · '));
+  detail.textContent = `以下谱面存在技能窗口重叠：${labels.join('；')}。计算使用精确的独立技能窗口，并允许重叠增量直接相加；所有谱面统一使用 5×6 增量矩阵和 32 状态 DP。`;
+  warning.append(title, detail);
+  return warning;
 }
 
 function renderFailureDiagnostic(resultElement, diagnostic) {

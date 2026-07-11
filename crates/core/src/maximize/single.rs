@@ -5,7 +5,7 @@ use crate::model::schema::{
     BuildResult, CalculationMetrics, EventType, SelectedAreaItems, SingleCalculationMetrics,
     SongBuildResult, SongSelection,
 };
-use crate::single::{calculate_single_song_dp, SingleSongDpError, SingleSongDpResult};
+use crate::single::{calculate_single_song, SingleSongError, SingleSongResult};
 use crate::timing::Timer;
 
 pub(super) fn calculate_single_result_for_items(
@@ -24,23 +24,23 @@ pub(super) fn calculate_single_result_for_items(
         .into_iter()
         .filter_map(|mode| {
             mode_count += 1;
-            match calculate_single_song_dp(cards, chart, area_item_percent, selected_items, mode) {
+            match calculate_single_song(cards, chart, area_item_percent, selected_items, mode) {
                 Ok(result) => {
                     valid_mode_count += 1;
                     Some(Ok(result))
                 }
-                Err(SingleSongDpError::NotEnoughCards { .. } | SingleSongDpError::NoResult) => None,
+                Err(SingleSongError::NotEnoughCards { .. } | SingleSongError::NoResult) => None,
                 Err(error) => Some(Err(error)),
             }
         })
-        .try_fold(None, |best: Option<SingleSongDpResult>, result| {
+        .try_fold(None, |best: Option<SingleSongResult>, result| {
             let result = result?;
-            Ok::<_, SingleSongDpError>(Some(match best {
+            Ok::<_, SingleSongError>(Some(match best {
                 Some(best) if best.score >= result.score => best,
                 _ => result,
             }))
         })?
-        .ok_or(SingleSongDpError::NoResult)?;
+        .ok_or(SingleSongError::NoResult)?;
 
     Ok(BuildResult {
         event_id,
@@ -49,7 +49,7 @@ pub(super) fn calculate_single_result_for_items(
         total_stat: best.stat,
         songs: vec![single_song_result(song, best)],
         items: Some(selected_items.clone()),
-        solver: Some("dp".to_owned()),
+        solver: Some("exact".to_owned()),
         metrics: Some(CalculationMetrics {
             single: Some(SingleCalculationMetrics {
                 mode_count,
@@ -61,7 +61,7 @@ pub(super) fn calculate_single_result_for_items(
     })
 }
 
-fn single_song_result(song: &SongSelection, result: SingleSongDpResult) -> SongBuildResult {
+fn single_song_result(song: &SongSelection, result: SingleSongResult) -> SongBuildResult {
     SongBuildResult {
         song_id: song.song_id,
         difficulty: song.difficulty,
@@ -69,5 +69,6 @@ fn single_song_result(song: &SongSelection, result: SingleSongDpResult) -> SongB
         stat: result.stat,
         team_card_ids: result.team_card_ids,
         captain_card_id: result.captain_card_id,
+        skill_queue_risk: false,
     }
 }

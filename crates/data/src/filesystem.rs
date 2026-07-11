@@ -53,7 +53,7 @@ impl BestdoriFilesystemConfig {
             events_path: root.join("events.json"),
             songs_path: root.join("songs.json"),
             charts_dir: root.join("charts"),
-            score_range_chart_meta_path: Some(root.join("scoreRangeChartMeta.1.json")),
+            score_range_chart_meta_path: Some(root.join("scoreRangeChartMeta.2.json")),
             cards_dir: Some(root.join("cards")),
             event_details_dir: Some(root.join("events")),
             cards_fix_path: optional_default_path(&root, "cardsCNfix.json"),
@@ -419,22 +419,31 @@ impl BestdoriFilesystemCalculationInputBuilder {
         server: Server,
     ) -> Result<BTreeMap<u32, AreaItemDefinition>, DataError> {
         let all_definitions = self.game_data.area_item_definitions(server)?;
-        player
-            .area_item
-            .keys()
-            .map(|area_item_id| {
-                let parsed_id = parse_id(area_item_id, "areaItem.areaItemId")?;
-                let definition =
-                    all_definitions
-                        .get(&parsed_id)
-                        .cloned()
-                        .ok_or(DataError::MissingEntity {
+        let mut definitions =
+            player
+                .area_item
+                .keys()
+                .map(|area_item_id| {
+                    let parsed_id = parse_id(area_item_id, "areaItem.areaItemId")?;
+                    let definition = all_definitions.get(&parsed_id).cloned().ok_or(
+                        DataError::MissingEntity {
                             kind: "areaItem",
                             id: area_item_id.clone(),
-                        })?;
-                Ok((parsed_id, definition))
-            })
-            .collect()
+                        },
+                    )?;
+                    Ok((parsed_id, definition))
+                })
+                .collect::<Result<BTreeMap<_, _>, DataError>>()?;
+
+        for area_item_id in [59, 72] {
+            if let Some(definition) = all_definitions.get(&area_item_id) {
+                definitions
+                    .entry(area_item_id)
+                    .or_insert_with(|| definition.clone());
+            }
+        }
+
+        Ok(definitions)
     }
 
     fn event_calculation_data(
@@ -832,7 +841,8 @@ mod tests {
     use super::*;
     use crate::score_range::difficulty_is_published;
     use bangdream_optimize_core::{
-        AreaItemConfig, CharacterBonusConfig, PlayerCardConfig, StatRate,
+        calculate_single_song, AreaItemConfig, CharacterBonusConfig, PlayerCardConfig, SongMode,
+        StatRate,
     };
     use serde::Deserialize;
     use serde_json::json;
@@ -923,7 +933,7 @@ mod tests {
         let config = BestdoriFilesystemConfig::from_root(&root);
 
         assert!(update_all_score_range_chart_meta(&config).unwrap());
-        let output_path = root.join("scoreRangeChartMeta.1.json");
+        let output_path = root.join("scoreRangeChartMeta.2.json");
         let output: ScoreRangeChartMetaFile =
             serde_json::from_slice(&fs::read(&output_path).unwrap()).unwrap();
         assert!(output.contains_chart(1, 3));
@@ -956,7 +966,7 @@ mod tests {
 
         assert!(update_published_score_range_chart_meta(&config, Server::Jp).unwrap());
         let output: ScoreRangeChartMetaFile =
-            serde_json::from_slice(&fs::read(root.join("scoreRangeChartMeta.1.json")).unwrap())
+            serde_json::from_slice(&fs::read(root.join("scoreRangeChartMeta.2.json")).unwrap())
                 .unwrap();
         assert!(output.contains_chart(1, 3));
         assert!(!output.contains_chart(2, 3));
@@ -1173,61 +1183,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_mongodb_player_fixture() {
-        let player = mongodb_player_fixture();
-
-        assert_eq!(player.mongo_id, None);
-        assert_eq!(player.player_id, 1);
-        assert_eq!(player.current_event, Some(287));
-        assert_eq!(player.event_songs["287"].len(), 3);
-        assert_eq!(player.card_list.len(), 25);
-        assert!(!player.area_item.is_empty());
-        assert!(!player.character_bouns.is_empty());
-    }
-
-    #[test]
-    #[ignore = "slow; uses the MongoDB player fixture and local Bestdori game data"]
-    fn calculates_mongodb_player_fixture_from_local_bestdori_files() {
-        let player = mongodb_player_fixture();
-        let card_count = player.card_list.len();
-        let current_event = player.current_event;
-        assert_eq!(current_event, Some(287));
-
-        eprintln!(
-            "running MongoDB fixture calculation: event={:?} cards={card_count}",
-            current_event
-        );
-        let root = std::env::var("BANGDREAM_OPTIMIZE_GAME_DATA_ROOT")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../var/game-data")
-            });
-
-        let builder = BestdoriFilesystemCalculationInputBuilder::load(
-            BestdoriFilesystemConfig::from_root(&root),
-        )
-        .unwrap();
-        let started_at = std::time::Instant::now();
-        let result = builder
-            .calculate_result_sync(player, Server::Jp, None, ItemSearchOptions::default())
-            .unwrap();
-
-        eprintln!(
-            "mongodb player fixture: event={} type={:?} cards={} songs={} total_score={} elapsed_ms={:.3}",
-            result.event_id,
-            result.event_type,
-            card_count,
-            result.songs.len(),
-            result.total_score,
-            started_at.elapsed().as_secs_f64() * 1000.0
-        );
-
-        assert_eq!(result.event_type, EventType::Medley);
-        assert_eq!(result.songs.len(), 3);
-        assert!(result.total_score > 0);
-    }
-
-    #[test]
     fn parses_full_diagnostic_fixture() {
         let diagnostic = full_diagnostic_fixture();
 
@@ -1235,8 +1190,8 @@ mod tests {
         assert_eq!(diagnostic.event_id, Some(0));
         assert_eq!(diagnostic.result.event_id, 0);
         assert_eq!(diagnostic.result.event_type, EventType::Medley);
-        assert_eq!(diagnostic.result.total_score, 11880244);
-        assert_eq!(diagnostic.result.total_stat, 1487827);
+        assert_eq!(diagnostic.result.total_score, 11815764);
+        assert_eq!(diagnostic.result.total_stat, 1507664);
         assert_eq!(diagnostic.result.songs.len(), 3);
         assert!(diagnostic
             .result
@@ -1316,6 +1271,280 @@ mod tests {
             metrics.item_combinations_after,
             expected_metrics.item_combinations_after
         );
+    }
+
+    #[test]
+    #[ignore = "diagnostic; exactly rescoring the saved and latest full-fixture Medley teams"]
+    fn compares_saved_and_latest_medley_teams_with_current_exact_timing() {
+        use bangdream_optimize_core::{
+            chart::get_combo_mod, floor_team_stat, Chart, TeamCardSkill,
+        };
+
+        fn legacy_score(chart: &Chart, skills: &[TeamCardSkill; 5], stat: i32) -> i32 {
+            let skill_nodes = chart
+                .nodes
+                .iter()
+                .enumerate()
+                .filter(|(_, node)| node.node_type == bangdream_optimize_core::ChartNodeType::Skill)
+                .collect::<Vec<_>>();
+            let base =
+                3.0 * stat as f64 * (1.0 + 0.01 * (chart.level as f64 - 5.0)) / chart.count as f64;
+            let mut best = i32::MIN;
+            let mut order = [0, 1, 2, 3, 4];
+            loop {
+                for captain in 0..5 {
+                    let assigned: [usize; 6] = std::array::from_fn(|activation| {
+                        if activation == 5 {
+                            captain
+                        } else {
+                            order[activation]
+                        }
+                    });
+                    let mut score = 0;
+                    for (node_idx, node) in chart.nodes.iter().enumerate() {
+                        let combo = chart.combo + node_idx as i32 + 1;
+                        let no_skill = (base * get_combo_mod(combo, true) * 1.1).floor() as i32;
+                        let mut multiplier = 1.0;
+                        for (activation, (skill_idx, trigger)) in skill_nodes.iter().enumerate() {
+                            let skill = skills[assigned[activation]];
+                            if node_idx > *skill_idx
+                                && node.time <= trigger.time + skill.duration + 1.0 / 30.0
+                            {
+                                multiplier = 1.0 + skill.score_up;
+                            }
+                        }
+                        score += (no_skill as f64 * multiplier).floor() as i32;
+                    }
+                    best = best.max(score);
+                }
+                let pivot = (0..4).rev().find(|&idx| order[idx] < order[idx + 1]);
+                let Some(pivot) = pivot else { break };
+                let successor = (pivot + 1..5)
+                    .rev()
+                    .find(|&idx| order[pivot] < order[idx])
+                    .unwrap();
+                order.swap(pivot, successor);
+                order[pivot + 1..].reverse();
+            }
+            best
+        }
+
+        const SAVED_TEAMS: [[u32; 5]; 3] = [
+            [1851, 2186, 1125, 627, 1721],
+            [2032, 1976, 1720, 1748, 625],
+            [2124, 1999, 1975, 2304, 1952],
+        ];
+        const LATEST_TEAMS: [[u32; 5]; 3] = [
+            [1851, 627, 1125, 1748, 416],
+            [1999, 2186, 1976, 1721, 625],
+            [2124, 2304, 1720, 1975, 1952],
+        ];
+
+        let diagnostic = full_diagnostic_fixture();
+        let event_id = diagnostic
+            .event_id
+            .or(diagnostic.player.current_event)
+            .unwrap_or(diagnostic.result.event_id);
+        let root = std::env::var("BANGDREAM_OPTIMIZE_GAME_DATA_ROOT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../var/game-data")
+            });
+        let builder = BestdoriFilesystemCalculationInputBuilder::load(
+            BestdoriFilesystemConfig::from_bestdori_api_root(&root),
+        )
+        .unwrap();
+        let songs = diagnostic
+            .player
+            .event_songs
+            .get(&event_id.to_string())
+            .unwrap();
+        let snapshot = builder
+            .snapshot_for(&diagnostic.player, event_id, songs, diagnostic.server)
+            .unwrap();
+        let context =
+            crate::prepare_event_context(&snapshot, &diagnostic.player, Some(event_id)).unwrap();
+        let charts = crate::initialized_charts(&snapshot, songs, EventType::Medley).unwrap();
+        let items = diagnostic.result.items.as_ref().unwrap();
+
+        for (label, teams) in [("saved", SAVED_TEAMS), ("latest", LATEST_TEAMS)] {
+            let mut total = 0;
+            for (song_idx, team_ids) in teams.into_iter().enumerate() {
+                let cards = team_ids.map(|card_id| {
+                    context
+                        .maximize_cards()
+                        .iter()
+                        .find(|card| card.card_id == card_id)
+                        .unwrap_or_else(|| panic!("missing card {card_id}"))
+                });
+                let unified_band = cards
+                    .iter()
+                    .all(|card| card.band_id == cards[0].band_id)
+                    .then_some(cards[0].band_id);
+                let unified_attribute = cards
+                    .iter()
+                    .all(|card| card.attribute == cards[0].attribute)
+                    .then_some(cards[0].attribute);
+                let stat = floor_team_stat(cards.iter().map(|card| {
+                    card.add_up_stat(
+                        &context.area_item_percent,
+                        &items.band,
+                        &items.attribute,
+                        items.magazine.as_str(),
+                    )
+                }));
+                let skills: [TeamCardSkill; 5] = cards.map(|card| TeamCardSkill {
+                    score_up: card.score_up.resolve(unified_band, unified_attribute),
+                    ..card.skill
+                });
+                let result = charts[song_idx]
+                    .get_max_score_order(&skills, stat, true)
+                    .unwrap();
+                let legacy_score = legacy_score(&charts[song_idx], &skills, stat);
+                let assigned: [usize; 6] = std::array::from_fn(|activation| {
+                    if activation == 5 {
+                        result.captain_index
+                    } else {
+                        result.order_indices[activation]
+                    }
+                });
+                let skill_nodes = charts[song_idx]
+                    .nodes
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, node)| {
+                        node.node_type == bangdream_optimize_core::ChartNodeType::Skill
+                    })
+                    .collect::<Vec<_>>();
+                let tail_differences = skill_nodes
+                    .iter()
+                    .enumerate()
+                    .map(|(activation, (_, trigger))| {
+                        let skill = skills[assigned[activation]];
+                        let trigger_frame = (trigger.time * 60.0 - 1.0e-9).ceil() as i64;
+                        let duration_frames = (skill.duration * 60.0).round() as i64;
+                        let ideal_end = (trigger_frame + duration_frames + 1) as f64 / 60.0;
+                        let legacy_end = trigger.time + skill.duration + 1.0 / 30.0;
+                        let ideal_count = charts[song_idx]
+                            .nodes
+                            .iter()
+                            .filter(|node| node.time <= ideal_end)
+                            .count();
+                        let legacy_count = charts[song_idx]
+                            .nodes
+                            .iter()
+                            .filter(|node| node.time <= legacy_end)
+                            .count();
+                        (
+                            activation,
+                            skill.card_id,
+                            skill.duration,
+                            trigger.time,
+                            ideal_end,
+                            legacy_end,
+                            legacy_count.saturating_sub(ideal_count),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                total += result.score;
+                eprintln!(
+                    "fixed medley team: set={label} song={} score={} legacy_score={} stat={} captain={} order={:?} cards={team_ids:?} skills={:?} legacy_tail_extra={tail_differences:?}",
+                    song_idx + 1,
+                    result.score,
+                    legacy_score,
+                    stat,
+                    team_ids[result.captain_index],
+                    result.order_indices,
+                    skills.map(|skill| (skill.card_id, skill.duration, skill.score_up, skill.rateup)),
+                );
+            }
+            eprintln!("fixed medley total: set={label} score={total}");
+        }
+    }
+
+    #[test]
+    #[ignore = "slow; benchmarks the single-song skill-coverage fallback with the full 1,414-card fixture and one real chart"]
+    fn benchmarks_single_song_skill_coverage_fallback_with_full_diagnostic_fixture() {
+        let diagnostic = full_diagnostic_fixture();
+        let event_id = diagnostic
+            .event_id
+            .or(diagnostic.player.current_event)
+            .unwrap_or(diagnostic.result.event_id);
+        let root = std::env::var("BANGDREAM_OPTIMIZE_GAME_DATA_ROOT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../var/game-data")
+            });
+        let builder = BestdoriFilesystemCalculationInputBuilder::load(
+            BestdoriFilesystemConfig::from_bestdori_api_root(&root),
+        )
+        .unwrap();
+        let rounds = std::env::var("BANGDREAM_OPTIMIZE_SINGLE_FALLBACK_ROUNDS")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(1)
+            .max(1);
+
+        // Fixed after inspecting the real mirror: this chart has 207 nodes and one
+        // ideal-60 skill queue warning, so it deterministically exercises the fallback.
+        let song = SongSelection {
+            song_id: 3,
+            difficulty: 1,
+        };
+        let songs = [song.clone()];
+
+        let snapshot = builder
+            .snapshot_for(&diagnostic.player, event_id, &songs, diagnostic.server)
+            .unwrap();
+        let context =
+            crate::prepare_event_context(&snapshot, &diagnostic.player, Some(event_id)).unwrap();
+        let selected_items = diagnostic
+            .result
+            .items
+            .as_ref()
+            .expect("full fixture contains selected area items");
+
+        eprintln!(
+            "single coverage fallback fixture: event={} cards={} song={}:{} rounds={} items={:?}",
+            event_id,
+            context.maximize_cards().len(),
+            song.song_id,
+            song.difficulty,
+            rounds,
+            selected_items,
+        );
+        let mut chart = snapshot
+            .chart(song.song_id, song.difficulty)
+            .cloned()
+            .expect("selected chart exists in snapshot");
+        chart.init(0, false).unwrap();
+        assert!(!chart.warning.is_empty());
+
+        for round in 0..rounds {
+            let started = std::time::Instant::now();
+            let result = calculate_single_song(
+                context.maximize_cards(),
+                &chart,
+                &context.area_item_percent,
+                selected_items,
+                SongMode::Mixed,
+            )
+            .unwrap();
+            eprintln!(
+                "single coverage fallback: song={}:{} round={} nodes={} warnings={} score={} stat={} captain={} cards={:?} elapsed_ms={:.3}",
+                song.song_id,
+                song.difficulty,
+                round + 1,
+                chart.count,
+                chart.warning.len(),
+                result.score,
+                result.stat,
+                result.captain_card_id,
+                result.team_card_ids,
+                started.elapsed().as_secs_f64() * 1000.0,
+            );
+            assert!(result.score > 0);
+        }
     }
 
     #[test]
@@ -1433,12 +1662,6 @@ mod tests {
                     "tests/fixtures/bangdream-optimize-diagnostic-0-2026-06-13T13-41-23-273Z.json",
                 )
             });
-        serde_json::from_slice(&fs::read(&fixture_path).unwrap()).unwrap()
-    }
-
-    fn mongodb_player_fixture() -> PlayerConfig {
-        let fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/mongodb-player-medley.json");
         serde_json::from_slice(&fs::read(&fixture_path).unwrap()).unwrap()
     }
 

@@ -207,11 +207,9 @@ fn recalculate_song(
 ) -> Result<RecalculatedSong, Box<dyn Error>> {
     let band = unified_band_for_cards(team);
     let attribute = unified_attribute_for_cards(team);
-    let stat = team
-        .iter()
-        .map(|card| card.add_up_stat(area, &items.band, &items.attribute, items.magazine.as_str()))
-        .sum::<f64>()
-        .floor() as i32;
+    let stat = bangdream_optimize_core::floor_team_stat(team.iter().map(|card| {
+        card.add_up_stat(area, &items.band, &items.attribute, items.magazine.as_str())
+    }));
     let skills = team
         .iter()
         .map(|card| TeamCardSkill {
@@ -221,14 +219,14 @@ fn recalculate_song(
             rateup: card.skill.rateup,
         })
         .collect::<Vec<_>>();
-    let order = chart.get_max_meta_order(&skills)?;
+    let order = chart.get_max_score_order(&skills, stat, score_as_medley)?;
     let skill_order = order
         .order_indices
         .iter()
         .map(|&idx| skills[idx])
         .chain(std::iter::once(skills[order.captain_index]))
         .collect::<Vec<_>>();
-    let score = chart.get_score(&skill_order, stat, score_as_medley)?;
+    let score = order.score;
 
     Ok(RecalculatedSong {
         score,

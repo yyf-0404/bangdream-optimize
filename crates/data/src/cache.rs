@@ -48,6 +48,13 @@ struct ChartSelection {
 pub struct BestdoriStaticMirrorConfig {
     pub cache_root: PathBuf,
     pub base_url: String,
+    source: RemoteGameDataSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RemoteGameDataSource {
+    StaticMirror,
+    BestdoriApi,
 }
 
 impl BestdoriStaticMirrorConfig {
@@ -55,6 +62,15 @@ impl BestdoriStaticMirrorConfig {
         Self {
             cache_root: cache_root.into(),
             base_url: base_url.into(),
+            source: RemoteGameDataSource::StaticMirror,
+        }
+    }
+
+    pub fn from_bestdori_api(cache_root: impl Into<PathBuf>, base_url: impl Into<String>) -> Self {
+        Self {
+            cache_root: cache_root.into(),
+            base_url: base_url.into(),
+            source: RemoteGameDataSource::BestdoriApi,
         }
     }
 }
@@ -216,28 +232,31 @@ impl BestdoriCachedFilesystemCalculationInputBuilder {
             source,
         })?;
 
-        let remote_manifest = self.fetch_manifest()?;
-        let local_manifest = self.read_local_manifest()?;
-
-        let mut changed = self.sync_core_files(&remote_manifest, local_manifest.as_ref(), false)?;
+        let mut changed = if self.uses_manifest() {
+            let remote_manifest = self.fetch_manifest()?;
+            let local_manifest = self.read_local_manifest()?;
+            let changed = self.sync_core_files(&remote_manifest, local_manifest.as_ref(), false)?;
+            self.write_json("manifest.json", &remote_manifest)?;
+            changed
+        } else {
+            self.sync_core_files_from_bestdori(false)?
+        };
 
         if let Some(player) = player {
             let cards = self.read_json("api/cards/all.5.json")?;
             for path in card_detail_paths_for_player(player, &cards)? {
-                changed |= self.sync_file_auto_manifest(&path, false)?;
+                changed |= self.sync_remote_file(&path, false)?;
             }
         }
 
         if let Some(event_path) = event_detail_sync_path(event_id) {
-            changed |= self.sync_file_auto_manifest(&event_path, false)?;
+            changed |= self.sync_remote_file(&event_path, false)?;
         }
 
         for song in song_list {
             let path = chart_path(song.song_id, song.difficulty)?;
-            changed |= self.sync_file_auto_manifest(&path, false)?;
+            changed |= self.sync_remote_file(&path, false)?;
         }
-
-        self.write_json("manifest.json", &remote_manifest)?;
         Ok(changed)
     }
 
@@ -258,16 +277,20 @@ impl BestdoriCachedFilesystemCalculationInputBuilder {
             source,
         })?;
 
-        let remote_manifest = self.fetch_manifest()?;
-        let local_manifest = self.read_local_manifest()?;
-        let force_required_files = refresh_without_manifest && remote_manifest.files.is_empty();
-        let changed = self.sync_core_files(
-            &remote_manifest,
-            local_manifest.as_ref(),
-            force_required_files,
-        )?;
-        self.write_json("manifest.json", &remote_manifest)?;
-        Ok(changed)
+        if self.uses_manifest() {
+            let remote_manifest = self.fetch_manifest()?;
+            let local_manifest = self.read_local_manifest()?;
+            let force_required_files = refresh_without_manifest && remote_manifest.files.is_empty();
+            let changed = self.sync_core_files(
+                &remote_manifest,
+                local_manifest.as_ref(),
+                force_required_files,
+            )?;
+            self.write_json("manifest.json", &remote_manifest)?;
+            Ok(changed)
+        } else {
+            self.sync_core_files_from_bestdori(refresh_without_manifest)
+        }
     }
 
     fn sync_all_inner(&self) -> Result<bool, DataError> {
@@ -366,6 +389,18 @@ impl BestdoriCachedFilesystemCalculationInputBuilder {
         Ok(changed)
     }
 
+    fn sync_core_files_from_bestdori(&self, force: bool) -> Result<bool, DataError> {
+        let mut changed = false;
+        for path in REQUIRED_CORE_FILES {
+            changed |= self.sync_file_without_manifest_inner(path, false, force)?;
+        }
+        Ok(changed)
+    }
+
+    fn uses_manifest(&self) -> bool {
+        self.config.source == RemoteGameDataSource::StaticMirror
+    }
+
     fn fetch_manifest(&self) -> Result<StaticMirrorManifest, DataError> {
         self.fetch_manifest_path("manifest.json")
     }
@@ -452,21 +487,30 @@ impl BestdoriCachedFilesystemCalculationInputBuilder {
         Ok(changed)
     }
 
+    fn sync_remote_file(&self, path: &str, optional: bool) -> Result<bool, DataError> {
+        if self.uses_manifest() {
+            self.sync_file_auto_manifest(path, optional)
+        } else {
+            self.sync_file_without_manifest_inner(path, optional, false)
+        }
+    }
+
     fn sync_file_without_manifest(&self, path: &str) -> Result<bool, DataError> {
-        self.sync_file_without_manifest_inner(path, false)
+        self.sync_file_without_manifest_inner(path, false, false)
     }
 
     fn sync_optional_file_without_manifest(&self, path: &str) -> Result<bool, DataError> {
-        self.sync_file_without_manifest_inner(path, true)
+        self.sync_file_without_manifest_inner(path, true, false)
     }
 
     fn sync_file_without_manifest_inner(
         &self,
         path: &str,
         allow_missing: bool,
+        force: bool,
     ) -> Result<bool, DataError> {
         let local_path = self.local_path(path)?;
-        if local_path.exists() {
+        if local_path.exists() && !force {
             return Ok(false);
         }
 
@@ -973,6 +1017,64 @@ mod tests {
         assert!(!cache_root.join("api/charts/1/expert.json").exists());
 
         server.join().unwrap();
+        let _ = fs::remove_dir_all(cache_root);
+    }
+
+    #[test]
+    fn bestdori_api_syncs_core_files_without_requesting_manifest() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let mut paths = Vec::new();
+            for _ in 0..REQUIRED_CORE_FILES.len() {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0_u8; 2048];
+                let count = stream.read(&mut request).unwrap();
+                let request = String::from_utf8_lossy(&request[..count]);
+                let path = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap()
+                    .to_owned();
+                paths.push(path);
+                stream
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+                    )
+                    .unwrap();
+            }
+            paths
+        });
+        let cache_root = std::env::temp_dir().join(format!(
+            "bangdream-optimize-bestdori-api-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        let builder = BestdoriCachedFilesystemCalculationInputBuilder::new(
+            BestdoriStaticMirrorConfig::from_bestdori_api(&cache_root, format!("http://{address}")),
+        )
+        .unwrap();
+
+        builder.sync_core().unwrap();
+        let paths = server.join().unwrap();
+
+        assert_eq!(
+            paths,
+            REQUIRED_CORE_FILES
+                .iter()
+                .map(|path| format!("/{path}"))
+                .collect::<Vec<_>>()
+        );
+        assert!(paths.iter().all(|path| !path.ends_with("manifest.json")));
+        assert!(!cache_root.join("manifest.json").exists());
+        for path in REQUIRED_CORE_FILES {
+            assert!(cache_root.join(path).is_file(), "{path} was not cached");
+        }
+
         let _ = fs::remove_dir_all(cache_root);
     }
 

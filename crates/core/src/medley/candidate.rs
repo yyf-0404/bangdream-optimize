@@ -8,8 +8,8 @@ use crate::model::schema::{
 };
 use crate::timing::Timer;
 use bangdream_optimize_medley_solver::{
-    solve_medley_wide_with, solve_medley_with, MedleySolverImplementation, MedleySolverInput,
-    MedleySolverPreference, WideMedleySolverInput,
+    solve_medley_wide_with, solve_medley_with, MedleySolverAutoRoute, MedleySolverImplementation,
+    MedleySolverInput, MedleySolverPreference, MedleySolverQuality, WideMedleySolverInput,
 };
 use serde::{Deserialize, Serialize};
 
@@ -120,10 +120,13 @@ pub(crate) fn calculate_medley_from_raw_candidates(
     let solver_ms = solve_start.elapsed_ms();
     if trace {
         eprintln!(
-            "medley solver core: implementation={} score={} used_cards={} solve_ms={:.3}",
+            "medley solver core: implementation={} quality={} score={} used_cards={} exact_work={} auto_route={:?} solve_ms={:.3}",
             format_medley_solver(plan.implementation),
+            format_medley_solver_quality(plan.quality),
             plan.score,
             used_card_count,
+            plan.exact_work,
+            plan.auto_route,
             solver_ms,
         );
     }
@@ -156,6 +159,12 @@ pub(crate) fn calculate_medley_from_raw_candidates(
                 solver_candidate_count: candidate_indices.len(),
                 solver_filter_ms: filter_ms,
                 solver_ms,
+                solver_quality: Some(format_medley_solver_quality(plan.quality).to_owned()),
+                exact_work: plan.exact_work,
+                auto_route: plan
+                    .auto_route
+                    .map(format_medley_solver_auto_route)
+                    .map(str::to_owned),
                 candidate_build_ms: None,
                 used_card_count: Some(used_card_count),
                 ..Default::default()
@@ -245,9 +254,12 @@ fn calculate_medley(request: CandidateBuildRequest) -> Result<BuildResult, Build
     let solver_ms = solve_start.elapsed_ms();
     if trace {
         eprintln!(
-            "medley solver core: implementation={} score={} solve_ms={:.3}",
+            "medley solver core: implementation={} quality={} score={} exact_work={} auto_route={:?} solve_ms={:.3}",
             format_medley_solver(plan.implementation),
+            format_medley_solver_quality(plan.quality),
             plan.score,
+            plan.exact_work,
+            plan.auto_route,
             solver_ms,
         );
     }
@@ -279,6 +291,12 @@ fn calculate_medley(request: CandidateBuildRequest) -> Result<BuildResult, Build
                 solver_candidate_count: candidate_indices.len(),
                 solver_filter_ms: filter_ms,
                 solver_ms,
+                solver_quality: Some(format_medley_solver_quality(plan.quality).to_owned()),
+                exact_work: plan.exact_work,
+                auto_route: plan
+                    .auto_route
+                    .map(format_medley_solver_auto_route)
+                    .map(str::to_owned),
                 candidate_build_ms: None,
                 used_card_count: None,
                 ..Default::default()
@@ -386,6 +404,7 @@ fn song_result(
             .copied()
             .or_else(|| candidate.team_card_ids.first().copied())
             .unwrap_or_default(),
+        skill_queue_risk: false,
     }
 }
 
@@ -405,6 +424,7 @@ fn raw_song_result(
             .map(|&raw_idx| cards[raw_idx].card_id)
             .collect(),
         captain_card_id: cards[candidate.captain_raw_indices[song_idx]].card_id,
+        skill_queue_risk: false,
     }
 }
 
@@ -422,6 +442,20 @@ fn format_medley_solver(implementation: MedleySolverImplementation) -> &'static 
         MedleySolverImplementation::ScalarFallbackAvx2Unsupported => {
             "scalarFallbackAvx2Unsupported"
         }
+    }
+}
+
+fn format_medley_solver_quality(quality: MedleySolverQuality) -> &'static str {
+    match quality {
+        MedleySolverQuality::Exact => "exact",
+        MedleySolverQuality::Approximate => "approximate",
+    }
+}
+
+fn format_medley_solver_auto_route(route: MedleySolverAutoRoute) -> &'static str {
+    match route {
+        MedleySolverAutoRoute::ExactCandidateCount => "exactCandidateCount",
+        MedleySolverAutoRoute::RandomBucketCandidateCount => "randomBucketCandidateCount",
     }
 }
 
@@ -524,6 +558,10 @@ mod tests {
         assert_eq!(result.total_score, 300);
         assert_eq!(result.total_stat, 6000);
         assert_eq!(result.songs.len(), 3);
+        let metrics = result.metrics.unwrap().medley.unwrap();
+        assert_eq!(metrics.solver_quality.as_deref(), Some("exact"));
+        assert!(metrics.exact_work > 0);
+        assert_eq!(metrics.auto_route, None);
     }
 
     #[test]

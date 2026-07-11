@@ -1,6 +1,6 @@
 use super::{ScoreRangeTeam, ScoreRangeTeamDomain, SkillBucketKey, TeamRecoveryData};
 use crate::model::preparation::{ALL_ATTRIBUTE_KEY, ALL_BAND_KEY};
-use crate::{AreaItemPercent, Attribute, Magazine, PreparedCard, SelectedAreaItems, SongMode};
+use crate::{AreaItemPercent, Attribute, PreparedCard, SelectedAreaItems, SongMode};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -23,24 +23,7 @@ pub fn bucket_teams_by_skill(
 pub fn score_range_item_combinations(
     area_item_percent: &AreaItemPercent,
 ) -> Vec<SelectedAreaItems> {
-    let magazines = area_item_percent
-        .magazine
-        .keys()
-        .filter_map(|key| Magazine::from_key(key))
-        .collect::<Vec<_>>();
-    let mut result = Vec::new();
-    for magazine in magazines {
-        for band in area_item_percent.band.keys() {
-            for attribute in area_item_percent.attribute.keys() {
-                result.push(SelectedAreaItems {
-                    band: band.clone(),
-                    attribute: attribute.clone(),
-                    magazine,
-                });
-            }
-        }
-    }
-    result
+    crate::area_item_combinations(area_item_percent)
 }
 
 pub fn prepare_score_range_team_domain(
@@ -197,6 +180,34 @@ pub(crate) fn signature_modes(cards: &[PreparedCard]) -> Vec<SongMode> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::preparation::{StatRate, PERFORMANCE_KEY, TECHNIQUE_KEY, VISUAL_KEY};
+    use crate::Magazine;
+
+    #[test]
+    fn score_range_uses_all_shared_item_combinations() {
+        let area = AreaItemPercent {
+            band: (1..=9)
+                .map(|band| (band.to_string(), StatRate::zero()))
+                .collect(),
+            attribute: BTreeMap::from([
+                ("cool".to_owned(), StatRate::zero()),
+                ("happy".to_owned(), StatRate::zero()),
+                ("pure".to_owned(), StatRate::zero()),
+                ("powerful".to_owned(), StatRate::zero()),
+                ("cool,happy,powerful,pure".to_owned(), StatRate::zero()),
+            ]),
+            magazine: BTreeMap::from([
+                (PERFORMANCE_KEY.to_owned(), StatRate::zero()),
+                (TECHNIQUE_KEY.to_owned(), StatRate::zero()),
+                (VISUAL_KEY.to_owned(), StatRate::zero()),
+            ]),
+        };
+
+        let combinations = score_range_item_combinations(&area);
+
+        assert_eq!(combinations, crate::area_item_combinations(&area));
+        assert_eq!(combinations.len(), 135);
+    }
 
     #[test]
     fn mode_item_groups_merge_only_unified_dimensions() {

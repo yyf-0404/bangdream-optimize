@@ -2,7 +2,7 @@ use super::candidate::TeamCandidate;
 use super::prune::{seed_signatures, MedleyPruneSignature};
 use super::scoring::{build_candidate, MedleyCardInput, RawTeamCandidate, SkillMetaCache};
 use super::team::{adjusted_card_stats, TeamBuildError, TeamGenerationOptions};
-use crate::model::chart::{Chart, TeamCardSkill};
+use crate::model::chart::{Chart, ExactScoreScratch, TeamCardSkill};
 use crate::model::preparation::{AreaItemPercent, PreparedCard};
 use crate::model::schema::{
     BuildResult, EventType, SelectedAreaItems, SongBuildResult, SongSelection,
@@ -33,10 +33,19 @@ pub(crate) fn seed_medley_result_for_items(
     }
 
     let card_stats = adjusted_card_stats(cards, area_item_percent, selected_items);
+    let mut skill_meta_cache = SkillMetaCache::new(charts.len());
+    let mut exact_score_scratch = ExactScoreScratch::default();
     let mut song_candidates = Vec::with_capacity(MEDLEY_TEAM_COUNT);
     for song_idx in 0..MEDLEY_TEAM_COUNT {
-        let candidates =
-            seed_team_candidates_for_song(cards, charts, &card_stats, options, song_idx)?;
+        let candidates = seed_team_candidates_for_song(
+            cards,
+            charts,
+            &card_stats,
+            options,
+            song_idx,
+            &mut skill_meta_cache,
+            &mut exact_score_scratch,
+        )?;
         if candidates.is_empty() {
             return Ok(None);
         }
@@ -52,7 +61,15 @@ pub(crate) fn seed_medley_result_for_items(
         song_candidates[1][indices[1]].clone(),
         song_candidates[2][indices[2]].clone(),
     ];
-    improve_seed_partition(&mut chosen, cards, charts, &card_stats, options)?;
+    improve_seed_partition(
+        &mut chosen,
+        cards,
+        charts,
+        &card_stats,
+        options,
+        &mut skill_meta_cache,
+        &mut exact_score_scratch,
+    )?;
     let chosen_candidates = [
         &chosen[0].candidate,
         &chosen[1].candidate,
@@ -103,6 +120,8 @@ fn seed_team_candidates_for_song(
     card_stats: &[f64],
     options: TeamGenerationOptions,
     song_idx: usize,
+    skill_meta_cache: &mut SkillMetaCache,
+    exact_score_scratch: &mut ExactScoreScratch,
 ) -> Result<Vec<SeedTeamCandidate>, TeamBuildError> {
     let signatures = seed_signatures(cards);
     let mut result = Vec::new();
@@ -118,7 +137,16 @@ fn seed_team_candidates_for_song(
             let Some(indices) = greedy_seed_team(cards, &scored_cards, &round_banned) else {
                 break;
             };
-            push_seed_candidate(&mut result, cards, charts, card_stats, options, indices)?;
+            push_seed_candidate(
+                &mut result,
+                cards,
+                charts,
+                card_stats,
+                options,
+                indices,
+                skill_meta_cache,
+                exact_score_scratch,
+            )?;
             round_banned.extend(indices);
         }
         for banned in scored_cards
@@ -127,7 +155,16 @@ fn seed_team_candidates_for_song(
             .map(|scored| scored.idx)
         {
             if let Some(indices) = greedy_seed_team(cards, &scored_cards, &[banned]) {
-                push_seed_candidate(&mut result, cards, charts, card_stats, options, indices)?;
+                push_seed_candidate(
+                    &mut result,
+                    cards,
+                    charts,
+                    card_stats,
+                    options,
+                    indices,
+                    skill_meta_cache,
+                    exact_score_scratch,
+                )?;
             }
         }
     }
@@ -213,6 +250,8 @@ fn push_seed_candidate(
     card_stats: &[f64],
     options: TeamGenerationOptions,
     raw_indices: [usize; TEAM_SIZE],
+    skill_meta_cache: &mut SkillMetaCache,
+    exact_score_scratch: &mut ExactScoreScratch,
 ) -> Result<(), TeamBuildError> {
     if candidates
         .iter()
@@ -221,8 +260,15 @@ fn push_seed_candidate(
         return Ok(());
     }
 
-    let candidate =
-        seed_candidate_from_raw_indices(cards, charts, card_stats, options, raw_indices)?;
+    let candidate = seed_candidate_from_raw_indices(
+        cards,
+        charts,
+        card_stats,
+        options,
+        raw_indices,
+        skill_meta_cache,
+        exact_score_scratch,
+    )?;
 
     candidates.push(SeedTeamCandidate {
         raw_indices,
@@ -237,6 +283,8 @@ fn seed_candidate_from_raw_indices(
     card_stats: &[f64],
     options: TeamGenerationOptions,
     raw_indices: [usize; TEAM_SIZE],
+    skill_meta_cache: &mut SkillMetaCache,
+    exact_score_scratch: &mut ExactScoreScratch,
 ) -> Result<TeamCandidate, TeamBuildError> {
     let seed_cards: Vec<_> = raw_indices
         .iter()
@@ -248,13 +296,13 @@ fn seed_candidate_from_raw_indices(
         })
         .collect();
     let selected_indices = [0, 1, 2, 3, 4];
-    let mut skill_meta_cache = SkillMetaCache::new(charts.len());
     let raw_candidate = build_candidate(
         &seed_cards,
         charts,
         options,
         &selected_indices,
-        &mut skill_meta_cache,
+        skill_meta_cache,
+        exact_score_scratch,
     )?;
 
     Ok(seed_team_candidate_from_raw(
@@ -301,6 +349,8 @@ fn improve_seed_partition(
     charts: &[Chart],
     card_stats: &[f64],
     options: TeamGenerationOptions,
+    skill_meta_cache: &mut SkillMetaCache,
+    exact_score_scratch: &mut ExactScoreScratch,
 ) -> Result<(), TeamBuildError> {
     for _ in 0..SEED_LOCAL_SEARCH_ROUNDS {
         let current_score = seed_partition_score(teams);
@@ -334,6 +384,8 @@ fn improve_seed_partition(
                         card_stats,
                         options,
                         raw_indices,
+                        skill_meta_cache,
+                        exact_score_scratch,
                     )?;
                     let score = current_score - teams[song_idx].candidate.scores[song_idx]
                         + candidate.scores[song_idx];
@@ -455,5 +507,6 @@ fn seed_song_result(
             .copied()
             .or_else(|| candidate.team_card_ids.first().copied())
             .unwrap_or_default(),
+        skill_queue_risk: false,
     }
 }

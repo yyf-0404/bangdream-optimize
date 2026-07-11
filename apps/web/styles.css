@@ -3170,6 +3170,24 @@ td select {
   border-bottom: 1px solid var(--line);
 }
 
+.result-risk {
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--line));
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  color: var(--text);
+}
+
+.result-risk strong {
+  color: var(--danger);
+}
+
+.result-risk p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 .result-overview {
   display: grid;
   grid-template-columns: minmax(180px, 1.4fr) repeat(2, minmax(120px, 1fr));

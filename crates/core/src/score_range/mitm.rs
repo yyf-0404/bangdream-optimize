@@ -521,11 +521,18 @@ pub(crate) fn search_raw_domain(
                     let song_models = if skill.rateup {
                         let mut song_models = Vec::new();
                         for template in &non_rateup_bound_templates[&skill_key.duration_millis] {
-                            if template.exact.has_skill_tail_risk() {
+                            if template.exact.has_skill_tail_risk()
+                                || template.exact.has_skill_queue_risk()
+                            {
                                 if trace_song_skips {
+                                    let reason = if template.exact.has_skill_queue_risk() {
+                                        "skill_queue_risk"
+                                    } else {
+                                        "skill_tail_risk"
+                                    };
                                     eprintln!(
-                                        "score-range song skipped: song={:?} reason=skill_tail_risk skill_nodes=6 duration_millis={}",
-                                        template.key, skill_key.duration_millis,
+                                        "score-range song skipped: song={:?} reason={} skill_nodes=6 duration_millis={}",
+                                        template.key, reason, skill_key.duration_millis,
                                     );
                                 }
                                 continue;
@@ -789,11 +796,16 @@ fn ensure_safe_non_rateup_song_templates(
     }
     let mut templates = Vec::new();
     for &template in &bound_templates[&skill_key.duration_millis] {
-        if template.exact.has_skill_tail_risk() {
+        if template.exact.has_skill_tail_risk() || template.exact.has_skill_queue_risk() {
             if trace_song_skips {
+                let reason = if template.exact.has_skill_queue_risk() {
+                    "skill_queue_risk"
+                } else {
+                    "skill_tail_risk"
+                };
                 eprintln!(
-                    "score-range song skipped: song={:?} reason=skill_tail_risk skill_nodes=6 duration_millis={}",
-                    template.key, skill_key.duration_millis,
+                    "score-range song skipped: song={:?} reason={} skill_nodes=6 duration_millis={}",
+                    template.key, reason, skill_key.duration_millis,
                 );
             }
             continue;
@@ -907,8 +919,8 @@ fn team_bounds<'a>(
         .take(5)
         .fold(0_u64, u64::saturating_add);
     Some(TeamBounds {
-        min_stat: min_stats.into_iter().take(5).sum::<f64>().floor() as i32,
-        max_stat: max_stats.into_iter().take(5).sum::<f64>().floor() as i32,
+        min_stat: crate::floor_team_stat(min_stats.into_iter().take(5)),
+        max_stat: crate::floor_team_stat(max_stats.into_iter().take(5)),
         min_bonus_basis_points: bonus_micros_to_basis_points(min_bonus_micros),
         max_bonus_basis_points: bonus_micros_to_basis_points(max_bonus_micros),
     })
@@ -2176,7 +2188,7 @@ fn candidate_from_pair_records(
         if !matches_mode(mode, indices, cards) {
             continue;
         }
-        let total_stat = (pair.stat + triple_stat).floor() as i32;
+        let total_stat = crate::floor_team_stat([pair.stat, triple_stat]);
         let Some(interval) = interval_set
             .ranked
             .iter()
@@ -2837,18 +2849,14 @@ mod tests {
         let songs = vec![song.clone()];
         let sample_cards = [&cards[0], &cards[1], &cards[2], &cards[3], &cards[4]];
         let sample_items = &items[0];
-        let sample_stat = sample_cards
-            .iter()
-            .map(|card| {
-                card.add_up_stat(
-                    &area_item_percent,
-                    &sample_items.band,
-                    &sample_items.attribute,
-                    sample_items.magazine.as_str(),
-                )
-            })
-            .sum::<f64>()
-            .floor() as i32;
+        let sample_stat = crate::floor_team_stat(sample_cards.iter().map(|card| {
+            card.add_up_stat(
+                &area_item_percent,
+                &sample_items.band,
+                &sample_items.attribute,
+                sample_items.magazine.as_str(),
+            )
+        }));
         let sample_bonus = point_bonus_basis_points(
             sample_cards
                 .iter()
@@ -2978,18 +2986,14 @@ mod tests {
                             }
                             let score_model = song.compressed_score(skills[0]).unwrap();
                             for selected_items in items {
-                                let stat = indices
-                                    .iter()
-                                    .map(|&index| {
-                                        cards[index].add_up_stat(
-                                            area_item_percent,
-                                            &selected_items.band,
-                                            &selected_items.attribute,
-                                            selected_items.magazine.as_str(),
-                                        )
-                                    })
-                                    .sum::<f64>()
-                                    .floor() as i32;
+                                let stat = crate::floor_team_stat(indices.iter().map(|&index| {
+                                    cards[index].add_up_stat(
+                                        area_item_percent,
+                                        &selected_items.band,
+                                        &selected_items.attribute,
+                                        selected_items.magazine.as_str(),
+                                    )
+                                }));
                                 let bonus = point_bonus_basis_points(
                                     indices
                                         .iter()

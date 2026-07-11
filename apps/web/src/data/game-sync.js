@@ -2,7 +2,7 @@ const DB_NAME = 'bangdream-optimize-game-data';
 const DB_VERSION = 1;
 const FILE_STORE = 'files';
 const MANIFEST_PATH = 'manifest.json';
-const SCORE_RANGE_CHART_META_PATH = 'api/scoreRangeChartMeta.1.json';
+const SCORE_RANGE_CHART_META_PATH = 'api/scoreRangeChartMeta.2.json';
 const CUSTOM_EVENT_ID = 0;
 
 const REQUIRED_CORE_FILES = [

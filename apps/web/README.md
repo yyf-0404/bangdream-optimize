@@ -15,7 +15,7 @@ Web 启动时读取 `apps/web/config.js`。
 本地运行时 `./scripts/run-web.sh` 会服务 `apps/web`，并将 `/game-data` 映射到 `var/game-data`。
 后端在 3100 端口同样提供其 `/game-data`，来源于同一镜像。
 最高得分计算或需要参考数据时，浏览器会读取配置的镜像。
-目标 PT 搜索按需同步 `api/scoreRangeChartMeta.1.json`，并使用界面选择的 `0.5/0.75` Auto
+目标 PT 搜索按需同步 `api/scoreRangeChartMeta.2.json`，并使用界面选择的 `0.5/0.75` Auto
 倍率在 Web Worker 中由 WASM 本地计算；
 该文件只保存各技能时长下的激活/未激活节点数和尾部风险，不包含服务器可用性。
 活动选择器同时列出受支持的单曲与组曲活动，并根据所选活动自动确定歌曲数量。

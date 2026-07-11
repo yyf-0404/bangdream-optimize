@@ -528,6 +528,12 @@ pub struct MedleyCalculationMetrics {
     pub solver_candidate_count: usize,
     pub solver_filter_ms: f64,
     pub solver_ms: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solver_quality: Option<String>,
+    #[serde(default)]
+    pub exact_work: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_route: Option<String>,
     #[serde(default)]
     pub seed_ms: f64,
     #[serde(default)]
@@ -563,6 +569,12 @@ pub struct SongBuildResult {
     pub stat: i32,
     pub team_card_ids: Vec<u32>,
     pub captain_card_id: u32,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub skill_queue_risk: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[cfg(test)]
@@ -597,6 +609,28 @@ mod tests {
         assert_eq!(event_type, EventType::LiveTry);
         assert_eq!(event_type.as_str(), "live_try");
         assert_eq!(serde_json::to_string(&event_type).unwrap(), r#""live_try""#);
+    }
+
+    #[test]
+    fn song_result_serializes_skill_queue_risk_only_when_present() {
+        let mut result = SongBuildResult {
+            song_id: 1,
+            difficulty: 3,
+            score: 100,
+            stat: 200,
+            team_card_ids: vec![1, 2, 3, 4, 5],
+            captain_card_id: 1,
+            skill_queue_risk: false,
+        };
+        let safe = serde_json::to_value(&result).unwrap();
+        assert!(safe.get("skillQueueRisk").is_none());
+
+        result.skill_queue_risk = true;
+        let risky = serde_json::to_value(&result).unwrap();
+        assert_eq!(risky["skillQueueRisk"], true);
+
+        let legacy: SongBuildResult = serde_json::from_value(safe).unwrap();
+        assert!(!legacy.skill_queue_risk);
     }
 
     #[test]

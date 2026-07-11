@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, VecDeque};
 use thiserror::Error;
 
+use crate::timing::Timer;
+
 #[cfg(target_arch = "x86")]
 use std::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
@@ -12,6 +14,185 @@ const SKILL_DURATIONS: [f64; 17] = [
     3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 5.6, 5.7, 6.0, 6.2, 6.4, 6.5, 6.8, 7.0, 7.2, 7.5, 8.0,
 ];
 const RATEUP_DURATIONS: [f64; 5] = [5.0, 5.5, 6.0, 6.5, 7.0];
+const SKILL_FINISHING_SECONDS: f64 = 0.75;
+const MIN_SUPPORTED_FPS: f64 = 60.0;
+const MAX_SUPPORTED_FPS: f64 = 120.0;
+const IDEAL_FPS: i64 = 60;
+const IDEAL_FRAME_EPS: f64 = 1.0e-9;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct SkillTimingInterval {
+    pub(crate) lower: f64,
+    pub(crate) upper: f64,
+}
+
+/// Interval containing the last judgement time at which a skill can still be active.
+///
+/// At a fixed frame rate `f`, the end lies in `[duration + 1/f, duration + 2/f)`.
+/// Taking the envelope of the supported 60/120 FPS timings gives the interval below.
+pub(crate) fn skill_end_interval(duration: f64) -> SkillTimingInterval {
+    SkillTimingInterval {
+        lower: duration + 1.0 / MAX_SUPPORTED_FPS,
+        upper: duration + 2.0 / MIN_SUPPORTED_FPS,
+    }
+}
+
+/// Interval of trigger gaps at which the following skill changes from certainly queued to
+/// certainly not queued. This includes the 0.75-second Finishing state and the state-transition
+/// frames around it.
+///
+/// `gap <= lower` is queued on every supported timing, `gap > upper` is never queued, and the
+/// region in between depends on frame rate and the trigger's sub-frame offset.
+pub(crate) fn skill_queue_gap_interval(duration: f64) -> SkillTimingInterval {
+    SkillTimingInterval {
+        lower: duration + SKILL_FINISHING_SECONDS + 2.0 / MAX_SUPPORTED_FPS,
+        upper: duration + SKILL_FINISHING_SECONDS + 3.0 / MIN_SUPPORTED_FPS,
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ScheduledSkillWindow {
+    start: f64,
+    end: f64,
+    queue_risk: bool,
+}
+
+/// Collapses the timing interval to its score-maximising endpoint. Guaranteed queues are delayed;
+/// timing-dependent queues use the nonqueued branch while retaining an explicit risk flag.
+#[derive(Debug, Clone, Copy, Default)]
+struct EnvelopeSkillScheduler {
+    must_queue_until: Option<f64>,
+    may_queue_until: Option<f64>,
+    scheduled_end: Option<f64>,
+}
+
+impl EnvelopeSkillScheduler {
+    fn schedule(&mut self, trigger: f64, duration: f64) -> ScheduledSkillWindow {
+        let queued = self
+            .must_queue_until
+            .is_some_and(|deadline| sgn(trigger - deadline) <= 0);
+        let queue_risk = self
+            .may_queue_until
+            .is_some_and(|deadline| sgn(trigger - deadline) <= 0);
+        let start = if queued {
+            trigger.max(
+                self.scheduled_end
+                    .expect("a queue deadline always has a scheduled end")
+                    + SKILL_FINISHING_SECONDS,
+            )
+        } else {
+            trigger
+        };
+        let end = start + skill_end_interval(duration).upper;
+        self.scheduled_end = Some(end);
+        let queue_gap = skill_queue_gap_interval(duration);
+        self.must_queue_until = Some(start + queue_gap.lower);
+        self.may_queue_until = Some(start + queue_gap.upper);
+        ScheduledSkillWindow {
+            start,
+            end,
+            queue_risk,
+        }
+    }
+}
+
+#[inline]
+fn ideal_judgement_frame(time: f64) -> i64 {
+    (time.mul_add(IDEAL_FPS as f64, -IDEAL_FRAME_EPS)).ceil() as i64
+}
+
+#[inline]
+fn ideal_duration_frames(duration: f64) -> i64 {
+    (duration * IDEAL_FPS as f64).round() as i64
+}
+
+#[inline]
+fn ideal_frame_time(frame: i64) -> f64 {
+    frame as f64 / IDEAL_FPS as f64
+}
+
+#[inline]
+fn ideal_skill_end_time(trigger: f64, duration: f64) -> f64 {
+    ideal_frame_time(ideal_judgement_frame(trigger) + ideal_duration_frames(duration) + 1)
+}
+
+#[inline]
+fn ideal_skills_queue(first_trigger: f64, duration: f64, next_trigger: f64) -> bool {
+    ideal_judgement_frame(next_trigger) - ideal_judgement_frame(first_trigger)
+        <= ideal_duration_frames(duration) + 47
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct Ideal60SkillScheduler {
+    queue_until_frame: Option<i64>,
+    next_queued_start_frame: Option<i64>,
+}
+
+impl Ideal60SkillScheduler {
+    fn schedule(&mut self, trigger: f64, duration: f64) -> ScheduledSkillWindow {
+        let trigger_frame = ideal_judgement_frame(trigger);
+        let duration_frames = ideal_duration_frames(duration);
+        let queued = self
+            .queue_until_frame
+            .is_some_and(|deadline| trigger_frame <= deadline);
+        let start_frame = if queued {
+            self.next_queued_start_frame
+                .expect("a queue deadline always has a queued start frame")
+        } else {
+            trigger_frame + 1
+        };
+        let end_frame = start_frame + duration_frames;
+
+        // From the first active frame, the current skill accepts queued triggers through
+        // duration + 46 frames and a queued skill becomes active two frames after that.
+        self.queue_until_frame = Some(start_frame + duration_frames + 46);
+        self.next_queued_start_frame = Some(start_frame + duration_frames + 48);
+
+        ScheduledSkillWindow {
+            // Existing scorers activate an unqueued skill immediately after its skill node so
+            // exact-simultaneous manual notes can be delayed one frame and receive the bonus.
+            // A queued start event uses the previous frame boundary: `node_time > threshold`
+            // is equivalent to `ceil(node_time * 60) >= start_frame`.
+            start: if queued {
+                ideal_frame_time(start_frame - 1)
+            } else {
+                trigger
+            },
+            end: ideal_frame_time(end_frame),
+            queue_risk: queued,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SkillScheduler {
+    Ideal60(Ideal60SkillScheduler),
+    Envelope(EnvelopeSkillScheduler),
+}
+
+impl SkillScheduler {
+    fn new(ideal_60: bool) -> Self {
+        if ideal_60 {
+            Self::Ideal60(Ideal60SkillScheduler::default())
+        } else {
+            Self::Envelope(EnvelopeSkillScheduler::default())
+        }
+    }
+
+    fn schedule(&mut self, trigger: f64, duration: f64) -> ScheduledSkillWindow {
+        match self {
+            Self::Ideal60(scheduler) => scheduler.schedule(trigger, duration),
+            Self::Envelope(scheduler) => scheduler.schedule(trigger, duration),
+        }
+    }
+
+    fn event_is_due(self, node_time: f64, event_time: f64) -> bool {
+        match self {
+            Self::Ideal60(_) => node_time > event_time,
+            Self::Envelope(_) => sgn(node_time - event_time) > 0,
+        }
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum ChartError {
@@ -20,6 +201,9 @@ pub enum ChartError {
 
     #[error("team must contain exactly five cards, got {count}")]
     InvalidTeamSize { count: usize },
+
+    #[error("compiled scorer medley mode does not match initialized chart mode")]
+    ScoreModeMismatch,
 
     #[error("score calculation needs skill profile at activation {activation}")]
     MissingSkillProfile { activation: usize },
@@ -99,6 +283,34 @@ pub struct CompressedAutoScore {
     groups: Vec<AutoMultiplierGroup>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct CompiledSixSkillScore {
+    multipliers: Vec<f64>,
+}
+
+impl CompiledSixSkillScore {
+    fn score(&self, score_factors: &[f64], stat: i32) -> i32 {
+        debug_assert_eq!(score_factors.len(), self.multipliers.len());
+        if avx2_available() {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            {
+                // SAFETY: runtime AVX2 support is checked above and both slices have equal length.
+                return unsafe {
+                    compiled_six_skill_score_avx2(score_factors, &self.multipliers, stat)
+                };
+            }
+        }
+        score_factors
+            .iter()
+            .zip(&self.multipliers)
+            .map(|(&factor, &multiplier)| {
+                let no_skill = (stat as f64 * factor).floor();
+                (no_skill * multiplier).floor() as i32
+            })
+            .sum()
+    }
+}
+
 #[cfg(test)]
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct NonRateupAutoScoreTemplate {
@@ -112,6 +324,7 @@ struct NonRateupTimeline {
     #[allow(dead_code)]
     active_count: usize,
     effective_starts: Vec<f64>,
+    skill_queue_risk: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,6 +332,7 @@ pub(crate) struct ScoreRangeSkillWindowCounts {
     pub inactive_nodes: u32,
     pub active_nodes: [u32; 6],
     pub tail_risk: bool,
+    pub skill_queue_risk: bool,
 }
 
 #[cfg(test)]
@@ -322,6 +536,84 @@ pub struct MaxMetaOrder {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct MaxScoreOrder {
+    pub score: i32,
+    pub order_indices: Vec<usize>,
+    pub captain_index: usize,
+    pub score_up_order: Vec<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ExactSkillOrder {
+    pub(crate) score: i32,
+    pub(crate) order_indices: [usize; 5],
+    pub(crate) captain_index: usize,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct ExactSkillWindow {
+    range_start: usize,
+    range_end: usize,
+    score_up: f64,
+    rateup: bool,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct ExactScoreScratch {
+    base_scores: Vec<i32>,
+    rateup_profiles: [RateUpProfileScratch; 5],
+}
+
+#[derive(Debug, Default)]
+struct RateUpProfileScratch {
+    score_up_bits: u64,
+    initialized: bool,
+    multipliers: Vec<f64>,
+}
+
+impl RateUpProfileScratch {
+    fn prepare(&mut self, score_up: f64, len: usize) {
+        let score_up_bits = score_up.to_bits();
+        if !self.initialized || self.score_up_bits != score_up_bits {
+            self.score_up_bits = score_up_bits;
+            self.initialized = true;
+            self.multipliers.clear();
+        }
+
+        let mut multiplier = self.multipliers.last().copied().unwrap_or(1.0 + score_up);
+        while self.multipliers.len() < len {
+            if sgn(multiplier - 2.5) < 0 {
+                multiplier += 0.005;
+            }
+            self.multipliers.push(multiplier);
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct ExactSkillOrderProfile {
+    pub(crate) non_overlapping_calls: usize,
+    pub(crate) overlapping_calls: usize,
+    pub(crate) exact_skill_delta_calls: usize,
+    pub(crate) overlap_check_ms: f64,
+    pub(crate) base_score_ms: f64,
+    pub(crate) assignment_ms: f64,
+    pub(crate) exact_skill_ms: f64,
+}
+
+impl ExactSkillOrderProfile {
+    pub(crate) fn add(&mut self, other: &Self) {
+        self.non_overlapping_calls += other.non_overlapping_calls;
+        self.overlapping_calls += other.overlapping_calls;
+        self.exact_skill_delta_calls += other.exact_skill_delta_calls;
+        self.overlap_check_ms += other.overlap_check_ms;
+        self.base_score_ms += other.base_score_ms;
+        self.assignment_ms += other.assignment_ms;
+        self.exact_skill_ms += other.exact_skill_ms;
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Chart {
     pub nodes: Vec<ChartNode>,
     pub level: i32,
@@ -332,9 +624,33 @@ pub struct Chart {
     pub meta: ChartMeta,
     score_rule: ScoreRule,
     score_factors: Vec<f64>,
+    skill_node_indices: Vec<usize>,
 }
 
 impl Chart {
+    #[inline]
+    fn uses_ideal_60fps_timing(&self) -> bool {
+        self.score_rule.simultaneous_skill_order == SimultaneousSkillOrder::BeforeNotes
+    }
+
+    #[inline]
+    fn scoring_skill_end_time(&self, trigger: f64, duration: f64) -> f64 {
+        if self.uses_ideal_60fps_timing() {
+            ideal_skill_end_time(trigger, duration)
+        } else {
+            trigger + skill_end_interval(duration).upper
+        }
+    }
+
+    #[inline]
+    fn is_after_scoring_boundary(&self, time: f64, boundary: f64) -> bool {
+        if self.uses_ideal_60fps_timing() {
+            time > boundary
+        } else {
+            sgn(time - boundary) > 0
+        }
+    }
+
     pub fn new(level: i32, mut nodes: Vec<ChartNode>) -> Self {
         nodes.sort_by(|a, b| {
             let time_order = sgn(a.time - b.time);
@@ -344,6 +660,11 @@ impl Chart {
             node_sort_value(a.node_type).cmp(&node_sort_value(b.node_type))
         });
         let count = nodes.len();
+        let skill_node_indices = nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, node)| (node.node_type == ChartNodeType::Skill).then_some(index))
+            .collect();
         Self {
             nodes,
             level,
@@ -354,6 +675,7 @@ impl Chart {
             meta: ChartMeta::default(),
             score_rule: ScoreRule::STANDARD,
             score_factors: Vec::new(),
+            skill_node_indices,
         }
     }
 
@@ -405,12 +727,15 @@ impl Chart {
         let mut active_window = None;
         let mut skill_count = 0_usize;
         let mut events = VecDeque::<WindowEvent>::new();
-        let mut effective_starts = Vec::with_capacity(6);
+        // The compressed score uses the same ideal 60 FPS, phase-zero scheduler as
+        // maximize. Auto ordering is still preserved: every node at the skill's
+        // timestamp is counted before the skill becomes active.
+        let mut scheduler = SkillScheduler::Ideal60(Ideal60SkillScheduler::default());
 
         for node in &self.nodes {
-            if events
+            while events
                 .front()
-                .is_some_and(|event| sgn(node.time - event.time) > 0)
+                .is_some_and(|event| scheduler.event_is_due(node.time, event.time))
             {
                 active_window = events
                     .pop_front()
@@ -430,35 +755,38 @@ impl Chart {
 
             let window = skill_count;
             skill_count += 1;
-            if !events.is_empty() {
-                let start_time = events.back().expect("back event exists").time + 0.75;
-                effective_starts.push(start_time);
+            let scheduled = scheduler.schedule(node.time, duration);
+            if scheduled.start > node.time {
                 events.push_back(WindowEvent {
-                    time: start_time,
+                    time: scheduled.start,
                     active_window: Some(window),
                 });
                 events.push_back(WindowEvent {
-                    time: start_time + duration + 1.0 / 30.0,
+                    time: scheduled.end,
                     active_window: None,
                 });
             } else {
                 active_window = Some(window);
-                effective_starts.push(node.time);
                 events.push_back(WindowEvent {
-                    time: node.time + duration + 1.0 / 30.0,
+                    time: scheduled.end,
                     active_window: None,
                 });
             }
         }
 
-        let timeline = NonRateupTimeline {
-            active_count: active_nodes.into_iter().map(|count| count as usize).sum(),
-            effective_starts,
-        };
+        // Risk detection deliberately remains a separate 60/120 FPS envelope.
+        // A risky duration bucket is filtered before score-range search uses the
+        // ideal compressed counts above.
+        let (skill_indices, skill_count) = self.six_skill_indices()?;
+        let timeline = self.non_rateup_timeline_for_indices(
+            duration,
+            &skill_indices[..usize::from(skill_count)],
+        )?;
         Ok(Some(ScoreRangeSkillWindowCounts {
             inactive_nodes,
             active_nodes,
             tail_risk: self.timeline_has_skill_tail_risk(duration, &timeline),
+            skill_queue_risk: timeline.skill_queue_risk,
         }))
     }
 
@@ -547,18 +875,6 @@ impl Chart {
         Ok((max_base_factor, self.count))
     }
 
-    /// Returns the minimum per-node Auto base factor and node count for score lower bounds.
-    #[cfg(test)]
-    pub(crate) fn pessimistic_auto_score_terms(&self) -> Result<(f64, usize), ChartError> {
-        let min_base_factor = self
-            .score_factors
-            .iter()
-            .copied()
-            .reduce(f64::min)
-            .ok_or(ChartError::EmptyChart)?;
-        Ok((min_base_factor, self.count))
-    }
-
     /// Treats every node as if it had both maximum base factor and maximum skill multiplier.
     pub(crate) fn optimistic_auto_score_from_terms(
         terms: (f64, usize),
@@ -595,20 +911,27 @@ impl Chart {
         Ok(self.timeline_has_skill_tail_risk(duration, &timeline))
     }
 
-    fn timeline_has_skill_tail_risk(&self, duration: f64, timeline: &NonRateupTimeline) -> bool {
-        const TAIL_START: f64 = 1.0 / 120.0;
-        const TAIL_END: f64 = 1.0 / 30.0;
+    pub fn has_skill_queue_risk(&self, duration: f64) -> Result<bool, ChartError> {
+        Ok(self.non_rateup_timeline(duration)?.skill_queue_risk)
+    }
 
-        timeline.effective_starts.iter().any(|&start| {
-            let lower = start + duration + TAIL_START;
-            let upper = start + duration + TAIL_END;
-            let first = self
-                .nodes
-                .partition_point(|node| sgn(node.time - lower) < 0);
-            self.nodes
-                .get(first)
-                .is_some_and(|node| sgn(node.time - upper) <= 0)
-        })
+    fn timeline_has_skill_tail_risk(&self, duration: f64, timeline: &NonRateupTimeline) -> bool {
+        timeline
+            .effective_starts
+            .iter()
+            .any(|&start| self.has_skill_tail_risk_at(start, duration))
+    }
+
+    fn has_skill_tail_risk_at(&self, start: f64, duration: f64) -> bool {
+        let end = skill_end_interval(duration);
+        let lower = start + end.lower;
+        let upper = start + end.upper;
+        let first = self
+            .nodes
+            .partition_point(|node| sgn(node.time - lower) < 0);
+        self.nodes
+            .get(first)
+            .is_some_and(|node| sgn(node.time - upper) <= 0)
     }
 
     pub fn init_with_rule(
@@ -629,6 +952,8 @@ impl Chart {
         self.meta = ChartMeta::default();
         self.score_factors.clear();
         self.score_factors.reserve(self.nodes.len());
+        self.skill_node_indices.clear();
+        self.skill_node_indices.reserve(6);
 
         let mut combo_cursor = combo;
         let base = 3.0 * (1.0 + 0.01 * (self.level as f64 - 5.0)) / self.count as f64;
@@ -644,13 +969,15 @@ impl Chart {
             if node.node_type != ChartNodeType::Skill {
                 continue;
             }
+            self.skill_node_indices.push(node_idx);
 
             let mut skill = BTreeMap::new();
             for duration in SKILL_DURATIONS {
                 let mut temp_combo = combo_cursor;
                 let mut value = 0.0;
+                let deadline = self.scoring_skill_end_time(node.time, duration);
                 for later in self.nodes.iter().skip(node_idx + 1) {
-                    if sgn(later.time - node.time - duration - 1.0 / 30.0) > 0 {
+                    if self.is_after_scoring_boundary(later.time, deadline) {
                         break;
                     }
                     temp_combo += 1;
@@ -667,11 +994,12 @@ impl Chart {
                 let mut temp_combo = combo_cursor;
                 let mut skill_mod = 200.0;
                 let mut value = 0.0;
+                let deadline = self.scoring_skill_end_time(node.time, duration);
                 for later in self.nodes.iter().skip(node_idx + 1) {
                     if skill_mod < 300.0 {
                         skill_mod += 1.0;
                     }
-                    if sgn(later.time - node.time - duration - 1.0 / 30.0) > 0 {
+                    if self.is_after_scoring_boundary(later.time, deadline) {
                         break;
                     }
                     temp_combo += 1;
@@ -686,14 +1014,16 @@ impl Chart {
             self.meta.rateup.push(rateup_skill);
         }
 
-        let skill_nodes: Vec<_> = self
-            .nodes
-            .iter()
-            .filter(|node| node.node_type == ChartNodeType::Skill)
-            .collect();
-        for idx in 0..skill_nodes.len().saturating_sub(1) {
-            let time_gap = skill_nodes[idx + 1].time - skill_nodes[idx].time;
-            if time_gap < 8.75 {
+        for idx in 0..self.skill_node_indices.len().saturating_sub(1) {
+            let first_time = self.nodes[self.skill_node_indices[idx]].time;
+            let next_time = self.nodes[self.skill_node_indices[idx + 1]].time;
+            let time_gap = next_time - first_time;
+            let may_queue = if self.uses_ideal_60fps_timing() {
+                ideal_skills_queue(first_time, 8.0, next_time)
+            } else {
+                sgn(time_gap - skill_queue_gap_interval(8.0).upper) <= 0
+            };
+            if may_queue {
                 self.warning.push(SkillWarning {
                     id: idx + 1,
                     time_gap,
@@ -710,6 +1040,35 @@ impl Chart {
         skill: TeamCardSkill,
         stat: i32,
     ) -> Result<f64, ChartError> {
+        self.skill_delta_at_stat_for_mode(activation, skill, stat, self.score_as_medley)
+    }
+
+    fn skill_delta_at_stat_for_mode(
+        &self,
+        activation: usize,
+        skill: TeamCardSkill,
+        stat: i32,
+        is_medley: bool,
+    ) -> Result<f64, ChartError> {
+        Ok(self.skill_delta_at_stat_i32(activation, skill, stat, is_medley)? as f64)
+    }
+
+    fn skill_delta_at_stat_i32(
+        &self,
+        activation: usize,
+        skill: TeamCardSkill,
+        stat: i32,
+        is_medley: bool,
+    ) -> Result<i32, ChartError> {
+        let window = self.compile_exact_skill_window(activation, skill)?;
+        Ok(self.skill_delta_for_window_i32(window, stat, is_medley))
+    }
+
+    pub(crate) fn compile_exact_skill_window(
+        &self,
+        activation: usize,
+        skill: TeamCardSkill,
+    ) -> Result<ExactSkillWindow, ChartError> {
         let key = duration_key(skill.duration);
         if skill.rateup {
             self.meta
@@ -732,44 +1091,81 @@ impl Chart {
         }
 
         let skill_node_idx = self
-            .nodes
-            .iter()
-            .enumerate()
-            .filter(|(_, node)| node.node_type == ChartNodeType::Skill)
-            .nth(activation)
-            .map(|(idx, _)| idx)
+            .skill_node_indices
+            .get(activation)
+            .copied()
             .ok_or(ChartError::MissingSkillMeta { activation })?;
         let skill_time = self.nodes[skill_node_idx].time;
+        let deadline = self.scoring_skill_end_time(skill_time, skill.duration);
+        let range_end = self
+            .nodes
+            .partition_point(|node| !self.is_after_scoring_boundary(node.time, deadline));
+        Ok(ExactSkillWindow {
+            range_start: skill_node_idx + 1,
+            range_end,
+            score_up: skill.score_up,
+            rateup: skill.rateup,
+        })
+    }
+
+    #[inline]
+    fn skill_delta_for_window_i32(
+        &self,
+        window: ExactSkillWindow,
+        stat: i32,
+        is_medley: bool,
+    ) -> i32 {
         let base = 3.0 * stat as f64 * (1.0 + 0.01 * (self.level as f64 - 5.0)) / self.count as f64;
-        let mut total = 0.0;
-        let mut rateup_mod = 1.0 + skill.score_up;
-
-        for (node_idx, node) in self.nodes.iter().enumerate().skip(skill_node_idx + 1) {
-            if sgn(node.time - skill_time - skill.duration - 1.0 / 30.0) > 0 {
-                break;
+        if !window.rateup && self.score_as_medley == is_medley && avx2_available() {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            {
+                // SAFETY: runtime AVX2 support is checked above and the score
+                // factors cover every chart node.
+                return unsafe {
+                    score_factor_range_delta_sum_avx2(
+                        &self.score_factors[window.range_start..window.range_end],
+                        stat,
+                        1.0 + window.score_up,
+                    )
+                };
             }
+        }
+        let mut total = 0i32;
+        let mut rateup_mod = 1.0 + window.score_up;
 
+        for node_idx in window.range_start..window.range_end {
             let combo = self.combo + node_idx as i32 + 1;
             let no_skill =
-                self.exact_base_score_at_node(node_idx, stat, combo, self.score_as_medley, base)
-                    as f64;
-            let skill_mod = if skill.rateup {
+                self.exact_base_score_at_node(node_idx, stat, combo, is_medley, base) as i32;
+            let skill_mod = if window.rateup {
                 if sgn(rateup_mod - 2.5) < 0 {
                     rateup_mod += 0.005;
                 }
                 rateup_mod
             } else {
-                1.0 + skill.score_up
+                1.0 + window.score_up
             };
-            total += (no_skill * skill_mod).floor() - no_skill;
+            total += (no_skill as f64 * skill_mod).floor() as i32 - no_skill;
         }
 
-        Ok(total)
+        total
     }
 
     pub fn no_skill_score_at_stat(&self, stat: i32) -> Result<f64, ChartError> {
+        Ok(self.exact_no_skill_score_i32(stat, self.score_as_medley)? as f64)
+    }
+
+    fn exact_no_skill_score_i32(&self, stat: i32, is_medley: bool) -> Result<i32, ChartError> {
         if self.count == 0 {
             return Err(ChartError::EmptyChart);
+        }
+
+        if self.score_as_medley == is_medley && avx2_available() {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            {
+                // SAFETY: runtime AVX2 support is checked above.
+                return Ok(unsafe { score_factor_range_sum_avx2(&self.score_factors, stat, 1.0) });
+            }
         }
 
         let base = 3.0 * stat as f64 * (1.0 + 0.01 * (self.level as f64 - 5.0)) / self.count as f64;
@@ -782,11 +1178,78 @@ impl Chart {
                     node_idx,
                     stat,
                     self.combo + node_idx as i32 + 1,
-                    self.score_as_medley,
+                    is_medley,
                     base,
-                ) as f64
+                ) as i32
             })
             .sum())
+    }
+
+    fn populate_exact_base_scores(
+        &self,
+        stat: i32,
+        is_medley: bool,
+        output: &mut Vec<i32>,
+    ) -> Result<i32, ChartError> {
+        if self.count == 0 {
+            return Err(ChartError::EmptyChart);
+        }
+        output.resize(self.nodes.len(), 0);
+
+        if self.score_as_medley == is_medley && avx2_available() {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            {
+                // SAFETY: runtime AVX2 support is checked above and the output
+                // has exactly one slot for every score factor.
+                return Ok(unsafe {
+                    score_factor_base_scores_avx2(&self.score_factors, stat, output)
+                });
+            }
+        }
+
+        let base = 3.0 * stat as f64 * (1.0 + 0.01 * (self.level as f64 - 5.0)) / self.count as f64;
+        let mut total = 0i32;
+        for (node_idx, score) in output.iter_mut().enumerate() {
+            let combo = self.combo + node_idx as i32 + 1;
+            *score = self.exact_base_score_at_node(node_idx, stat, combo, is_medley, base) as i32;
+            total += *score;
+        }
+        Ok(total)
+    }
+
+    #[inline]
+    fn constant_delta_from_base_scores(&self, base_scores: &[i32], skill_mod: f64) -> i32 {
+        if avx2_available() {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            {
+                // SAFETY: runtime AVX2 support is checked above.
+                return unsafe { base_score_constant_delta_sum_avx2(base_scores, skill_mod) };
+            }
+        }
+
+        base_scores
+            .iter()
+            .map(|&base| (base as f64 * skill_mod).floor() as i32 - base)
+            .sum()
+    }
+
+    #[inline]
+    fn rateup_delta_from_base_scores(&self, base_scores: &[i32], multipliers: &[f64]) -> i32 {
+        debug_assert_eq!(base_scores.len(), multipliers.len());
+        if avx2_available() {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            {
+                // SAFETY: runtime AVX2 support is checked above and both slices
+                // have identical lengths.
+                return unsafe { base_score_multiplier_delta_sum_avx2(base_scores, multipliers) };
+            }
+        }
+
+        base_scores
+            .iter()
+            .zip(multipliers)
+            .map(|(&base, &multiplier)| (base as f64 * multiplier).floor() as i32 - base)
+            .sum()
     }
 
     pub fn get_max_meta_order(&self, team: &[TeamCardSkill]) -> Result<MaxMetaOrder, ChartError> {
@@ -848,6 +1311,415 @@ impl Chart {
         })
     }
 
+    pub fn get_max_score_order(
+        &self,
+        team: &[TeamCardSkill],
+        stat: i32,
+        is_medley: bool,
+    ) -> Result<MaxScoreOrder, ChartError> {
+        let team: &[TeamCardSkill; 5] = team
+            .try_into()
+            .map_err(|_| ChartError::InvalidTeamSize { count: team.len() })?;
+        let seed = self.get_max_meta_order(team)?;
+        let seed_order_indices: [usize; 5] = seed
+            .order_indices
+            .as_slice()
+            .try_into()
+            .expect("max-meta order contains exactly five cards");
+        let mut skill_windows = [[ExactSkillWindow::default(); 6]; 5];
+        for card_idx in 0..5 {
+            for activation in 0..6 {
+                skill_windows[card_idx][activation] =
+                    self.compile_exact_skill_window(activation, team[card_idx])?;
+            }
+        }
+        let mut scratch = ExactScoreScratch::default();
+        let exact = self.get_max_score_order_from_exact_windows(
+            team,
+            stat,
+            is_medley,
+            seed_order_indices,
+            seed.captain_index,
+            &skill_windows,
+            &mut scratch,
+        )?;
+        let mut score_up_order = exact
+            .order_indices
+            .iter()
+            .map(|&idx| team[idx].score_up)
+            .collect::<Vec<_>>();
+        score_up_order.push(team[exact.captain_index].score_up);
+
+        Ok(MaxScoreOrder {
+            score: exact.score,
+            order_indices: exact.order_indices.to_vec(),
+            captain_index: exact.captain_index,
+            score_up_order,
+        })
+    }
+
+    pub(crate) fn get_max_score_order_from_exact_windows(
+        &self,
+        team: &[TeamCardSkill; 5],
+        stat: i32,
+        is_medley: bool,
+        seed_order_indices: [usize; 5],
+        seed_captain_index: usize,
+        skill_windows: &[[ExactSkillWindow; 6]; 5],
+        scratch: &mut ExactScoreScratch,
+    ) -> Result<ExactSkillOrder, ChartError> {
+        self.get_max_score_order_from_exact_windows_internal::<false>(
+            team,
+            stat,
+            is_medley,
+            seed_order_indices,
+            seed_captain_index,
+            skill_windows,
+            scratch,
+            None,
+            true,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn get_independent_medley_score_order_from_exact_windows(
+        &self,
+        team: &[TeamCardSkill; 5],
+        stat: i32,
+        is_medley: bool,
+        seed_order_indices: [usize; 5],
+        seed_captain_index: usize,
+        skill_windows: &[[ExactSkillWindow; 6]; 5],
+        scratch: &mut ExactScoreScratch,
+    ) -> Result<ExactSkillOrder, ChartError> {
+        self.get_max_score_order_from_exact_windows_internal::<false>(
+            team,
+            stat,
+            is_medley,
+            seed_order_indices,
+            seed_captain_index,
+            skill_windows,
+            scratch,
+            None,
+            false,
+        )
+    }
+
+    // Retained for diagnostics and strict queued-timeline verification. Production Medley uses
+    // the independent-overlap entries so every chart follows the same 5x6 matrix path.
+    #[allow(dead_code, clippy::too_many_arguments)]
+    pub(crate) fn get_max_score_order_from_exact_windows_profiled(
+        &self,
+        team: &[TeamCardSkill; 5],
+        stat: i32,
+        is_medley: bool,
+        seed_order_indices: [usize; 5],
+        seed_captain_index: usize,
+        skill_windows: &[[ExactSkillWindow; 6]; 5],
+        scratch: &mut ExactScoreScratch,
+        profile: &mut ExactSkillOrderProfile,
+    ) -> Result<ExactSkillOrder, ChartError> {
+        self.get_max_score_order_from_exact_windows_internal::<true>(
+            team,
+            stat,
+            is_medley,
+            seed_order_indices,
+            seed_captain_index,
+            skill_windows,
+            scratch,
+            Some(profile),
+            true,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn get_independent_medley_score_order_from_exact_windows_profiled(
+        &self,
+        team: &[TeamCardSkill; 5],
+        stat: i32,
+        is_medley: bool,
+        seed_order_indices: [usize; 5],
+        seed_captain_index: usize,
+        skill_windows: &[[ExactSkillWindow; 6]; 5],
+        scratch: &mut ExactScoreScratch,
+        profile: &mut ExactSkillOrderProfile,
+    ) -> Result<ExactSkillOrder, ChartError> {
+        self.get_max_score_order_from_exact_windows_internal::<true>(
+            team,
+            stat,
+            is_medley,
+            seed_order_indices,
+            seed_captain_index,
+            skill_windows,
+            scratch,
+            Some(profile),
+            false,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn get_max_score_order_from_exact_windows_internal<const PROFILE: bool>(
+        &self,
+        team: &[TeamCardSkill; 5],
+        stat: i32,
+        is_medley: bool,
+        seed_order_indices: [usize; 5],
+        seed_captain_index: usize,
+        skill_windows: &[[ExactSkillWindow; 6]; 5],
+        scratch: &mut ExactScoreScratch,
+        mut profile: Option<&mut ExactSkillOrderProfile>,
+        use_queued_timeline_on_overlap: bool,
+    ) -> Result<ExactSkillOrder, ChartError> {
+        let started = PROFILE.then(Timer::start);
+        let overlaps = self.team_skills_may_overlap(team)?;
+        if let (Some(profile), Some(started)) = (profile.as_deref_mut(), started) {
+            profile.overlap_check_ms += started.elapsed_ms();
+        }
+        if overlaps {
+            if let Some(profile) = profile.as_deref_mut() {
+                profile.overlapping_calls += 1;
+            }
+            if use_queued_timeline_on_overlap {
+                return self.overlapping_max_score_order(
+                    team,
+                    stat,
+                    is_medley,
+                    seed_order_indices,
+                    seed_captain_index,
+                );
+            }
+        } else if let Some(profile) = profile.as_deref_mut() {
+            profile.non_overlapping_calls += 1;
+        }
+
+        if self.count == 0 {
+            return Err(ChartError::EmptyChart);
+        }
+        let (_, skill_count) = self.six_skill_indices()?;
+        if skill_count != 6 {
+            return Err(ChartError::MissingSkillProfile {
+                activation: usize::from(skill_count),
+            });
+        }
+
+        let started = PROFILE.then(Timer::start);
+        let base_score =
+            self.populate_exact_base_scores(stat, is_medley, &mut scratch.base_scores)?;
+        if let (Some(profile), Some(started)) = (profile.as_deref_mut(), started) {
+            profile.base_score_ms += started.elapsed_ms();
+        }
+
+        let started = PROFILE.then(Timer::start);
+        for card_idx in 0..5 {
+            if !team[card_idx].rateup {
+                continue;
+            }
+            let max_len = skill_windows[card_idx]
+                .iter()
+                .map(|window| window.range_end - window.range_start)
+                .max()
+                .unwrap_or(0);
+            let padded_len = max_len.saturating_add(3) & !3;
+            scratch.rateup_profiles[card_idx].prepare(team[card_idx].score_up, padded_len);
+        }
+
+        let mut deltas = [[0i32; 6]; 5];
+        let mut exact_skill_delta_calls = 0usize;
+        if avx2_available() {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            for activation in 0..6 {
+                let windows = std::array::from_fn(|card_idx| skill_windows[card_idx][activation]);
+                if PROFILE {
+                    let representatives = skill_window_representatives(&windows);
+                    exact_skill_delta_calls += representatives
+                        .iter()
+                        .enumerate()
+                        .filter(|&(card_idx, &representative)| card_idx == representative)
+                        .count();
+                }
+                let profiles: [&[f64]; 5] = std::array::from_fn(|card_idx| {
+                    scratch.rateup_profiles[card_idx].multipliers.as_slice()
+                });
+                // SAFETY: runtime AVX2 support is checked above. All five
+                // windows for one activation share their range start, and the
+                // rate-up profiles are padded to a full vector.
+                let activation_deltas = unsafe {
+                    five_skill_deltas_from_base_scores_avx2(
+                        &scratch.base_scores,
+                        &windows,
+                        &profiles,
+                    )
+                };
+                for card_idx in 0..5 {
+                    deltas[card_idx][activation] = activation_deltas[card_idx];
+                }
+            }
+        } else {
+            for activation in 0..6 {
+                let windows = std::array::from_fn(|card_idx| skill_windows[card_idx][activation]);
+                let representatives = skill_window_representatives(&windows);
+                if PROFILE {
+                    exact_skill_delta_calls += representatives
+                        .iter()
+                        .enumerate()
+                        .filter(|&(card_idx, &representative)| card_idx == representative)
+                        .count();
+                }
+                for card_idx in 0..5 {
+                    let representative = representatives[card_idx];
+                    if representative != card_idx {
+                        deltas[card_idx][activation] = deltas[representative][activation];
+                        continue;
+                    }
+                    let window = skill_windows[card_idx][activation];
+                    let base_scores = &scratch.base_scores[window.range_start..window.range_end];
+                    deltas[card_idx][activation] = if window.rateup {
+                        self.rateup_delta_from_base_scores(
+                            base_scores,
+                            &scratch.rateup_profiles[card_idx].multipliers[..base_scores.len()],
+                        )
+                    } else {
+                        self.constant_delta_from_base_scores(base_scores, 1.0 + window.score_up)
+                    };
+                }
+            }
+        }
+        if let (Some(profile), Some(started)) = (profile.as_deref_mut(), started) {
+            profile.exact_skill_ms += started.elapsed_ms();
+            profile.exact_skill_delta_calls += exact_skill_delta_calls;
+        }
+
+        let started = PROFILE.then(Timer::start);
+        let (best_delta, order_indices, captain_index) = max_independent_skill_delta(&deltas);
+        if let (Some(profile), Some(started)) = (profile.as_deref_mut(), started) {
+            profile.assignment_ms += started.elapsed_ms();
+        }
+
+        let seed_delta = seed_order_indices
+            .iter()
+            .enumerate()
+            .map(|(activation, &card_idx)| deltas[card_idx][activation])
+            .sum::<i32>()
+            + deltas[seed_captain_index][5];
+        if seed_delta == best_delta {
+            return Ok(ExactSkillOrder {
+                score: base_score + seed_delta,
+                order_indices: seed_order_indices,
+                captain_index: seed_captain_index,
+            });
+        }
+
+        Ok(ExactSkillOrder {
+            score: base_score + best_delta,
+            order_indices,
+            captain_index,
+        })
+    }
+
+    fn team_skills_may_overlap(&self, team: &[TeamCardSkill; 5]) -> Result<bool, ChartError> {
+        if self.warning.is_empty() {
+            return Ok(false);
+        }
+        let (skill_indices, skill_count) = self.six_skill_indices()?;
+        if skill_count != 6 {
+            return Err(ChartError::MissingSkillProfile {
+                activation: usize::from(skill_count),
+            });
+        }
+        let max_duration = team
+            .iter()
+            .map(|skill| skill.duration)
+            .fold(0.0_f64, f64::max);
+        Ok(skill_indices.windows(2).any(|pair| {
+            let first = self.nodes[pair[0]].time;
+            let next = self.nodes[pair[1]].time;
+            if self.uses_ideal_60fps_timing() {
+                ideal_skills_queue(first, max_duration, next)
+            } else {
+                sgn(next - first - skill_queue_gap_interval(max_duration).upper) <= 0
+            }
+        }))
+    }
+
+    fn overlapping_max_score_order(
+        &self,
+        team: &[TeamCardSkill; 5],
+        stat: i32,
+        is_medley: bool,
+        seed_order_indices: [usize; 5],
+        seed_captain_index: usize,
+    ) -> Result<ExactSkillOrder, ChartError> {
+        self.exhaustive_max_score_order_fallback(
+            team,
+            stat,
+            is_medley,
+            seed_order_indices,
+            seed_captain_index,
+        )
+    }
+
+    fn exhaustive_max_score_order_fallback(
+        &self,
+        team: &[TeamCardSkill; 5],
+        stat: i32,
+        is_medley: bool,
+        seed_order_indices: [usize; 5],
+        seed_captain_index: usize,
+    ) -> Result<ExactSkillOrder, ChartError> {
+        let mut best = ExactSkillOrder {
+            score: self.score_five_skill_order(
+                team,
+                stat,
+                is_medley,
+                seed_order_indices,
+                seed_captain_index,
+            )?,
+            order_indices: seed_order_indices,
+            captain_index: seed_captain_index,
+        };
+        let mut order_indices = [0, 1, 2, 3, 4];
+        loop {
+            for captain_index in 0..5 {
+                let score = self.score_five_skill_order(
+                    team,
+                    stat,
+                    is_medley,
+                    order_indices,
+                    captain_index,
+                )?;
+                if score > best.score {
+                    best = ExactSkillOrder {
+                        score,
+                        order_indices,
+                        captain_index,
+                    };
+                }
+            }
+            if !next_permutation(&mut order_indices) {
+                break;
+            }
+        }
+        Ok(best)
+    }
+
+    fn score_five_skill_order(
+        &self,
+        team: &[TeamCardSkill; 5],
+        stat: i32,
+        is_medley: bool,
+        order_indices: [usize; 5],
+        captain_index: usize,
+    ) -> Result<i32, ChartError> {
+        let skill_order: [TeamCardSkill; 6] = std::array::from_fn(|activation| {
+            if activation == 5 {
+                team[captain_index]
+            } else {
+                team[order_indices[activation]]
+            }
+        });
+        self.get_score_for_six_skills(&skill_order, stat, is_medley)
+    }
+
     pub fn get_score(
         &self,
         skill_order: &[TeamCardSkill],
@@ -865,11 +1737,12 @@ impl Chart {
         let mut skill_mod = 1.0;
         let mut rateup = false;
         let mut events: VecDeque<SkillEvent> = VecDeque::new();
+        let mut scheduler = SkillScheduler::new(self.uses_ideal_60fps_timing());
 
         for (node_idx, node) in self.nodes.iter().enumerate() {
-            if events
+            while events
                 .front()
-                .map(|event| sgn(node.time - event.time) > 0)
+                .map(|event| scheduler.event_is_due(node.time, event.time))
                 .unwrap_or(false)
             {
                 let event = events.pop_front().expect("front event exists");
@@ -898,15 +1771,15 @@ impl Chart {
                         activation: skill_count,
                     })?;
 
-            if !events.is_empty() {
-                let start_time = events.back().expect("back event exists").time + 0.75;
+            let scheduled = scheduler.schedule(node.time, skill.duration);
+            if sgn(scheduled.start - node.time) > 0 {
                 events.push_back(SkillEvent {
-                    time: start_time,
+                    time: scheduled.start,
                     skill_mod: 1.0 + skill.score_up,
                     rateup: skill.rateup,
                 });
                 events.push_back(SkillEvent {
-                    time: start_time + skill.duration + 1.0 / 30.0,
+                    time: scheduled.end,
                     skill_mod: 1.0,
                     rateup: false,
                 });
@@ -914,7 +1787,7 @@ impl Chart {
                 skill_mod = 1.0 + skill.score_up;
                 rateup = skill.rateup;
                 events.push_back(SkillEvent {
-                    time: node.time + skill.duration + 1.0 / 30.0,
+                    time: scheduled.end,
                     skill_mod: 1.0,
                     rateup: false,
                 });
@@ -945,6 +1818,27 @@ impl Chart {
         self.get_score_for_six_skills_scalar(skill_order, stat, is_medley)
     }
 
+    pub(crate) fn compile_six_skill_score(
+        &self,
+        skill_order: &[TeamCardSkill; 6],
+        is_medley: bool,
+    ) -> Result<CompiledSixSkillScore, ChartError> {
+        if self.score_as_medley != is_medley {
+            return Err(ChartError::ScoreModeMismatch);
+        }
+        let mut multipliers = Vec::with_capacity(self.nodes.len());
+        self.for_each_multiplier_for_six_skills(skill_order, |value| multipliers.push(value))?;
+        Ok(CompiledSixSkillScore { multipliers })
+    }
+
+    pub(crate) fn score_compiled_six_skills(
+        &self,
+        compiled: &CompiledSixSkillScore,
+        stat: i32,
+    ) -> i32 {
+        compiled.score(&self.score_factors, stat)
+    }
+
     fn for_each_multiplier_for_six_skills(
         &self,
         skill_order: &[TeamCardSkill; 6],
@@ -958,11 +1852,12 @@ impl Chart {
         let mut skill_mod = 1.0;
         let mut rateup = false;
         let mut events: VecDeque<SkillEvent> = VecDeque::new();
+        let mut scheduler = SkillScheduler::new(self.uses_ideal_60fps_timing());
 
         for node in &self.nodes {
-            if events
+            while events
                 .front()
-                .map(|event| sgn(node.time - event.time) > 0)
+                .map(|event| scheduler.event_is_due(node.time, event.time))
                 .unwrap_or(false)
             {
                 let event = events.pop_front().expect("front event exists");
@@ -986,15 +1881,15 @@ impl Chart {
                         activation: skill_count,
                     })?;
 
-            if !events.is_empty() {
-                let start_time = events.back().expect("back event exists").time + 0.75;
+            let scheduled = scheduler.schedule(node.time, skill.duration);
+            if sgn(scheduled.start - node.time) > 0 {
                 events.push_back(SkillEvent {
-                    time: start_time,
+                    time: scheduled.start,
                     skill_mod: 1.0 + skill.score_up,
                     rateup: skill.rateup,
                 });
                 events.push_back(SkillEvent {
-                    time: start_time + skill.duration + 1.0 / 30.0,
+                    time: scheduled.end,
                     skill_mod: 1.0,
                     rateup: false,
                 });
@@ -1002,7 +1897,7 @@ impl Chart {
                 skill_mod = 1.0 + skill.score_up;
                 rateup = skill.rateup;
                 events.push_back(SkillEvent {
-                    time: node.time + skill.duration + 1.0 / 30.0,
+                    time: scheduled.end,
                     skill_mod: 1.0,
                     rateup: false,
                 });
@@ -1023,20 +1918,15 @@ impl Chart {
 
     fn six_skill_indices(&self) -> Result<([usize; 6], u8), ChartError> {
         let mut skill_indices = [0_usize; 6];
-        let mut skill_count = 0_usize;
-        for (index, node) in self.nodes.iter().enumerate() {
-            if node.node_type != ChartNodeType::Skill {
-                continue;
-            }
+        for (skill_count, &index) in self.skill_node_indices.iter().enumerate() {
             let Some(slot) = skill_indices.get_mut(skill_count) else {
                 return Err(ChartError::MissingSkillProfile {
                     activation: skill_count,
                 });
             };
             *slot = index;
-            skill_count += 1;
         }
-        Ok((skill_indices, skill_count as u8))
+        Ok((skill_indices, self.skill_node_indices.len() as u8))
     }
 
     fn non_rateup_timeline_for_indices(
@@ -1054,6 +1944,8 @@ impl Chart {
         let mut event_min_index = 0_usize;
         let mut active_start = None;
         let mut active_count = 0_usize;
+        let mut skill_queue_risk = false;
+        let mut scheduler = EnvelopeSkillScheduler::default();
 
         loop {
             let next_skill_index = skill_indices.get(next_skill).copied();
@@ -1079,7 +1971,11 @@ impl Chart {
                     (None, true) => active_start = Some(event_index),
                     _ => {}
                 }
-                event_min_index = event_index.saturating_add(1);
+                // Several queued start/end events may all fall between the
+                // same two chart nodes. They must be applied at the same
+                // target node so that only the last event determines its
+                // multiplier.
+                event_min_index = event_index;
                 continue;
             }
 
@@ -1088,27 +1984,27 @@ impl Chart {
             };
             next_skill += 1;
             let node = &self.nodes[skill_index];
-            if events.is_empty() {
-                effective_starts.push(node.time);
+            let scheduled = scheduler.schedule(node.time, duration);
+            skill_queue_risk |= scheduled.queue_risk;
+            effective_starts.push(scheduled.start);
+            if sgn(scheduled.start - node.time) <= 0 {
                 if active_start.is_none() {
                     active_start = Some(skill_index.saturating_add(1));
                 }
                 events.push_back(SkillEvent {
-                    time: node.time + duration + 1.0 / 30.0,
+                    time: scheduled.end,
                     skill_mod: 1.0,
                     rateup: false,
                 });
                 event_min_index = skill_index.saturating_add(1);
             } else {
-                let start_time = events.back().expect("back event exists").time + 0.75;
-                effective_starts.push(start_time);
                 events.push_back(SkillEvent {
-                    time: start_time,
+                    time: scheduled.start,
                     skill_mod: 2.0,
                     rateup: false,
                 });
                 events.push_back(SkillEvent {
-                    time: start_time + duration + 1.0 / 30.0,
+                    time: scheduled.end,
                     skill_mod: 1.0,
                     rateup: false,
                 });
@@ -1121,6 +2017,7 @@ impl Chart {
         Ok(NonRateupTimeline {
             active_count,
             effective_starts,
+            skill_queue_risk,
         })
     }
 
@@ -1141,9 +2038,10 @@ impl Chart {
         let mut skill_mod = 1.0;
         let mut rateup = false;
         let mut events = FixedSkillEventQueue::new();
+        let mut scheduler = SkillScheduler::new(self.uses_ideal_60fps_timing());
 
         for (node_idx, node) in self.nodes.iter().enumerate() {
-            if let Some(event) = events.pop_front_if_after(node.time) {
+            while let Some(event) = events.pop_front_if_after(node.time, scheduler) {
                 skill_mod = event.skill_mod;
                 rateup = event.rateup;
             }
@@ -1169,14 +2067,14 @@ impl Chart {
                         activation: skill_count,
                     })?;
 
-            if !events.is_empty() {
-                let start_time = events.back_time().expect("non-empty queue has a back") + 0.75;
+            let scheduled = scheduler.schedule(node.time, skill.duration);
+            if sgn(scheduled.start - node.time) > 0 {
                 if !events.push_back(SkillEvent {
-                    time: start_time,
+                    time: scheduled.start,
                     skill_mod: 1.0 + skill.score_up,
                     rateup: skill.rateup,
                 }) || !events.push_back(SkillEvent {
-                    time: start_time + skill.duration + 1.0 / 30.0,
+                    time: scheduled.end,
                     skill_mod: 1.0,
                     rateup: false,
                 }) {
@@ -1186,7 +2084,7 @@ impl Chart {
                 skill_mod = 1.0 + skill.score_up;
                 rateup = skill.rateup;
                 if !events.push_back(SkillEvent {
-                    time: node.time + skill.duration + 1.0 / 30.0,
+                    time: scheduled.end,
                     skill_mod: 1.0,
                     rateup: false,
                 }) {
@@ -1217,11 +2115,12 @@ impl Chart {
         let mut skill_mod = 1.0;
         let mut rateup = false;
         let mut events = FixedSkillEventQueue::new();
+        let mut scheduler = SkillScheduler::new(self.uses_ideal_60fps_timing());
         let mut node_idx = 0usize;
 
         while node_idx < self.nodes.len() {
             let node = &self.nodes[node_idx];
-            if let Some(event) = events.pop_front_if_after(node.time) {
+            while let Some(event) = events.pop_front_if_after(node.time, scheduler) {
                 skill_mod = event.skill_mod;
                 rateup = event.rateup;
             }
@@ -1231,7 +2130,7 @@ impl Chart {
                 let mut range_end = node_idx + 1;
                 while range_end < self.nodes.len()
                     && self.nodes[range_end].node_type != ChartNodeType::Skill
-                    && !events.should_pop_at(self.nodes[range_end].time)
+                    && !events.should_pop_at(self.nodes[range_end].time, scheduler)
                 {
                     range_end += 1;
                 }
@@ -1265,14 +2164,14 @@ impl Chart {
                         activation: skill_count,
                     })?;
 
-            if !events.is_empty() {
-                let start_time = events.back_time().expect("non-empty queue has a back") + 0.75;
+            let scheduled = scheduler.schedule(node.time, skill.duration);
+            if sgn(scheduled.start - node.time) > 0 {
                 if !events.push_back(SkillEvent {
-                    time: start_time,
+                    time: scheduled.start,
                     skill_mod: 1.0 + skill.score_up,
                     rateup: skill.rateup,
                 }) || !events.push_back(SkillEvent {
-                    time: start_time + skill.duration + 1.0 / 30.0,
+                    time: scheduled.end,
                     skill_mod: 1.0,
                     rateup: false,
                 }) {
@@ -1282,7 +2181,7 @@ impl Chart {
                 skill_mod = 1.0 + skill.score_up;
                 rateup = skill.rateup;
                 if !events.push_back(SkillEvent {
-                    time: node.time + skill.duration + 1.0 / 30.0,
+                    time: scheduled.end,
                     skill_mod: 1.0,
                     rateup: false,
                 }) {
@@ -1303,6 +2202,35 @@ impl Chart {
         skill: TeamCardSkill,
     ) -> Result<f64, ChartError> {
         self.skill_meta(activation, skill)
+    }
+
+    /// Continuous, floor-free upper bound for one skill at any effective start time.
+    /// It remains conservative when closely spaced skills are queued into later chart regions.
+    pub(crate) fn optimistic_skill_meta_any_window(
+        &self,
+        skill: TeamCardSkill,
+    ) -> Result<f64, ChartError> {
+        if self.count == 0 {
+            return Err(ChartError::EmptyChart);
+        }
+        let window = skill_end_interval(skill.duration).upper;
+        let mut best = 0.0_f64;
+        for first in 0..self.nodes.len() {
+            let start_time = self.nodes[first].time;
+            let mut total = 0.0_f64;
+            let mut multiplier = 1.0 + skill.score_up;
+            for idx in first..self.nodes.len() {
+                if sgn(self.nodes[idx].time - start_time - window) > 0 {
+                    break;
+                }
+                if skill.rateup && sgn(multiplier - 2.5) < 0 {
+                    multiplier += 0.005;
+                }
+                total += self.score_factors[idx] * (multiplier - 1.0);
+            }
+            best = best.max(total);
+        }
+        Ok(best)
     }
 
     fn skill_meta(&self, activation: usize, skill: TeamCardSkill) -> Result<f64, ChartError> {
@@ -1351,6 +2279,92 @@ impl Chart {
     }
 }
 
+fn max_independent_skill_delta(deltas: &[[i32; 6]; 5]) -> (i32, [usize; 5], usize) {
+    if deltas[1..].iter().all(|row| row == &deltas[0]) {
+        return (
+            deltas[0][..5].iter().sum::<i32>() + deltas[0][5],
+            [0, 1, 2, 3, 4],
+            0,
+        );
+    }
+
+    let mut dp = [i32::MIN; 1 << 5];
+    let mut chosen = [usize::MAX; 1 << 5];
+    dp[0] = 0;
+    for mask in 0usize..(1 << 5) - 1 {
+        let activation = FIVE_CARD_MASK_POPCOUNT[mask] as usize;
+        let mut available = (!mask) & ((1 << 5) - 1);
+        while available != 0 {
+            let card_idx = available.trailing_zeros() as usize;
+            available &= available - 1;
+            let next = mask | (1 << card_idx);
+            let value = dp[mask] + deltas[card_idx][activation];
+            if value > dp[next] {
+                dp[next] = value;
+                chosen[next] = card_idx;
+            }
+        }
+    }
+
+    let mut captain_index = 0usize;
+    for card_idx in 1..5 {
+        if deltas[card_idx][5] > deltas[captain_index][5] {
+            captain_index = card_idx;
+        }
+    }
+
+    let mut order_indices = [0usize; 5];
+    let mut mask = (1 << 5) - 1;
+    for activation in (0..5).rev() {
+        let card_idx = chosen[mask];
+        order_indices[activation] = card_idx;
+        mask ^= 1 << card_idx;
+    }
+    (
+        dp[(1 << 5) - 1] + deltas[captain_index][5],
+        order_indices,
+        captain_index,
+    )
+}
+
+const FIVE_CARD_MASK_POPCOUNT: [u8; 32] = [
+    0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
+];
+
+#[inline]
+fn skill_window_representatives(windows: &[ExactSkillWindow; 5]) -> [usize; 5] {
+    let mut representatives = [0, 1, 2, 3, 4];
+    for card_idx in 1..5 {
+        for previous in 0..card_idx {
+            if windows[card_idx].range_start == windows[previous].range_start
+                && windows[card_idx].range_end == windows[previous].range_end
+                && windows[card_idx].score_up.to_bits() == windows[previous].score_up.to_bits()
+                && windows[card_idx].rateup == windows[previous].rateup
+            {
+                representatives[card_idx] = representatives[previous];
+                break;
+            }
+        }
+    }
+    representatives
+}
+
+fn next_permutation(values: &mut [usize]) -> bool {
+    let Some(pivot) = (0..values.len().saturating_sub(1))
+        .rev()
+        .find(|&idx| values[idx] < values[idx + 1])
+    else {
+        return false;
+    };
+    let successor = (pivot + 1..values.len())
+        .rev()
+        .find(|&idx| values[pivot] < values[idx])
+        .expect("a permutation pivot has a successor");
+    values.swap(pivot, successor);
+    values[pivot + 1..].reverse();
+    true
+}
+
 #[derive(Debug, Clone, Copy)]
 struct SkillEvent {
     time: f64,
@@ -1377,19 +2391,8 @@ impl FixedSkillEventQueue {
         }
     }
 
-    fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
-    fn back_time(&self) -> Option<f64> {
-        (self.len > 0).then(|| {
-            let index = (self.head + self.len - 1) % self.events.len();
-            self.events[index].time
-        })
-    }
-
-    fn pop_front_if_after(&mut self, time: f64) -> Option<SkillEvent> {
-        if self.len == 0 || sgn(time - self.events[self.head].time) <= 0 {
+    fn pop_front_if_after(&mut self, time: f64, scheduler: SkillScheduler) -> Option<SkillEvent> {
+        if self.len == 0 || !scheduler.event_is_due(time, self.events[self.head].time) {
             return None;
         }
 
@@ -1399,8 +2402,8 @@ impl FixedSkillEventQueue {
         Some(event)
     }
 
-    fn should_pop_at(&self, time: f64) -> bool {
-        self.len > 0 && sgn(time - self.events[self.head].time) > 0
+    fn should_pop_at(&self, time: f64, scheduler: SkillScheduler) -> bool {
+        self.len > 0 && scheduler.event_is_due(time, self.events[self.head].time)
     }
 
     fn push_back(&mut self, event: SkillEvent) -> bool {
@@ -1429,6 +2432,160 @@ fn avx2_available() -> bool {
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx2")]
+unsafe fn score_factor_base_scores_avx2(factors: &[f64], stat: i32, output: &mut [i32]) -> i32 {
+    debug_assert_eq!(factors.len(), output.len());
+    let stat_vec = _mm256_set1_pd(stat as f64);
+    let mut sum_vec = _mm256_setzero_pd();
+    let mut idx = 0usize;
+    while idx + 4 <= factors.len() {
+        let factors_vec = _mm256_loadu_pd(factors.as_ptr().add(idx));
+        let base = _mm256_floor_pd(_mm256_mul_pd(factors_vec, stat_vec));
+        let base_i32 = _mm256_cvttpd_epi32(base);
+        _mm_storeu_si128(output.as_mut_ptr().add(idx).cast(), base_i32);
+        sum_vec = _mm256_add_pd(sum_vec, base);
+        idx += 4;
+    }
+
+    let mut lanes = [0.0; 4];
+    _mm256_storeu_pd(lanes.as_mut_ptr(), sum_vec);
+    let mut sum = lanes.iter().sum::<f64>();
+    for (&factor, slot) in factors[idx..].iter().zip(&mut output[idx..]) {
+        *slot = (stat as f64 * factor).floor() as i32;
+        sum += f64::from(*slot);
+    }
+    sum as i32
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx2")]
+unsafe fn five_skill_deltas_from_base_scores_avx2(
+    base_scores: &[i32],
+    windows: &[ExactSkillWindow; 5],
+    rateup_profiles: &[&[f64]; 5],
+) -> [i32; 5] {
+    let range_start = windows[0].range_start;
+    debug_assert!(windows
+        .iter()
+        .all(|window| window.range_start == range_start));
+    let representatives = skill_window_representatives(windows);
+    let range_end = windows
+        .iter()
+        .map(|window| window.range_end)
+        .max()
+        .unwrap_or(range_start);
+    debug_assert!(range_end <= base_scores.len());
+
+    let constant_mods = windows.map(|window| _mm256_set1_pd(1.0 + window.score_up));
+    let mut sums = [_mm256_setzero_pd(); 5];
+    let mut idx = range_start;
+    while idx + 4 <= range_end {
+        let base_i32 = _mm_loadu_si128(base_scores.as_ptr().add(idx).cast());
+        let base = _mm256_cvtepi32_pd(base_i32);
+        let local_idx = idx - range_start;
+        for card_idx in 0..5 {
+            if representatives[card_idx] != card_idx {
+                continue;
+            }
+            let active = windows[card_idx].range_end.saturating_sub(idx).min(4);
+            if active == 0 {
+                continue;
+            }
+            let multiplier = if windows[card_idx].rateup {
+                debug_assert!(local_idx + 4 <= rateup_profiles[card_idx].len());
+                _mm256_loadu_pd(rateup_profiles[card_idx].as_ptr().add(local_idx))
+            } else {
+                constant_mods[card_idx]
+            };
+            let score = _mm256_floor_pd(_mm256_mul_pd(base, multiplier));
+            let mut delta = _mm256_sub_pd(score, base);
+            if active < 4 {
+                let mask = match active {
+                    1 => _mm256_set_epi64x(0, 0, 0, -1),
+                    2 => _mm256_set_epi64x(0, 0, -1, -1),
+                    3 => _mm256_set_epi64x(0, -1, -1, -1),
+                    _ => unreachable!(),
+                };
+                delta = _mm256_and_pd(delta, _mm256_castsi256_pd(mask));
+            }
+            sums[card_idx] = _mm256_add_pd(sums[card_idx], delta);
+        }
+        idx += 4;
+    }
+
+    let mut result = [0i32; 5];
+    for card_idx in 0..5 {
+        if representatives[card_idx] != card_idx {
+            continue;
+        }
+        let mut lanes = [0.0; 4];
+        _mm256_storeu_pd(lanes.as_mut_ptr(), sums[card_idx]);
+        let mut sum = lanes.iter().sum::<f64>();
+        for node_idx in idx..windows[card_idx].range_end {
+            let base = base_scores[node_idx];
+            let multiplier = if windows[card_idx].rateup {
+                rateup_profiles[card_idx][node_idx - range_start]
+            } else {
+                1.0 + windows[card_idx].score_up
+            };
+            sum += (base as f64 * multiplier).floor() - f64::from(base);
+        }
+        result[card_idx] = sum as i32;
+    }
+    for card_idx in 0..5 {
+        result[card_idx] = result[representatives[card_idx]];
+    }
+    result
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx2")]
+unsafe fn base_score_constant_delta_sum_avx2(base_scores: &[i32], skill_mod: f64) -> i32 {
+    let skill_mod_vec = _mm256_set1_pd(skill_mod);
+    let mut sum_vec = _mm256_setzero_pd();
+    let mut idx = 0usize;
+    while idx + 4 <= base_scores.len() {
+        let base_i32 = _mm_loadu_si128(base_scores.as_ptr().add(idx).cast());
+        let base = _mm256_cvtepi32_pd(base_i32);
+        let score = _mm256_floor_pd(_mm256_mul_pd(base, skill_mod_vec));
+        sum_vec = _mm256_add_pd(sum_vec, _mm256_sub_pd(score, base));
+        idx += 4;
+    }
+
+    let mut lanes = [0.0; 4];
+    _mm256_storeu_pd(lanes.as_mut_ptr(), sum_vec);
+    let mut sum = lanes.iter().sum::<f64>();
+    for &base in &base_scores[idx..] {
+        sum += (base as f64 * skill_mod).floor() - f64::from(base);
+    }
+    sum as i32
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx2")]
+unsafe fn base_score_multiplier_delta_sum_avx2(base_scores: &[i32], multipliers: &[f64]) -> i32 {
+    debug_assert_eq!(base_scores.len(), multipliers.len());
+    let mut sum_vec = _mm256_setzero_pd();
+    let mut idx = 0usize;
+    while idx + 4 <= base_scores.len() {
+        let base_i32 = _mm_loadu_si128(base_scores.as_ptr().add(idx).cast());
+        let base = _mm256_cvtepi32_pd(base_i32);
+        let multiplier = _mm256_loadu_pd(multipliers.as_ptr().add(idx));
+        let score = _mm256_floor_pd(_mm256_mul_pd(base, multiplier));
+        sum_vec = _mm256_add_pd(sum_vec, _mm256_sub_pd(score, base));
+        idx += 4;
+    }
+
+    let mut lanes = [0.0; 4];
+    _mm256_storeu_pd(lanes.as_mut_ptr(), sum_vec);
+    let mut sum = lanes.iter().sum::<f64>();
+    for (&base, &multiplier) in base_scores[idx..].iter().zip(&multipliers[idx..]) {
+        sum += (base as f64 * multiplier).floor() - f64::from(base);
+    }
+    sum as i32
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx2")]
 unsafe fn score_factor_range_sum_avx2(factors: &[f64], stat: i32, skill_mod: f64) -> i32 {
     let stat_vec = _mm256_set1_pd(stat as f64);
     let skill_mod_vec = _mm256_set1_pd(skill_mod);
@@ -1452,6 +2609,57 @@ unsafe fn score_factor_range_sum_avx2(factors: &[f64], stat: i32, skill_mod: f64
         sum += (no_skill * skill_mod).floor();
     }
 
+    sum as i32
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx2")]
+unsafe fn score_factor_range_delta_sum_avx2(factors: &[f64], stat: i32, skill_mod: f64) -> i32 {
+    let stat_vec = _mm256_set1_pd(stat as f64);
+    let skill_mod_vec = _mm256_set1_pd(skill_mod);
+    let mut sum_vec = _mm256_setzero_pd();
+    let mut idx = 0usize;
+
+    while idx + 4 <= factors.len() {
+        let factors_vec = _mm256_loadu_pd(factors.as_ptr().add(idx));
+        let no_skill = _mm256_floor_pd(_mm256_mul_pd(factors_vec, stat_vec));
+        let score = _mm256_floor_pd(_mm256_mul_pd(no_skill, skill_mod_vec));
+        sum_vec = _mm256_add_pd(sum_vec, _mm256_sub_pd(score, no_skill));
+        idx += 4;
+    }
+
+    let mut lanes = [0.0; 4];
+    _mm256_storeu_pd(lanes.as_mut_ptr(), sum_vec);
+    let mut sum = lanes.iter().sum::<f64>();
+    for &factor in &factors[idx..] {
+        let no_skill = (stat as f64 * factor).floor();
+        sum += (no_skill * skill_mod).floor() - no_skill;
+    }
+    sum as i32
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx2")]
+unsafe fn compiled_six_skill_score_avx2(factors: &[f64], multipliers: &[f64], stat: i32) -> i32 {
+    debug_assert_eq!(factors.len(), multipliers.len());
+    let stat_vec = _mm256_set1_pd(stat as f64);
+    let mut sum_vec = _mm256_setzero_pd();
+    let mut idx = 0usize;
+    while idx + 4 <= factors.len() {
+        let factor_vec = _mm256_loadu_pd(factors.as_ptr().add(idx));
+        let multiplier_vec = _mm256_loadu_pd(multipliers.as_ptr().add(idx));
+        let no_skill = _mm256_floor_pd(_mm256_mul_pd(factor_vec, stat_vec));
+        let score = _mm256_floor_pd(_mm256_mul_pd(no_skill, multiplier_vec));
+        sum_vec = _mm256_add_pd(sum_vec, score);
+        idx += 4;
+    }
+    let mut lanes = [0.0; 4];
+    _mm256_storeu_pd(lanes.as_mut_ptr(), sum_vec);
+    let mut sum = lanes.iter().sum::<f64>();
+    for idx in idx..factors.len() {
+        let no_skill = (stat as f64 * factors[idx]).floor();
+        sum += (no_skill * multipliers[idx]).floor();
+    }
     sum as i32
 }
 
@@ -1540,6 +2748,33 @@ mod tests {
     }
 
     #[test]
+    fn rateup_profile_avx2_matches_scalar_through_cap() {
+        if !avx2_available() {
+            return;
+        }
+
+        let mut profile = RateUpProfileScratch::default();
+        profile.prepare(1.0, 160);
+        let base_scores = (0..160).map(|idx| 10_000 + idx * 37).collect::<Vec<_>>();
+        let scalar = base_scores
+            .iter()
+            .zip(&profile.multipliers)
+            .map(|(&base, &multiplier)| (base as f64 * multiplier).floor() as i32 - base)
+            .sum::<i32>();
+
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        let avx2 =
+            unsafe { base_score_multiplier_delta_sum_avx2(&base_scores, &profile.multipliers) };
+
+        assert_eq!(profile.multipliers[0], 2.005);
+        assert_eq!(
+            profile.multipliers[159],
+            *profile.multipliers.last().unwrap()
+        );
+        assert_eq!(avx2, scalar);
+    }
+
+    #[test]
     fn score_applies_skill_mod_until_duration_end() {
         let mut chart = Chart::new(
             5,
@@ -1618,6 +2853,177 @@ mod tests {
     }
 
     #[test]
+    fn standard_rule_allows_simultaneous_note_to_use_triggered_skill() {
+        let mut chart = Chart::new(
+            5,
+            vec![
+                ChartNode {
+                    node_type: ChartNodeType::Skill,
+                    time: 0.0,
+                },
+                ChartNode {
+                    node_type: ChartNodeType::Node,
+                    time: 0.0,
+                },
+            ],
+        );
+        chart.init(0, false).unwrap();
+
+        assert_eq!(chart.nodes[0].node_type, ChartNodeType::Skill);
+        assert_eq!(
+            chart.get_score(&[skill(1, 1.0)], 1000, false).unwrap(),
+            4950
+        );
+    }
+
+    #[test]
+    fn skill_timing_intervals_include_end_and_finishing_transition_frames() {
+        let end = skill_end_interval(5.0);
+        assert!((end.lower - (5.0 + 1.0 / 120.0)).abs() < f64::EPSILON);
+        assert!((end.upper - (5.0 + 1.0 / 30.0)).abs() < f64::EPSILON);
+
+        let queue = skill_queue_gap_interval(5.0);
+        assert!((queue.lower - (5.0 + 0.75 + 2.0 / 120.0)).abs() < f64::EPSILON);
+        assert!((queue.upper - (5.0 + 0.75 + 3.0 / 60.0)).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn envelope_scheduler_detects_queue_after_active_skill_has_ended() {
+        let mut scheduler = EnvelopeSkillScheduler::default();
+        let first = scheduler.schedule(0.0, 1.0);
+        assert!(first.end < 1.5);
+
+        let second = scheduler.schedule(1.5, 1.0);
+        assert!(second.queue_risk);
+        assert!(second.start > 1.5);
+        assert!((second.start - (1.0 + 1.0 / 30.0 + 0.75)).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn envelope_timing_dependent_queue_uses_nonqueued_branch() {
+        let duration = 1.0;
+        let gap = skill_queue_gap_interval(duration);
+        let trigger = (gap.lower + gap.upper) / 2.0;
+        let mut scheduler = EnvelopeSkillScheduler::default();
+        scheduler.schedule(0.0, duration);
+
+        let second = scheduler.schedule(trigger, duration);
+        assert!(second.queue_risk);
+        assert_eq!(second.start, trigger);
+    }
+
+    #[test]
+    fn ideal_60fps_timing_uses_phase_zero_integer_frames() {
+        let duration = 1.0;
+        assert_eq!(ideal_judgement_frame(0.0), 0);
+        assert_eq!(ideal_judgement_frame(0.001), 1);
+        assert_eq!(ideal_skill_end_time(0.0, duration), 61.0 / 60.0);
+        assert_eq!(ideal_skill_end_time(0.001, duration), 62.0 / 60.0);
+
+        assert!(ideal_skills_queue(0.0, duration, 107.0 / 60.0));
+        assert!(!ideal_skills_queue(0.0, duration, 108.0 / 60.0));
+    }
+
+    #[test]
+    fn ideal_60fps_queued_skill_starts_after_finishing_transitions() {
+        let mut scheduler = Ideal60SkillScheduler::default();
+        let first = scheduler.schedule(0.0, 1.0);
+        assert_eq!(first.end, 61.0 / 60.0);
+
+        let queued = scheduler.schedule(107.0 / 60.0, 1.0);
+        assert!(queued.queue_risk);
+        assert_eq!(queued.start, 108.0 / 60.0);
+        assert_eq!(queued.end, 169.0 / 60.0);
+    }
+
+    #[test]
+    fn standard_exact_window_uses_phase_zero_end_frame() {
+        let duration = 3.0;
+        let trigger = 0.001;
+        let deadline = 182.0 / 60.0;
+        let mut chart = Chart::new(
+            20,
+            vec![
+                ChartNode {
+                    time: trigger,
+                    node_type: ChartNodeType::Skill,
+                },
+                ChartNode {
+                    time: deadline,
+                    node_type: ChartNodeType::Node,
+                },
+                ChartNode {
+                    time: deadline + 0.0001,
+                    node_type: ChartNodeType::Node,
+                },
+            ],
+        );
+        chart.init(0, false).unwrap();
+        let mut exact_skill = skill(1, 1.0);
+        exact_skill.duration = duration;
+
+        let window = chart.compile_exact_skill_window(0, exact_skill).unwrap();
+        assert_eq!(window.range_start, 1);
+        assert_eq!(window.range_end, 2);
+    }
+
+    #[test]
+    fn standard_queue_detection_uses_exact_ideal_frames() {
+        let make_chart = |second_frame: i64| {
+            let mut nodes = vec![ChartNode {
+                time: 0.0,
+                node_type: ChartNodeType::Skill,
+            }];
+            nodes.push(ChartNode {
+                time: ideal_frame_time(second_frame),
+                node_type: ChartNodeType::Skill,
+            });
+            for activation in 2..6 {
+                nodes.push(ChartNode {
+                    time: activation as f64 * 20.0,
+                    node_type: ChartNodeType::Skill,
+                });
+            }
+            let mut chart = Chart::new(20, nodes);
+            chart.init(0, true).unwrap();
+            chart
+        };
+        let mut exact_skill = skill(1, 1.0);
+        exact_skill.duration = 3.0;
+        let team = [exact_skill; 5];
+
+        assert!(make_chart(227).team_skills_may_overlap(&team).unwrap());
+        assert!(!make_chart(228).team_skills_may_overlap(&team).unwrap());
+    }
+
+    #[test]
+    fn queue_risk_uses_closed_conservative_gap_interval() {
+        let duration = 1.0;
+        let upper = skill_queue_gap_interval(duration).upper;
+        let make_chart = |second_time| {
+            let mut nodes = (0..6)
+                .map(|activation| ChartNode {
+                    time: if activation == 0 {
+                        0.0
+                    } else if activation == 1 {
+                        second_time
+                    } else {
+                        20.0 * activation as f64
+                    },
+                    node_type: ChartNodeType::Skill,
+                })
+                .collect::<Vec<_>>();
+            nodes.sort_by(|left, right| left.time.total_cmp(&right.time));
+            Chart::new(20, nodes)
+        };
+
+        assert!(make_chart(upper).has_skill_queue_risk(duration).unwrap());
+        assert!(!make_chart(upper + 2.0 * EPS)
+            .has_skill_queue_risk(duration)
+            .unwrap());
+    }
+
+    #[test]
     fn max_meta_order_returns_five_ordered_cards_and_captain() {
         let mut nodes = Vec::new();
         for idx in 0..6 {
@@ -1684,6 +3090,13 @@ mod tests {
                 .get_score_for_six_skills(&skills, 12345, true)
                 .unwrap()
         );
+        let compiled = chart.compile_six_skill_score(&skills, true).unwrap();
+        for stat in [1, 12_345, 500_000] {
+            assert_eq!(
+                chart.score_compiled_six_skills(&compiled, stat),
+                chart.get_score_for_six_skills(&skills, stat, true).unwrap()
+            );
+        }
     }
 
     #[test]
@@ -1784,6 +3197,85 @@ mod tests {
                 assert!(rateup_score <= template.score(stat, 1.51));
             }
         }
+    }
+
+    #[test]
+    fn queued_skill_timeline_drains_all_events_before_sparse_node() {
+        let mut nodes = (0..6)
+            .map(|activation| ChartNode {
+                time: activation as f64 * 0.1,
+                node_type: ChartNodeType::Skill,
+            })
+            .collect::<Vec<_>>();
+        nodes.push(ChartNode {
+            time: 10.0,
+            node_type: ChartNodeType::Node,
+        });
+        let mut chart = Chart::new(25, nodes);
+        chart.init_auto_with_base_multiplier(0.75).unwrap();
+
+        let skills = [skill(1, 1.0); 6];
+        let compiled = chart.compile_six_skill_score(&skills, false).unwrap();
+        // Before t=10, skill 1 has ended, skill 2 has started and ended, and
+        // skill 3 has started. The sparse node must therefore use skill 3.
+        assert_eq!(compiled.multipliers.last().copied(), Some(2.0));
+
+        let windows = chart
+            .score_range_skill_window_counts(skills[0].duration)
+            .unwrap()
+            .unwrap();
+        assert_eq!(windows.active_nodes[2], 1);
+        assert!(windows.skill_queue_risk);
+        assert!(chart.has_skill_queue_risk(skills[0].duration).unwrap());
+
+        for stat in [1, 12_345, 543_210] {
+            let expected = chart.get_score(&skills, stat, false).unwrap();
+            assert_eq!(chart.score_compiled_six_skills(&compiled, stat), expected);
+            assert_eq!(
+                chart
+                    .get_score_for_six_skills_scalar(&skills, stat, false)
+                    .unwrap(),
+                expected
+            );
+            assert_eq!(
+                chart
+                    .get_score_for_six_skills(&skills, stat, false)
+                    .unwrap(),
+                expected
+            );
+            assert_eq!(
+                chart.compressed_auto_score(skills[0]).unwrap().score(stat),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn score_range_counts_use_ideal_60fps_while_retaining_envelope_risk() {
+        let duration = 1.0;
+        let mut nodes = (0..6)
+            .map(|activation| ChartNode {
+                time: activation as f64 * 20.0,
+                node_type: ChartNodeType::Skill,
+            })
+            .collect::<Vec<_>>();
+        // This note is inside the old score-maximising envelope end (1 + 1/30),
+        // but after the ideal phase-zero end frame (61/60).
+        nodes.push(ChartNode {
+            time: duration + 1.0 / 40.0,
+            node_type: ChartNodeType::Node,
+        });
+        let mut chart = Chart::new(20, nodes);
+        chart.init_auto().unwrap();
+
+        let counts = chart
+            .score_range_skill_window_counts(duration)
+            .unwrap()
+            .unwrap();
+        assert_eq!(counts.active_nodes, [0; 6]);
+        assert_eq!(counts.inactive_nodes, 7);
+        assert!(counts.tail_risk);
+        assert!(!counts.skill_queue_risk);
     }
 
     #[test]

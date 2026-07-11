@@ -16,47 +16,47 @@
   "result": {
     "eventId": 0,
     "eventType": "medley",
-    "totalScore": 11880244,
-    "totalStat": 1487827,
+    "totalScore": 11815764,
+    "totalStat": 1507664,
     "songs": [
       {
         "songId": 306,
         "difficulty": 3,
-        "score": 3252908,
-        "stat": 468095,
+        "score": 3189409,
+        "stat": 465329,
         "teamCardIds": [
           1851,
-          2186,
-          1125,
           627,
-          1721
+          1125,
+          1748,
+          416
         ],
         "captainCardId": 1851
       },
       {
         "songId": 306,
         "difficulty": 3,
-        "score": 3849209,
-        "stat": 483899,
+        "score": 4009043,
+        "stat": 514216,
         "teamCardIds": [
-          2032,
+          1999,
+          2186,
           1976,
-          1720,
-          1748,
+          1721,
           625
         ],
-        "captainCardId": 2032
+        "captainCardId": 1999
       },
       {
         "songId": 306,
         "difficulty": 3,
-        "score": 4778127,
-        "stat": 535833,
+        "score": 4617312,
+        "stat": 528119,
         "teamCardIds": [
           2124,
-          1999,
-          1975,
           2304,
+          1720,
+          1975,
           1952
         ],
         "captainCardId": 2124
@@ -67,21 +67,30 @@
       "attribute": "cool",
       "magazine": "performance"
     },
-    "solver": "randomBucketAvx2",
+    "solver": "avx2",
     "metrics": {
-      "coreVersion": "0.2.0",
+      "coreVersion": "0.2.1",
       "cardCount": 1414,
       "songCount": 3,
-      "itemCombinationsBefore": 108,
+      "itemCombinationsBefore": 135,
       "itemCombinationsAfter": 108,
-      "totalElapsedMs": 133676.5248,
+      "totalElapsedMs": 53411.1738,
       "medley": {
-        "candidateCount": 307581,
-        "solverCandidateCount": 92018,
-        "solverFilterMs": 0,
-        "solverMs": 0,
-        "candidateBuildMs": 0,
-        "usedCardCount": 41
+        "candidateCount": 3556703,
+        "solverCandidateCount": 134938,
+        "solverFilterMs": 23.2121,
+        "solverMs": 8557.1898,
+        "solverQuality": "exact",
+        "exactWork": 584693727,
+        "autoRoute": "exactCandidateCount",
+        "seedMs": 1942.3825,
+        "itemUpperBoundMs": 1051.4905,
+        "candidateBuildCount": 21,
+        "solverCount": 21,
+        "seedCount": 1,
+        "itemUpperBoundCount": 108,
+        "candidateBuildMs": 41689.1853,
+        "usedCardCount": 47
       }
     }
   },

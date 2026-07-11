@@ -1,6 +1,7 @@
 use crate::{
-    avx2_available, MedleySolverError, MedleySolverImplementation, MedleySolverPlan, Score,
-    TeamMask, WideMedleySolverInput, RANDOM_BUCKET_K, RANDOM_BUCKET_ROUNDS,
+    avx2_available, MedleySolverError, MedleySolverImplementation, MedleySolverPlan,
+    MedleySolverQuality, Score, TeamMask, WideMedleySolverInput, RANDOM_BUCKET_K,
+    RANDOM_BUCKET_ROUNDS,
 };
 
 #[cfg(target_arch = "x86")]
@@ -13,16 +14,26 @@ const RANDOM_BUCKET_MASK_COUNT: usize = 1 << RANDOM_BUCKET_K;
 const RANDOM_BUCKET_FULL_MASK: usize = RANDOM_BUCKET_MASK_COUNT - 1;
 const INVALID_INDEX: usize = usize::MAX;
 const INVALID_SCORE: Score = Score::MIN / 4;
+const RANDOM_BUCKET_ROUND_BLOCK: usize = 8;
 
 pub(crate) fn solve_random_bucket_narrow(
     current_best: Score,
     team_masks: &[TeamMask],
     scores: &[[Score; 3]],
 ) -> Result<MedleySolverPlan, MedleySolverError> {
+    let trace = trace_enabled();
+    let prepare_start = trace.then(std::time::Instant::now);
     let team_cards = team_masks
         .iter()
         .map(|&mask| card_indices_from_u64(mask))
         .collect::<Vec<_>>();
+    if trace {
+        eprintln!(
+            "random bucket mask decode: kind=narrow candidates={} elapsed_ms={:.3}",
+            team_masks.len(),
+            elapsed_ms(prepare_start),
+        );
+    }
     solve_random_bucket(current_best, &team_cards, scores, RANDOM_BUCKET_ROUNDS)
 }
 
@@ -36,12 +47,29 @@ pub(crate) fn solve_random_bucket_wide_with_rounds(
     input: &WideMedleySolverInput,
     rounds: usize,
 ) -> Result<MedleySolverPlan, MedleySolverError> {
+    solve_random_bucket_wide_from_best_with_rounds(input, input.current_best, rounds)
+}
+
+fn solve_random_bucket_wide_from_best_with_rounds(
+    input: &WideMedleySolverInput,
+    current_best: Score,
+    rounds: usize,
+) -> Result<MedleySolverPlan, MedleySolverError> {
+    let trace = trace_enabled();
+    let prepare_start = trace.then(std::time::Instant::now);
     let team_cards = input
         .team_masks
         .iter()
         .map(|mask| card_indices_from_words(mask))
         .collect::<Vec<_>>();
-    solve_random_bucket(input.current_best, &team_cards, &input.scores, rounds)
+    if trace {
+        eprintln!(
+            "random bucket mask decode: kind=wide candidates={} elapsed_ms={:.3}",
+            input.team_masks.len(),
+            elapsed_ms(prepare_start),
+        );
+    }
+    solve_random_bucket(current_best, &team_cards, &input.scores, rounds)
 }
 
 fn solve_random_bucket(
@@ -50,6 +78,24 @@ fn solve_random_bucket(
     scores: &[[Score; 3]],
     rounds: usize,
 ) -> Result<MedleySolverPlan, MedleySolverError> {
+    solve_random_bucket_with_round_block(
+        current_best,
+        team_cards,
+        scores,
+        rounds,
+        RANDOM_BUCKET_ROUND_BLOCK,
+    )
+}
+
+fn solve_random_bucket_with_round_block(
+    current_best: Score,
+    team_cards: &[Vec<usize>],
+    scores: &[[Score; 3]],
+    rounds: usize,
+    round_block: usize,
+) -> Result<MedleySolverPlan, MedleySolverError> {
+    let trace = trace_enabled();
+    let total_start = trace.then(std::time::Instant::now);
     let n = scores.len();
     if n == 0 {
         return Err(MedleySolverError::NoValidPlan);
@@ -59,7 +105,6 @@ fn solve_random_bucket(
     if max_scores[0] + max_scores[1] + max_scores[2] <= current_best {
         return Err(MedleySolverError::NoValidPlan);
     }
-
     let card_count = team_cards
         .iter()
         .flat_map(|cards| cards.iter())
@@ -74,58 +119,64 @@ fn solve_random_bucket(
     let bucket_pairs = RandomBucketPairs::new();
     let use_avx2 = avx2_available();
     let mut rng = SplitMix64::new(RANDOM_BUCKET_SEED);
-    let mut buckets_by_card = vec![0u16; card_count];
-    let mut best_score_by_song = [[INVALID_SCORE; RANDOM_BUCKET_MASK_COUNT]; 3];
-    let mut best_index_by_song = [[INVALID_INDEX; RANDOM_BUCKET_MASK_COUNT]; 3];
-    let mut best2_score = [INVALID_SCORE; RANDOM_BUCKET_MASK_COUNT];
-    let mut best2_index = [INVALID_INDEX; RANDOM_BUCKET_MASK_COUNT];
+    let round_block = round_block.max(1).min(rounds.max(1));
+    let mut scratch = (0..round_block)
+        .map(|_| RandomBucketRound::new(card_count))
+        .collect::<Vec<_>>();
+    let setup_ms = elapsed_ms(total_start);
+    let mut reset_ms = 0.0;
+    let mut candidate_scan_ms = 0.0;
+    let mut submask_ms = 0.0;
+    let mut pair_scan_ms = 0.0;
 
     let mut best_score = current_best;
     let mut best_indices = None;
 
-    for _ in 0..rounds {
-        for bucket in &mut buckets_by_card {
-            *bucket = 1u16 << (rng.next_bounded(RANDOM_BUCKET_K as u64) as u16);
+    for block_start in (0..rounds).step_by(round_block) {
+        let active_rounds = (rounds - block_start).min(round_block);
+        let phase_start = trace.then(std::time::Instant::now);
+        for round in &mut scratch[..active_rounds] {
+            round.reset(&mut rng);
         }
+        reset_ms += elapsed_ms(phase_start);
 
-        for song_idx in 0..3 {
-            best_score_by_song[song_idx].fill(INVALID_SCORE);
-            best_index_by_song[song_idx].fill(INVALID_INDEX);
-        }
-
+        let phase_start = trace.then(std::time::Instant::now);
         for (candidate_idx, cards) in team_cards.iter().enumerate() {
-            let mut bucket_mask = 0u16;
-            for &card_idx in cards {
-                bucket_mask |= buckets_by_card[card_idx];
-            }
-            if bucket_mask == 0 {
-                continue;
-            }
-
-            let mask_idx = bucket_mask as usize;
-            for song_idx in 0..3 {
-                let score = scores[candidate_idx][song_idx];
-                if score > best_score_by_song[song_idx][mask_idx] {
-                    best_score_by_song[song_idx][mask_idx] = score;
-                    best_index_by_song[song_idx][mask_idx] = candidate_idx;
-                }
+            let candidate_scores = scores[candidate_idx];
+            for round in &mut scratch[..active_rounds] {
+                round.insert_candidate(candidate_idx, cards, candidate_scores);
             }
         }
+        candidate_scan_ms += elapsed_ms(phase_start);
 
-        best2_score.copy_from_slice(&best_score_by_song[2]);
-        best2_index.copy_from_slice(&best_index_by_song[2]);
-        maximize_song2_submasks(&mut best2_score, &mut best2_index);
+        for round in &mut scratch[..active_rounds] {
+            let phase_start = trace.then(std::time::Instant::now);
+            round.maximize_song2_submasks();
+            submask_ms += elapsed_ms(phase_start);
+            let phase_start = trace.then(std::time::Instant::now);
+            update_best_from_bucket_pairs(
+                &bucket_pairs,
+                &round.best_score_by_song,
+                &round.best_index_by_song,
+                &round.best2_score,
+                &round.best2_index,
+                team_cards,
+                &mut best_score,
+                &mut best_indices,
+                use_avx2,
+            );
+            pair_scan_ms += elapsed_ms(phase_start);
+        }
+    }
 
-        update_best_from_bucket_pairs(
-            &bucket_pairs,
-            &best_score_by_song,
-            &best_index_by_song,
-            &best2_score,
-            &best2_index,
-            team_cards,
-            &mut best_score,
-            &mut best_indices,
-            use_avx2,
+    if trace {
+        eprintln!(
+            "random bucket detail: candidates={} cards={} rounds={} round_block={} setup_ms={setup_ms:.3} reset_ms={reset_ms:.3} candidate_scan_ms={candidate_scan_ms:.3} submask_ms={submask_ms:.3} pair_scan_ms={pair_scan_ms:.3} total_ms={:.3}",
+            scores.len(),
+            card_count,
+            rounds,
+            round_block,
+            elapsed_ms(total_start),
         );
     }
 
@@ -138,7 +189,80 @@ fn solve_random_bucket(
         } else {
             MedleySolverImplementation::RandomBucket
         },
+        quality: MedleySolverQuality::Approximate,
+        exact_work: 0,
+        auto_route: None,
     })
+}
+
+fn trace_enabled() -> bool {
+    std::env::var_os("BANGDREAM_OPTIMIZE_DP_TRACE").is_some()
+}
+
+fn elapsed_ms(start: Option<std::time::Instant>) -> f64 {
+    start
+        .map(|start| start.elapsed().as_secs_f64() * 1000.0)
+        .unwrap_or(0.0)
+}
+
+struct RandomBucketRound {
+    buckets_by_card: Vec<u16>,
+    best_score_by_song: Box<[[Score; RANDOM_BUCKET_MASK_COUNT]; 3]>,
+    best_index_by_song: Box<[[usize; RANDOM_BUCKET_MASK_COUNT]; 3]>,
+    best2_score: Box<[Score; RANDOM_BUCKET_MASK_COUNT]>,
+    best2_index: Box<[usize; RANDOM_BUCKET_MASK_COUNT]>,
+}
+
+impl RandomBucketRound {
+    fn new(card_count: usize) -> Self {
+        Self {
+            buckets_by_card: vec![0; card_count],
+            best_score_by_song: Box::new([[INVALID_SCORE; RANDOM_BUCKET_MASK_COUNT]; 3]),
+            best_index_by_song: Box::new([[INVALID_INDEX; RANDOM_BUCKET_MASK_COUNT]; 3]),
+            best2_score: Box::new([INVALID_SCORE; RANDOM_BUCKET_MASK_COUNT]),
+            best2_index: Box::new([INVALID_INDEX; RANDOM_BUCKET_MASK_COUNT]),
+        }
+    }
+
+    fn reset(&mut self, rng: &mut SplitMix64) {
+        for bucket in &mut self.buckets_by_card {
+            *bucket = 1u16 << (rng.next_bounded(RANDOM_BUCKET_K as u64) as u16);
+        }
+        for song_idx in 0..3 {
+            self.best_score_by_song[song_idx].fill(INVALID_SCORE);
+            self.best_index_by_song[song_idx].fill(INVALID_INDEX);
+        }
+    }
+
+    fn insert_candidate(&mut self, candidate_idx: usize, cards: &[usize], scores: [Score; 3]) {
+        let bucket_mask = cards.iter().fold(0u16, |mask, &card_idx| {
+            mask | self.buckets_by_card[card_idx]
+        });
+        if bucket_mask == 0 {
+            return;
+        }
+        let mask_idx = bucket_mask as usize;
+        if scores[0] > self.best_score_by_song[0][mask_idx] {
+            self.best_score_by_song[0][mask_idx] = scores[0];
+            self.best_index_by_song[0][mask_idx] = candidate_idx;
+        }
+        if scores[1] > self.best_score_by_song[1][mask_idx] {
+            self.best_score_by_song[1][mask_idx] = scores[1];
+            self.best_index_by_song[1][mask_idx] = candidate_idx;
+        }
+        if scores[2] > self.best_score_by_song[2][mask_idx] {
+            self.best_score_by_song[2][mask_idx] = scores[2];
+            self.best_index_by_song[2][mask_idx] = candidate_idx;
+        }
+    }
+
+    fn maximize_song2_submasks(&mut self) {
+        self.best2_score
+            .copy_from_slice(&self.best_score_by_song[2]);
+        self.best2_index
+            .copy_from_slice(&self.best_index_by_song[2]);
+        maximize_song2_submasks(&mut self.best2_score, &mut *self.best2_index);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -242,13 +366,13 @@ unsafe fn update_best_from_bucket_pairs_avx2(
         if lanes != 0 {
             let mut scores = [0i32; 8];
             _mm256_storeu_si256(scores.as_mut_ptr() as *mut __m256i, score);
-            for lane in 0..8 {
-                if (lanes & (1 << lane)) == 0 || scores[lane] <= *best_score {
+            for (lane, &score) in scores.iter().enumerate() {
+                if (lanes & (1 << lane)) == 0 || score <= *best_score {
                     continue;
                 }
                 try_bucket_pair_with_score(
                     pair_idx + lane,
-                    scores[lane],
+                    score,
                     pairs,
                     best_score_by_song,
                     best_index_by_song,
@@ -350,9 +474,7 @@ fn try_bucket_pair_with_score(
         best_index_by_song[1][song1_mask],
         best2_index[song2_available_mask],
     ];
-    if indices.iter().any(|&idx| idx == INVALID_INDEX)
-        || !candidate_card_sets_are_disjoint(team_cards, indices)
-    {
+    if indices.contains(&INVALID_INDEX) || !candidate_card_sets_are_disjoint(team_cards, indices) {
         return;
     }
 
@@ -478,5 +600,75 @@ impl SplitMix64 {
 
     fn next_bounded(&mut self, upper_bound: u64) -> u64 {
         self.next_u64() % upper_bound
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blocked_rounds_match_one_round_at_a_time() {
+        let team_cards = vec![
+            vec![0, 1],
+            vec![2, 3],
+            vec![4, 5],
+            vec![0, 2],
+            vec![1, 4],
+            vec![3, 5],
+        ];
+        let scores = vec![
+            [100, 5, 7],
+            [4, 90, 8],
+            [3, 6, 80],
+            [98, 82, 5],
+            [97, 4, 79],
+            [2, 88, 78],
+        ];
+
+        let serial = solve_random_bucket_with_round_block(0, &team_cards, &scores, 257, 1).unwrap();
+        let blocked =
+            solve_random_bucket_with_round_block(0, &team_cards, &scores, 257, 4).unwrap();
+
+        assert_eq!(blocked, serial);
+    }
+
+    #[test]
+    #[ignore = "single-core round-block performance probe"]
+    fn profiles_round_block_widths() {
+        let mut rng = SplitMix64::new(0x7a31_9e42);
+        let mut team_cards = Vec::with_capacity(50_000);
+        let mut scores = Vec::with_capacity(50_000);
+        for _ in 0..50_000 {
+            let mut cards = Vec::with_capacity(5);
+            while cards.len() < 5 {
+                let card = rng.next_bounded(46) as usize;
+                if !cards.contains(&card) {
+                    cards.push(card);
+                }
+            }
+            team_cards.push(cards);
+            scores.push([
+                100_000 + rng.next_bounded(900_000) as i32,
+                100_000 + rng.next_bounded(900_000) as i32,
+                100_000 + rng.next_bounded(900_000) as i32,
+            ]);
+        }
+
+        let mut reference = None;
+        for block in [1, 2, 4, 8, 16, 32] {
+            let started = std::time::Instant::now();
+            let result =
+                solve_random_bucket_with_round_block(0, &team_cards, &scores, 512, block).unwrap();
+            eprintln!(
+                "random bucket round block: block={block} elapsed_ms={:.3}",
+                started.elapsed().as_secs_f64() * 1000.0
+            );
+            if let Some(reference) = &reference {
+                assert_eq!(&result, reference);
+            } else {
+                reference = Some(result);
+            }
+        }
     }
 }

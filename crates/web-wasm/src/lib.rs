@@ -235,7 +235,7 @@ fn area_item_definitions(
     game_data: &BestdoriData,
 ) -> Result<BTreeMap<u32, AreaItemDefinition>, DataError> {
     let all_definitions = game_data.area_item_definitions(server)?;
-    player
+    let mut definitions = player
         .area_item
         .keys()
         .map(|area_item_id| {
@@ -250,7 +250,17 @@ fn area_item_definitions(
                     })?;
             Ok((parsed_id, definition))
         })
-        .collect()
+        .collect::<Result<BTreeMap<_, _>, DataError>>()?;
+
+    for area_item_id in [59, 72] {
+        if let Some(definition) = all_definitions.get(&area_item_id) {
+            definitions
+                .entry(area_item_id)
+                .or_insert_with(|| definition.clone());
+        }
+    }
+
+    Ok(definitions)
 }
 
 fn parse_id(value: &str, field: &'static str) -> Result<u32, DataError> {

@@ -1,6 +1,7 @@
 use crate::model::chart::TeamCardSkill;
 use crate::model::schema::{
-    AreaItemConfig, Attribute, CharacterBonusConfig, PlayerCardConfig, Stat,
+    AreaItemConfig, Attribute, CharacterBonusConfig, Magazine, PlayerCardConfig, SelectedAreaItems,
+    Stat,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -464,6 +465,32 @@ impl AreaItemPercent {
     }
 }
 
+pub fn area_item_combinations(area_item_percent: &AreaItemPercent) -> Vec<SelectedAreaItems> {
+    let magazines = area_item_percent
+        .magazine
+        .keys()
+        .filter_map(|key| Magazine::from_key(key))
+        .collect::<Vec<_>>();
+    let mut result = Vec::with_capacity(
+        magazines
+            .len()
+            .saturating_mul(area_item_percent.band.len())
+            .saturating_mul(area_item_percent.attribute.len()),
+    );
+    for magazine in magazines {
+        for band in area_item_percent.band.keys() {
+            for attribute in area_item_percent.attribute.keys() {
+                result.push(SelectedAreaItems {
+                    band: band.clone(),
+                    attribute: attribute.clone(),
+                    magazine,
+                });
+            }
+        }
+    }
+    result
+}
+
 pub fn prepare_card(
     card: &CardDefinition,
     player_card: &PlayerCardConfig,
@@ -585,6 +612,7 @@ pub fn calculate_area_item_percent(
     area_item_definitions: &BTreeMap<u32, AreaItemDefinition>,
 ) -> Result<AreaItemPercent, PreparationError> {
     let mut result = AreaItemPercent::empty();
+    let mut disabled_groups = Vec::<(AreaItemType, String)>::new();
 
     for (area_item_id, config) in player_area_items {
         let area_item_id = area_item_id
@@ -596,12 +624,25 @@ pub fn calculate_area_item_percent(
 
         let item_type = definition.item_type();
         let key = definition.target_key()?;
+        // Items with the same type and target key occupy one logical set. A partial
+        // set cannot be equipped: one zero-level component disables the whole set.
+        // Shell and coffee (59/72) are mutually exclusive alternatives rather than
+        // components, so their existing max-of-two adjustment remains separate.
+        if config.level == 0
+            && !matches!(area_item_id, 59 | 72)
+            && !disabled_groups.contains(&(item_type, key.clone()))
+        {
+            disabled_groups.push((item_type, key.clone()));
+        }
         result
             .entry_mut(item_type, key)
             .add(definition.percent(config.level));
     }
 
     apply_shell_and_coffee_adjustment(&mut result, player_area_items, area_item_definitions)?;
+    for (item_type, key) in disabled_groups {
+        *result.entry_mut(item_type, key) = StatRate::zero();
+    }
 
     Ok(result)
 }
@@ -611,6 +652,17 @@ fn apply_shell_and_coffee_adjustment(
     player_area_items: &BTreeMap<String, AreaItemConfig>,
     area_item_definitions: &BTreeMap<u32, AreaItemDefinition>,
 ) -> Result<(), PreparationError> {
+    // Shell and coffee are mutually exclusive all-attribute items. Even when the player owns
+    // neither, keep their shared target as a zero-rate choice: maximization may safely prune it,
+    // while score-range needs the lower-power item set.
+    if let Some(definition) = area_item_definitions
+        .get(&59)
+        .or_else(|| area_item_definitions.get(&72))
+    {
+        let key = definition.target_key()?;
+        result.attribute.entry(key).or_insert_with(StatRate::zero);
+    }
+
     let Some(shell) = player_area_items.get("59") else {
         return Ok(());
     };
@@ -924,6 +976,49 @@ mod tests {
     }
 
     #[test]
+    fn zero_level_component_disables_its_entire_area_item_group() {
+        let player_items = BTreeMap::from([
+            ("10".to_owned(), AreaItemConfig { level: 1 }),
+            ("11".to_owned(), AreaItemConfig { level: 0 }),
+            ("20".to_owned(), AreaItemConfig { level: 1 }),
+        ]);
+        let defs = BTreeMap::from([
+            (
+                10,
+                AreaItemDefinition {
+                    area_item_id: 10,
+                    target_band_ids: vec![2],
+                    target_attributes: vec![],
+                    percents: BTreeMap::from([(1, StatRate::all(0.1))]),
+                },
+            ),
+            (
+                11,
+                AreaItemDefinition {
+                    area_item_id: 11,
+                    target_band_ids: vec![2],
+                    target_attributes: vec![],
+                    percents: BTreeMap::from([(1, StatRate::all(0.2))]),
+                },
+            ),
+            (
+                20,
+                AreaItemDefinition {
+                    area_item_id: 20,
+                    target_band_ids: vec![],
+                    target_attributes: vec![Attribute::Cool],
+                    percents: BTreeMap::from([(1, StatRate::all(0.3))]),
+                },
+            ),
+        ]);
+
+        let area = calculate_area_item_percent(&player_items, &defs).unwrap();
+
+        assert_eq!(area.band["2"], StatRate::zero());
+        assert_eq!(area.attribute["cool"], StatRate::all(0.3));
+    }
+
+    #[test]
     fn area_item_shell_coffee_adjustment_keeps_larger_bonus() {
         let player_items = BTreeMap::from([
             ("59".to_owned(), AreaItemConfig { level: 1 }),
@@ -966,6 +1061,70 @@ mod tests {
             area.attribute["cool,happy,powerful,pure"],
             StatRate::all(0.2),
         );
+    }
+
+    #[test]
+    fn zero_level_shell_does_not_disable_owned_coffee_alternative() {
+        let player_items = BTreeMap::from([
+            ("59".to_owned(), AreaItemConfig { level: 0 }),
+            ("72".to_owned(), AreaItemConfig { level: 2 }),
+        ]);
+        let targets = vec![
+            Attribute::Powerful,
+            Attribute::Pure,
+            Attribute::Cool,
+            Attribute::Happy,
+        ];
+        let defs = BTreeMap::from([
+            (
+                59,
+                AreaItemDefinition {
+                    area_item_id: 59,
+                    target_band_ids: vec![],
+                    target_attributes: targets.clone(),
+                    percents: BTreeMap::from([(1, StatRate::all(0.1))]),
+                },
+            ),
+            (
+                72,
+                AreaItemDefinition {
+                    area_item_id: 72,
+                    target_band_ids: vec![],
+                    target_attributes: targets,
+                    percents: BTreeMap::from([(2, StatRate::all(0.2))]),
+                },
+            ),
+        ]);
+
+        let area = calculate_area_item_percent(&player_items, &defs).unwrap();
+
+        assert_rate_close(
+            area.attribute["cool,happy,powerful,pure"],
+            StatRate::all(0.2),
+        );
+    }
+
+    #[test]
+    fn area_item_shell_coffee_target_exists_at_zero_when_neither_is_owned() {
+        let player_items = BTreeMap::new();
+        let defs = BTreeMap::from([(
+            59,
+            AreaItemDefinition {
+                area_item_id: 59,
+                target_band_ids: vec![],
+                target_attributes: vec![
+                    Attribute::Powerful,
+                    Attribute::Pure,
+                    Attribute::Cool,
+                    Attribute::Happy,
+                ],
+                percents: BTreeMap::from([(1, StatRate::all(0.1))]),
+            },
+        )]);
+
+        let area = calculate_area_item_percent(&player_items, &defs).unwrap();
+
+        assert_eq!(area.attribute["cool,happy,powerful,pure"], StatRate::zero());
     }
 
     #[test]

@@ -8,9 +8,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let db_name = env::var("BANGDREAM_OPTIMIZE_MONGODB_DB")
         .or_else(|_| env::var("MONGODB_DB"))
         .unwrap_or_else(|_| "tsugu-bangdream-bot".to_owned());
-    let output = env::var("BANGDREAM_OPTIMIZE_FIXTURE_OUTPUT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("crates/data/tests/fixtures/mongodb-player-medley.json"));
+    let output = PathBuf::from(required_env("BANGDREAM_OPTIMIZE_FIXTURE_OUTPUT")?);
 
     let store = MongoPlayerConfigStore::connect(&uri, &db_name).await?;
     let player_id = player_id_from_env()?.unwrap_or(

@@ -1,14 +1,18 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+#[cfg(not(target_arch = "wasm32"))]
+mod capture;
 mod exact;
 mod random_bucket;
+#[cfg(test)]
+mod threshold_benchmark;
 
 pub type TeamMask = u64;
 pub type Score = i32;
 pub type WideTeamMask = Vec<u64>;
 
-pub const AUTO_EXACT_CANDIDATE_THRESHOLD: usize = 65_536;
+pub const AUTO_EXACT_CANDIDATE_THRESHOLD: usize = 196_608;
 pub const RANDOM_BUCKET_K: usize = 10;
 pub const RANDOM_BUCKET_ROUNDS: usize = 15_000;
 
@@ -32,9 +36,26 @@ pub struct WideMedleySolverInput {
 #[serde(rename_all = "camelCase")]
 pub enum MedleySolverPreference {
     Auto,
+    StrictExact,
+    FastApproximate,
     Scalar,
     RandomBucket,
     Avx2,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum MedleySolverQuality {
+    #[default]
+    Exact,
+    Approximate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MedleySolverAutoRoute {
+    ExactCandidateCount,
+    RandomBucketCandidateCount,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -56,6 +77,12 @@ pub struct MedleySolverPlan {
     pub score: Score,
     pub indices: [usize; 3],
     pub implementation: MedleySolverImplementation,
+    #[serde(default)]
+    pub quality: MedleySolverQuality,
+    #[serde(default)]
+    pub exact_work: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_route: Option<MedleySolverAutoRoute>,
 }
 
 #[derive(Debug, Error)]
@@ -98,35 +125,26 @@ pub fn solve_medley_with(
     preference: MedleySolverPreference,
 ) -> Result<MedleySolverPlan, MedleySolverError> {
     validate(input)?;
+    #[cfg(not(target_arch = "wasm32"))]
+    capture::maybe_capture_narrow(input);
 
     match preference {
         MedleySolverPreference::Scalar => {
             exact::solve_scalar(input, MedleySolverImplementation::Scalar)
         }
-        MedleySolverPreference::RandomBucket => random_bucket::solve_random_bucket_narrow(
-            input.current_best,
-            &input.team_masks,
-            &input.scores,
-        ),
-        MedleySolverPreference::Auto if input.scores.len() > AUTO_EXACT_CANDIDATE_THRESHOLD => {
+        MedleySolverPreference::RandomBucket | MedleySolverPreference::FastApproximate => {
             random_bucket::solve_random_bucket_narrow(
                 input.current_best,
                 &input.team_masks,
                 &input.scores,
             )
         }
-        MedleySolverPreference::Auto if avx2_available() => {
-            exact::solve_avx2(input).or_else(|_| {
-                exact::solve_scalar(
-                    input,
-                    MedleySolverImplementation::ScalarFallbackAvx2Unsupported,
-                )
-            })
-        }
-        MedleySolverPreference::Auto => exact::solve_scalar(
+        MedleySolverPreference::StrictExact if avx2_available() => exact::solve_avx2(input),
+        MedleySolverPreference::StrictExact => exact::solve_scalar(
             input,
             MedleySolverImplementation::ScalarFallbackAvx2Unavailable,
         ),
+        MedleySolverPreference::Auto => solve_medley_auto(input),
         MedleySolverPreference::Avx2 => exact::solve_avx2(input),
     }
 }
@@ -136,18 +154,78 @@ pub fn solve_medley_wide_with(
     preference: MedleySolverPreference,
 ) -> Result<MedleySolverPlan, MedleySolverError> {
     validate_wide(input)?;
+    #[cfg(not(target_arch = "wasm32"))]
+    capture::maybe_capture_wide(input);
     match preference {
         MedleySolverPreference::Scalar => exact::solve_wide_scalar(input),
         MedleySolverPreference::Avx2 => exact::solve_wide_avx2(input),
-        MedleySolverPreference::RandomBucket => random_bucket::solve_random_bucket_wide(input),
-        MedleySolverPreference::Auto if input.scores.len() > AUTO_EXACT_CANDIDATE_THRESHOLD => {
+        MedleySolverPreference::RandomBucket | MedleySolverPreference::FastApproximate => {
             random_bucket::solve_random_bucket_wide(input)
         }
-        MedleySolverPreference::Auto if avx2_available() => {
-            exact::solve_wide_avx2(input).or_else(|_| exact::solve_wide_scalar(input))
-        }
-        MedleySolverPreference::Auto => exact::solve_wide_scalar(input),
+        MedleySolverPreference::StrictExact if avx2_available() => exact::solve_wide_avx2(input),
+        MedleySolverPreference::StrictExact => exact::solve_wide_scalar(input),
+        MedleySolverPreference::Auto => solve_medley_wide_auto(input),
     }
+}
+
+fn solve_medley_auto(input: &MedleySolverInput) -> Result<MedleySolverPlan, MedleySolverError> {
+    let route = select_auto_route(input.scores.len());
+    match route {
+        MedleySolverAutoRoute::RandomBucketCandidateCount => annotate_auto_plan(
+            random_bucket::solve_random_bucket_narrow(
+                input.current_best,
+                &input.team_masks,
+                &input.scores,
+            )?,
+            route,
+        ),
+        MedleySolverAutoRoute::ExactCandidateCount => {
+            let plan = if avx2_available() {
+                exact::solve_avx2(input)?
+            } else {
+                exact::solve_scalar(
+                    input,
+                    MedleySolverImplementation::ScalarFallbackAvx2Unavailable,
+                )?
+            };
+            annotate_auto_plan(plan, route)
+        }
+    }
+}
+
+fn solve_medley_wide_auto(
+    input: &WideMedleySolverInput,
+) -> Result<MedleySolverPlan, MedleySolverError> {
+    let route = select_auto_route(input.scores.len());
+    match route {
+        MedleySolverAutoRoute::RandomBucketCandidateCount => {
+            annotate_auto_plan(random_bucket::solve_random_bucket_wide(input)?, route)
+        }
+        MedleySolverAutoRoute::ExactCandidateCount => {
+            let plan = if avx2_available() {
+                exact::solve_wide_avx2(input)?
+            } else {
+                exact::solve_wide_scalar(input)?
+            };
+            annotate_auto_plan(plan, route)
+        }
+    }
+}
+
+fn select_auto_route(candidate_count: usize) -> MedleySolverAutoRoute {
+    if candidate_count > AUTO_EXACT_CANDIDATE_THRESHOLD {
+        MedleySolverAutoRoute::RandomBucketCandidateCount
+    } else {
+        MedleySolverAutoRoute::ExactCandidateCount
+    }
+}
+
+fn annotate_auto_plan(
+    mut plan: MedleySolverPlan,
+    route: MedleySolverAutoRoute,
+) -> Result<MedleySolverPlan, MedleySolverError> {
+    plan.auto_route = Some(route);
+    Ok(plan)
 }
 
 fn validate(input: &MedleySolverInput) -> Result<(), MedleySolverError> {
@@ -206,6 +284,9 @@ mod tests {
         assert_eq!(plan.score, 300);
         assert_eq!(plan.indices, [0, 1, 2]);
         assert_eq!(plan.implementation, MedleySolverImplementation::Scalar);
+        assert_eq!(plan.quality, MedleySolverQuality::Exact);
+        assert!(plan.exact_work > 0);
+        assert_eq!(plan.auto_route, None);
     }
 
     #[test]
@@ -283,6 +364,11 @@ mod tests {
 
         assert_eq!(plan.score, 300);
         assert_eq!(plan.indices, [0, 1, 2]);
+        assert_eq!(plan.quality, MedleySolverQuality::Exact);
+        assert_eq!(
+            plan.auto_route,
+            Some(MedleySolverAutoRoute::ExactCandidateCount)
+        );
         if avx2_available() {
             assert_eq!(plan.implementation, MedleySolverImplementation::Avx2);
         } else {
@@ -291,6 +377,33 @@ mod tests {
                 MedleySolverImplementation::ScalarFallbackAvx2Unavailable
             );
         }
+    }
+
+    #[test]
+    fn strict_exact_is_additive_to_legacy_kernel_preferences() {
+        let input = MedleySolverInput {
+            current_best: 0,
+            team_masks: vec![1, 2, 4],
+            scores: vec![[100, 1, 1], [1, 100, 1], [1, 1, 100]],
+        };
+
+        let plan = solve_medley_with(&input, MedleySolverPreference::StrictExact).unwrap();
+
+        assert_eq!(plan.score, 300);
+        assert_eq!(plan.quality, MedleySolverQuality::Exact);
+        assert_eq!(plan.auto_route, None);
+    }
+
+    #[test]
+    fn auto_route_uses_the_candidate_count_boundary() {
+        assert_eq!(
+            select_auto_route(AUTO_EXACT_CANDIDATE_THRESHOLD),
+            MedleySolverAutoRoute::ExactCandidateCount
+        );
+        assert_eq!(
+            select_auto_route(AUTO_EXACT_CANDIDATE_THRESHOLD + 1),
+            MedleySolverAutoRoute::RandomBucketCandidateCount
+        );
     }
 
     #[test]

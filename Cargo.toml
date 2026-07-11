@@ -5,7 +5,6 @@ members = [
     "crates/data",
     "crates/desktop",
     "crates/service",
-    "crates/single-dp",
     "crates/team-prune",
     "crates/medley-solver",
     "crates/storage-local",
@@ -30,7 +29,6 @@ bangdream-optimize-core = { path = "crates/core" }
 bangdream-optimize-data = { path = "crates/data" }
 bangdream-optimize-desktop = { path = "crates/desktop" }
 bangdream-optimize-service = { path = "crates/service" }
-bangdream-optimize-single-dp = { path = "crates/single-dp" }
 bangdream-optimize-team-prune = { path = "crates/team-prune" }
 bangdream-optimize-medley-solver = { path = "crates/medley-solver" }
 bangdream-optimize-storage-local = { path = "crates/storage-local" }

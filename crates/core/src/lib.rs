@@ -34,14 +34,18 @@ pub mod schema {
     pub use crate::model::schema::*;
 }
 
-pub mod single_dp {
-    pub use crate::single::*;
-}
-
 pub mod team {
     pub use crate::medley::team::*;
 }
 
+/// Floors the sum of unrounded card-stat contributions exactly once.
+pub fn floor_team_stat(stats: impl IntoIterator<Item = f64>) -> i32 {
+    stats
+        .into_iter()
+        .sum::<f64>()
+        .floor()
+        .clamp(i32::MIN as f64, i32::MAX as f64) as i32
+}
 pub use maximize::{
     calculate_best_result_for_items as maximize_result_for_items,
     CalculationError as MaximizeError, ItemSearchOptions as MaximizeOptions,
@@ -54,14 +58,15 @@ pub use medley::error::BuildError;
 pub use medley::team::{build_team_candidates, TeamBuildError, TeamGenerationOptions};
 pub use model::chart::{
     AutoMultiplierGroup, Chart, ChartError, ChartNode, ChartNodeType, ComboMode,
-    CompressedAutoScore, MaxMetaOrder, ScoreRule, SimultaneousSkillOrder, TeamCardSkill,
+    CompressedAutoScore, MaxMetaOrder, MaxScoreOrder, ScoreRule, SimultaneousSkillOrder,
+    TeamCardSkill,
 };
 pub use model::dp::{floor_score, DpChartModel, DpModelError, ModelTerm, SongMode};
 pub use model::preparation::{
-    calculate_area_item_percent, event_point_bonus_percent, prepare_card, prepare_cards,
-    AreaItemDefinition, AreaItemPercent, AreaItemType, CardDefinition, EventAttributeBonus,
-    EventBonus, EventCharacterBonus, EventMemberBonus, PreparationError, PreparedCard, ScoreUp,
-    SkillDefinition, StatValue,
+    area_item_combinations, calculate_area_item_percent, event_point_bonus_percent, prepare_card,
+    prepare_cards, AreaItemDefinition, AreaItemPercent, AreaItemType, CardDefinition,
+    EventAttributeBonus, EventBonus, EventCharacterBonus, EventMemberBonus, PreparationError,
+    PreparedCard, ScoreUp, SkillDefinition, StatValue,
 };
 pub use model::schema::*;
 pub use score_range::{
@@ -74,4 +79,4 @@ pub use score_range::{
     FIRE_MULTIPLIERS, SCORE_RANGE_CHART_META_PATH, SCORE_RANGE_CHART_META_SCHEMA_VERSION,
     SCORE_RANGE_SKILL_DURATIONS_MILLIS,
 };
-pub use single::{calculate_single_song_dp, SingleSongDpError, SingleSongDpResult};
+pub use single::{calculate_single_song, SingleSongError, SingleSongResult};

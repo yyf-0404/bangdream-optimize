@@ -52,6 +52,10 @@ pub enum DesktopGameDataSource {
         base_url: String,
         cache_root: PathBuf,
     },
+    BestdoriApi {
+        base_url: String,
+        cache_root: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -67,9 +71,16 @@ enum DesktopCalculator {
         root: PathBuf,
         calculator: Arc<Mutex<Option<BestdoriFilesystemCalculator>>>,
     },
-    StaticMirror {
+    Remote {
+        source: DesktopRemoteSource,
         calculator: BestdoriCachedFilesystemCalculator,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DesktopRemoteSource {
+    StaticMirror,
+    BestdoriApi,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -126,7 +137,19 @@ impl DesktopOptimizer {
             } => {
                 ensure_embedded_fix_files(&cache_root)?;
                 let config = BestdoriStaticMirrorConfig::new(cache_root, base_url);
-                DesktopCalculator::StaticMirror {
+                DesktopCalculator::Remote {
+                    source: DesktopRemoteSource::StaticMirror,
+                    calculator: BestdoriCachedFilesystemCalculator::new(config)?,
+                }
+            }
+            DesktopGameDataSource::BestdoriApi {
+                base_url,
+                cache_root,
+            } => {
+                ensure_embedded_fix_files(&cache_root)?;
+                let config = BestdoriStaticMirrorConfig::from_bestdori_api(cache_root, base_url);
+                DesktopCalculator::Remote {
+                    source: DesktopRemoteSource::BestdoriApi,
                     calculator: BestdoriCachedFilesystemCalculator::new(config)?,
                 }
             }
@@ -314,7 +337,7 @@ impl DesktopCalculator {
             Self::Filesystem { root, calculator } => calculate_from_cached_filesystem(
                 root, calculator, player, server, event_id, options,
             ),
-            Self::StaticMirror { calculator } => {
+            Self::Remote { calculator, .. } => {
                 if ensure_embedded_fix_files(calculator.cache_root())? {
                     calculator.clear_loaded_calculator()?;
                 }
@@ -334,7 +357,7 @@ impl DesktopCalculator {
             Self::Filesystem { root, calculator } => score_range_from_cached_filesystem(
                 root, calculator, player, server, event_id, request,
             ),
-            Self::StaticMirror { calculator } => {
+            Self::Remote { calculator, .. } => {
                 if ensure_embedded_fix_files(calculator.cache_root())? {
                     calculator.clear_loaded_calculator()?;
                 }
@@ -346,7 +369,7 @@ impl DesktopCalculator {
     fn sync_reference_data(&self) -> Result<DesktopReferenceData, DataError> {
         match self {
             Self::Filesystem { root, .. } => read_reference_data(root),
-            Self::StaticMirror { calculator } => {
+            Self::Remote { calculator, .. } => {
                 calculator.sync_core()?;
                 if ensure_embedded_fix_files(calculator.cache_root())? {
                     calculator.clear_loaded_calculator()?;
@@ -364,7 +387,7 @@ impl DesktopCalculator {
                 *calculator_lock(calculator)? = None;
                 Ok(())
             }
-            Self::StaticMirror { calculator } => {
+            Self::Remote { calculator, .. } => {
                 let root = calculator.cache_root();
                 if root.exists() {
                     fs::remove_dir_all(root).map_err(|source| io_error(root, source))?;
@@ -378,7 +401,7 @@ impl DesktopCalculator {
     fn refresh_core_game_data(&self) -> Result<(), DataError> {
         match self {
             Self::Filesystem { .. } => Ok(()),
-            Self::StaticMirror { calculator } => {
+            Self::Remote { calculator, .. } => {
                 calculator.refresh_core()?;
                 if ensure_embedded_fix_files(calculator.cache_root())? {
                     calculator.clear_loaded_calculator()?;
@@ -391,7 +414,7 @@ impl DesktopCalculator {
     fn sync_all_game_data(&self) -> Result<(), DataError> {
         match self {
             Self::Filesystem { .. } => Ok(()),
-            Self::StaticMirror { calculator } => {
+            Self::Remote { calculator, .. } => {
                 calculator.sync_all()?;
                 if ensure_embedded_fix_files(calculator.cache_root())? {
                     calculator.clear_loaded_calculator()?;
@@ -409,8 +432,11 @@ impl DesktopCalculator {
                 base_url: None,
                 cache_root: None,
             },
-            Self::StaticMirror { calculator } => DesktopGameDataInfo {
-                source: "staticMirror",
+            Self::Remote { source, calculator } => DesktopGameDataInfo {
+                source: match source {
+                    DesktopRemoteSource::StaticMirror => "staticMirror",
+                    DesktopRemoteSource::BestdoriApi => "bestdoriApi",
+                },
                 root: None,
                 base_url: Some(calculator.base_url().to_owned()),
                 cache_root: Some(calculator.cache_root().display().to_string()),
@@ -723,7 +749,7 @@ mod tests {
         let optimizer = DesktopOptimizer::new(DesktopConfig {
             user_data_root: fixture.path().join("user-data"),
             game_data: DesktopGameDataSource::StaticMirror {
-                base_url: "https://bestdori.com".to_owned(),
+                base_url: "https://mirror.example/game-data".to_owned(),
                 cache_root: cache_root.clone(),
             },
         })
@@ -737,6 +763,31 @@ mod tests {
                 "{file_name} is missing"
             );
         }
+    }
+
+    #[test]
+    fn reports_bestdori_api_as_a_distinct_remote_source() {
+        let fixture = TestDir::new();
+        let cache_root = fixture.path().join("cache");
+        let optimizer = DesktopOptimizer::new(DesktopConfig {
+            user_data_root: fixture.path().join("user-data"),
+            game_data: DesktopGameDataSource::BestdoriApi {
+                base_url: "https://bestdori.com".to_owned(),
+                cache_root: cache_root.clone(),
+            },
+        })
+        .unwrap();
+
+        let info = optimizer.runtime_info();
+        assert_eq!(info.game_data.source, "bestdoriApi");
+        assert_eq!(
+            info.game_data.base_url.as_deref(),
+            Some("https://bestdori.com")
+        );
+        assert_eq!(
+            info.game_data.cache_root.as_deref(),
+            Some(cache_root.to_string_lossy().as_ref())
+        );
     }
 
     #[tokio::test]

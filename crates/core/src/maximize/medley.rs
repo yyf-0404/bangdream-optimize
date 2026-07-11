@@ -8,7 +8,7 @@ use crate::model::preparation::{AreaItemPercent, PreparedCard};
 use crate::model::schema::{
     BuildResult, MedleyCalculationMetrics, SelectedAreaItems, SongSelection,
 };
-use crate::timing::{optional_elapsed_ms, Timer};
+use crate::timing::Timer;
 
 #[derive(Debug, Default, Clone)]
 pub(super) struct MedleySearchMetrics {
@@ -24,6 +24,9 @@ pub(super) struct MedleySearchMetrics {
     seed_count: usize,
     item_upper_bound_count: usize,
     best_used_card_count: Option<usize>,
+    best_solver_quality: Option<String>,
+    exact_work: u64,
+    best_auto_route: Option<String>,
 }
 
 impl MedleySearchMetrics {
@@ -54,6 +57,7 @@ impl MedleySearchMetrics {
         self.solver_candidate_count += metrics.solver_candidate_count;
         self.solver_filter_ms += metrics.solver_filter_ms;
         self.solver_ms += metrics.solver_ms;
+        self.exact_work = self.exact_work.saturating_add(metrics.exact_work);
         self.solver_count += 1;
     }
 
@@ -63,11 +67,13 @@ impl MedleySearchMetrics {
     }
 
     pub(super) fn record_best_result(&mut self, result: &BuildResult) {
-        self.best_used_card_count = result
+        let metrics = result
             .metrics
             .as_ref()
-            .and_then(|metrics| metrics.medley.as_ref())
-            .and_then(|metrics| metrics.used_card_count);
+            .and_then(|metrics| metrics.medley.as_ref());
+        self.best_used_card_count = metrics.and_then(|metrics| metrics.used_card_count);
+        self.best_solver_quality = metrics.and_then(|metrics| metrics.solver_quality.clone());
+        self.best_auto_route = metrics.and_then(|metrics| metrics.auto_route.clone());
     }
 
     pub(super) fn into_metrics(self) -> MedleyCalculationMetrics {
@@ -76,6 +82,9 @@ impl MedleySearchMetrics {
             solver_candidate_count: self.solver_candidate_count,
             solver_filter_ms: self.solver_filter_ms,
             solver_ms: self.solver_ms,
+            solver_quality: self.best_solver_quality,
+            exact_work: self.exact_work,
+            auto_route: self.best_auto_route,
             seed_ms: self.seed_ms,
             item_upper_bound_ms: self.item_upper_bound_ms,
             candidate_build_count: self.candidate_build_count,
@@ -168,34 +177,33 @@ pub(super) fn calculate_medley_result_for_items(
     Ok(result)
 }
 
-pub(super) fn medley_item_can_beat_incumbent(
+pub(super) fn medley_item_score_upper_bound(
     cards: &[PreparedCard],
     charts: &[Chart],
     area_item_percent: &AreaItemPercent,
     selected_items: &SelectedAreaItems,
+) -> Result<i32, CalculationError> {
+    Ok(medley_same_team_item_score_upper_bound(
+        cards,
+        charts,
+        area_item_percent,
+        selected_items,
+    )?)
+}
+
+pub(super) fn medley_item_can_beat_incumbent(
+    selected_items: &SelectedAreaItems,
+    upper_bound: i32,
     current_best: i32,
-) -> Result<bool, CalculationError> {
-    if current_best <= 0 {
-        return Ok(true);
-    }
-
+) -> bool {
+    let can_beat = current_best <= 0 || upper_bound >= current_best;
     let trace = trace_enabled();
-    let upper_bound_start = trace.then(Timer::start);
-    let upper_bound =
-        medley_same_team_item_score_upper_bound(cards, charts, area_item_percent, selected_items)?;
-    let upper_bound_ms = elapsed_ms(upper_bound_start);
-    let can_beat = upper_bound >= current_best;
-
     if trace {
         eprintln!(
-            "medley same-team item upper bound: items={:?} upper_bound={} current_best={} can_beat={} bound_ms={upper_bound_ms:.3}",
+            "medley same-team item upper bound: items={:?} upper_bound={} current_best={} can_beat={}",
             selected_items, upper_bound, current_best, can_beat,
         );
     }
 
-    Ok(can_beat)
-}
-
-fn elapsed_ms(start: Option<Timer>) -> f64 {
-    optional_elapsed_ms(start)
+    can_beat
 }

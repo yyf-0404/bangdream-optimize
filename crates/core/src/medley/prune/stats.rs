@@ -59,6 +59,7 @@ pub(in crate::medley) struct SignaturePoolStats {
     pub(in crate::medley) max_cross_character_cover: usize,
     pub(in crate::medley) max_score_contribution_same_cover: usize,
     pub(in crate::medley) max_score_contribution_cross_cover: usize,
+    pub(in crate::medley) fixed_point_passes: usize,
     pub(in crate::medley) estimated_candidates: usize,
     pub(in crate::medley) trace: MedleyPruneTrace,
 }
@@ -147,7 +148,7 @@ pub(in crate::medley) fn trace_signature_pool_stats(stats: &SignaturePoolStats) 
         .map(signature_label)
         .unwrap_or_else(|| "unknown".to_owned());
     eprintln!(
-        "medley signature pool: signature={} allowed={} active={} same_pruned={} cross_pruned={} score_contribution_same_pruned={} score_contribution_cross_pruned={} bound_pruned={} max_same_cover={} max_cross_cover={} max_score_contribution_same_cover={} max_score_contribution_cross_cover={} estimated_candidates={}",
+        "medley signature pool: signature={} allowed={} active={} same_pruned={} cross_pruned={} score_contribution_same_pruned={} score_contribution_cross_pruned={} bound_pruned={} fixed_point_passes={} max_same_cover={} max_cross_cover={} max_score_contribution_same_cover={} max_score_contribution_cross_cover={} estimated_candidates={}",
         signature,
         stats.allowed_count,
         stats.active_count,
@@ -156,6 +157,7 @@ pub(in crate::medley) fn trace_signature_pool_stats(stats: &SignaturePoolStats) 
         stats.score_contribution_same_pruned,
         stats.score_contribution_cross_pruned,
         stats.upper_bound_pruned,
+        stats.fixed_point_passes,
         stats.max_same_character_cover,
         stats.max_cross_character_cover,
         stats.max_score_contribution_same_cover,

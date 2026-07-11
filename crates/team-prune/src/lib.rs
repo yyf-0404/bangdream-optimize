@@ -492,6 +492,36 @@ mod tests {
         assert_eq!(optimized, brute_force);
     }
 
+    #[test]
+    fn optimized_cover_matches_bruteforce_for_all_small_count_vectors() {
+        for team_size in 2..=5 {
+            for team_count in 1..=3 {
+                // Target group plus five possible teammate/dominator groups. Base four covers
+                // counts 0..=3, including absent groups and counts above other-team capacity.
+                for encoded in 0usize..4usize.pow(6) {
+                    let mut value = encoded;
+                    let mut counts = BTreeMap::new();
+                    for group_id in 0..6u32 {
+                        let count = value % 4;
+                        value /= 4;
+                        if count > 0 {
+                            counts.insert(group_id, count);
+                        }
+                    }
+
+                    let optimized = dominator_cover_summary_after_worst_teammate_groups(
+                        &counts, 0, team_size, team_count,
+                    );
+                    let brute_force = brute_force_cover_summary(&counts, 0, team_size, team_count);
+                    assert_eq!(
+                        optimized, brute_force,
+                        "counts={counts:?} team_size={team_size} team_count={team_count}"
+                    );
+                }
+            }
+        }
+    }
+
     fn brute_force_cover_summary(
         counts_by_group: &BTreeMap<u32, usize>,
         target_group_id: u32,

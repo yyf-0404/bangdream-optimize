@@ -7,10 +7,8 @@ use crate::medley::team::{TeamBuildError, TeamGenerationOptions};
 use crate::model::chart::Chart;
 use crate::model::dp::SongMode;
 use crate::model::preparation::{AreaItemPercent, PreparedCard};
-use crate::model::schema::{
-    Attribute, BuildResult, EventType, Magazine, SelectedAreaItems, SongSelection,
-};
-use crate::single::SingleSongDpError;
+use crate::model::schema::{Attribute, BuildResult, EventType, SelectedAreaItems, SongSelection};
+use crate::single::SingleSongError;
 use crate::timing::Timer;
 use bangdream_optimize_medley_solver::{MedleySolverError, MedleySolverPreference};
 use serde::{Deserialize, Serialize};
@@ -30,8 +28,8 @@ pub enum CalculationError {
     #[error("team build error: {0}")]
     Team(#[from] TeamBuildError),
 
-    #[error("single-song DP error: {0}")]
-    SingleDp(#[from] SingleSongDpError),
+    #[error("single-song error: {0}")]
+    Single(#[from] SingleSongError),
 
     #[error("candidate calculation error: {0}")]
     Candidate(#[from] BuildError),
@@ -110,30 +108,41 @@ pub fn calculate_best_result_for_items(
             item_combinations_after
         );
     }
-    let mut best: Option<BuildResult> = None;
     let mut medley_search_metrics =
         (event_type == EventType::Medley).then(medley::MedleySearchMetrics::default);
-
-    for selected_items in item_combinations {
-        let current_best = best_score(&best);
-        if event_type == EventType::Medley {
+    let medley_item_upper_bounds = if event_type == EventType::Medley {
+        let mut upper_bounds = Vec::with_capacity(item_combinations.len());
+        for selected_items in &item_combinations {
             let upper_bound_start = Timer::start();
-            let can_beat = medley::medley_item_can_beat_incumbent(
+            let upper_bound = medley::medley_item_score_upper_bound(
                 cards,
                 charts,
                 area_item_percent,
-                &selected_items,
-                current_best,
+                selected_items,
             )?;
             if let Some(metrics) = medley_search_metrics.as_mut() {
                 metrics.add_item_upper_bound_ms(upper_bound_start.elapsed_ms());
             }
-            if !can_beat {
-                continue;
-            }
+            upper_bounds.push(upper_bound);
         }
+        Some(upper_bounds)
+    } else {
+        None
+    };
 
-        if event_type == EventType::Medley && cards.len() > 128 {
+    let mut best: Option<BuildResult> = None;
+    if event_type == EventType::Medley && cards.len() > 128 {
+        let upper_bounds = medley_item_upper_bounds
+            .as_ref()
+            .expect("medley item bounds were prepared");
+        if let Some(seed_item_idx) = best_medley_seed_item_index(upper_bounds) {
+            let selected_items = &item_combinations[seed_item_idx];
+            if trace_enabled() {
+                eprintln!(
+                    "medley seed item estimate: items={selected_items:?} upper_bound={}",
+                    upper_bounds[seed_item_idx],
+                );
+            }
             let seed_start = Timer::start();
             let seed = seed_medley_result_for_items(
                 event_id,
@@ -141,19 +150,31 @@ pub fn calculate_best_result_for_items(
                 cards,
                 charts,
                 area_item_percent,
-                &selected_items,
+                selected_items,
                 options.team_generation,
             )?;
             if let Some(metrics) = medley_search_metrics.as_mut() {
                 metrics.add_seed_ms(seed_start.elapsed_ms());
             }
             if let Some(seed) = seed {
-                if best_score(&best) < seed.total_score {
-                    if trace_enabled() {
-                        eprintln!("medley seed incumbent: total_score={}", seed.total_score);
-                    }
-                    best = Some(seed);
+                if trace_enabled() {
+                    eprintln!("medley seed incumbent: total_score={}", seed.total_score);
                 }
+                best = Some(seed);
+            }
+        }
+    }
+
+    for (item_idx, selected_items) in item_combinations.into_iter().enumerate() {
+        let current_best = best_score(&best);
+        if event_type == EventType::Medley {
+            let upper_bound = medley_item_upper_bounds
+                .as_ref()
+                .expect("medley item bounds were prepared")[item_idx];
+            let can_beat =
+                medley::medley_item_can_beat_incumbent(&selected_items, upper_bound, current_best);
+            if !can_beat {
+                continue;
             }
         }
 
@@ -192,8 +213,8 @@ pub fn calculate_best_result_for_items(
                 best = Some(result);
             }
             Ok(_) => {}
-            Err(CalculationError::SingleDp(SingleSongDpError::NotEnoughCards { .. }))
-            | Err(CalculationError::SingleDp(SingleSongDpError::NoResult))
+            Err(CalculationError::Single(SingleSongError::NotEnoughCards { .. }))
+            | Err(CalculationError::Single(SingleSongError::NoResult))
             | Err(CalculationError::Team(TeamBuildError::NotEnoughCards { .. }))
             | Err(CalculationError::Candidate(BuildError::EmptyCandidates))
             | Err(CalculationError::Candidate(BuildError::MedleySolver(
@@ -204,6 +225,11 @@ pub fn calculate_best_result_for_items(
     }
 
     let mut result = best.ok_or(CalculationError::NoBuildResult)?;
+    if event_type == EventType::Medley {
+        for (song, chart) in result.songs.iter_mut().zip(charts) {
+            song.skill_queue_risk = !chart.warning.is_empty();
+        }
+    }
     let metrics = result.metrics.get_or_insert_with(Default::default);
     metrics.card_count = cards.len();
     metrics.song_count = song_list.len();
@@ -409,59 +435,64 @@ fn best_score(best: &Option<BuildResult>) -> i32 {
     best.as_ref().map(|result| result.total_score).unwrap_or(0)
 }
 
+fn best_medley_seed_item_index(upper_bounds: &[i32]) -> Option<usize> {
+    let mut best: Option<(usize, i32)> = None;
+    for (idx, &upper_bound) in upper_bounds.iter().enumerate() {
+        if best.is_none_or(|(_, best_upper_bound)| upper_bound > best_upper_bound) {
+            best = Some((idx, upper_bound));
+        }
+    }
+    best.map(|(idx, _)| idx)
+}
+
 fn item_combinations(
     area_item_percent: &AreaItemPercent,
     event_type: EventType,
     preferred: Option<PreferredItemTarget>,
 ) -> Result<Vec<SelectedAreaItems>, CalculationError> {
-    let magazines: Vec<Magazine> = area_item_percent
-        .magazine
-        .keys()
-        .filter_map(|key| Magazine::from_key(key))
-        .collect();
-    let bands: Vec<String> = area_item_percent.band.keys().cloned().collect();
-    let attributes: Vec<String> = area_item_percent.attribute.keys().cloned().collect();
-
-    if magazines.is_empty() || bands.is_empty() || attributes.is_empty() {
-        return Err(CalculationError::NoAreaItemCombinations);
-    }
-
-    let mut combinations = Vec::new();
-    for magazine in magazines {
-        if event_type == EventType::Medley {
-            if let Some(preferred) = &preferred {
-                combinations.push(SelectedAreaItems {
-                    band: preferred.band.clone(),
-                    attribute: preferred.attribute.clone(),
-                    magazine,
-                });
-            }
-        }
-
-        for band in &bands {
-            for attribute in &attributes {
-                if event_type == EventType::Medley {
-                    if let Some(preferred) = &preferred {
-                        if &preferred.band == band && &preferred.attribute == attribute {
-                            continue;
-                        }
-                    }
-                }
-
-                combinations.push(SelectedAreaItems {
-                    band: band.clone(),
-                    attribute: attribute.clone(),
-                    magazine,
-                });
-            }
-        }
-    }
-
+    let combinations = crate::area_item_combinations(area_item_percent);
     if combinations.is_empty() {
         return Err(CalculationError::NoAreaItemCombinations);
     }
+    if event_type != EventType::Medley || preferred.is_none() {
+        return Ok(combinations);
+    }
 
-    Ok(combinations)
+    let preferred = preferred.expect("preferred was checked above");
+    let mut magazines = Vec::new();
+    for items in &combinations {
+        if !magazines.contains(&items.magazine) {
+            magazines.push(items.magazine);
+        }
+    }
+
+    let mut prioritized = Vec::with_capacity(combinations.len() + magazines.len());
+    for magazine in magazines {
+        if let Some(items) = combinations.iter().find(|items| {
+            items.magazine == magazine
+                && items.band == preferred.band
+                && items.attribute == preferred.attribute
+        }) {
+            prioritized.push(items.clone());
+        } else {
+            prioritized.push(SelectedAreaItems {
+                band: preferred.band.clone(),
+                attribute: preferred.attribute.clone(),
+                magazine,
+            });
+        }
+        prioritized.extend(
+            combinations
+                .iter()
+                .filter(|items| {
+                    items.magazine == magazine
+                        && (items.band != preferred.band || items.attribute != preferred.attribute)
+                })
+                .cloned(),
+        );
+    }
+
+    Ok(prioritized)
 }
 
 fn prune_dominated_item_combinations(
@@ -497,28 +528,27 @@ fn card_stat_for_items(
     card: &PreparedCard,
     area_item_percent: &AreaItemPercent,
     selected_items: &SelectedAreaItems,
-) -> i32 {
+) -> f64 {
     card.add_up_stat(
         area_item_percent,
         &selected_items.band,
         &selected_items.attribute,
         selected_items.magazine.as_str(),
     )
-    .floor() as i32
 }
 
-fn item_stats_dominate(left: &[i32], right: &[i32]) -> bool {
+fn item_stats_dominate(left: &[f64], right: &[f64]) -> bool {
     left.iter().zip(right).all(|(left, right)| left >= right)
 }
 
-fn item_stats_strictly_better(left: &[i32], right: &[i32]) -> bool {
+fn item_stats_strictly_better(left: &[f64], right: &[f64]) -> bool {
     left.iter().zip(right).any(|(left, right)| left > right)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::chart::{ChartNode, ChartNodeType, TeamCardSkill};
+    use crate::model::chart::{ChartNode, ChartNodeType, SkillWarning, TeamCardSkill};
     use crate::model::preparation::{ScoreUp, StatRate, StatValue, PERFORMANCE_KEY};
     use crate::model::schema::{Attribute, Magazine};
     use std::collections::BTreeMap;
@@ -531,6 +561,13 @@ mod tests {
         assert!(!supports_event_type(EventType::Festival));
         assert!(!supports_event_type(EventType::LiveTry));
         assert!(!supports_event_type(EventType::MissionLive));
+    }
+
+    #[test]
+    fn medley_seed_uses_first_highest_item_upper_bound() {
+        assert_eq!(best_medley_seed_item_index(&[]), None);
+        assert_eq!(best_medley_seed_item_index(&[10, 30, 20]), Some(1));
+        assert_eq!(best_medley_seed_item_index(&[30, 30, 20]), Some(0));
     }
 
     fn chart(song_idx: u32) -> Chart {
@@ -700,7 +737,7 @@ mod tests {
             result.items.as_ref().unwrap().magazine,
             Magazine::Performance
         );
-        assert_eq!(result.solver.as_deref(), Some("dp"));
+        assert_eq!(result.solver.as_deref(), Some("exact"));
         assert_eq!(result.songs.len(), 1);
         assert!(result.total_score > 0);
     }
@@ -711,6 +748,11 @@ mod tests {
             .map(|idx| prepared_card(idx + 1, idx + 1, 1))
             .collect::<Vec<_>>();
 
+        let mut charts = [chart(0), chart(1), chart(2)];
+        charts[0].warning.push(SkillWarning {
+            id: 1,
+            time_gap: 8.0,
+        });
         let result = calculate_best_result_for_items(
             201,
             EventType::Medley,
@@ -729,7 +771,7 @@ mod tests {
                 },
             ],
             &cards,
-            &[chart(0), chart(1), chart(2)],
+            &charts,
             &area_item_percent(),
             ItemSearchOptions {
                 preferred: Some(PreferredItemTarget {
@@ -745,6 +787,9 @@ mod tests {
         assert_eq!(result.event_type, EventType::Medley);
         assert_eq!(result.solver.as_deref(), Some("scalar"));
         assert_eq!(result.songs.len(), 3);
+        assert!(result.songs[0].skill_queue_risk);
+        assert!(!result.songs[1].skill_queue_risk);
+        assert!(!result.songs[2].skill_queue_risk);
         assert!(result.total_score > 0);
     }
 
