@@ -36,7 +36,7 @@ impl SnapshotMaximizeInputBuilder {
             context.event_id,
             context.event_type,
             song_list,
-            &context.cards_with_stat_bonus,
+            context.maximize_cards(),
             &charts,
             &context.area_item_percent,
             options,
@@ -76,9 +76,9 @@ mod tests {
     use crate::{EventData, GameDataSnapshot};
     use bangdream_optimize_core::{
         preparation::StatRate as PrepStatRate, AreaItemConfig, AreaItemDefinition, Attribute,
-        CardDefinition, CharacterBonusConfig, Chart, ChartNode, ChartNodeType, EventBonus,
-        EventType, MaximizeOptions, PlayerCardConfig, ScoreUp, SkillDefinition, SongSelection,
-        Stat, StatRate,
+        CardDefinition, CharacterBonusConfig, Chart, ChartNode, ChartNodeType, EventAttributeBonus,
+        EventBonus, EventType, MaximizeOptions, PlayerCardConfig, ScoreUp, SkillDefinition,
+        SongSelection, Stat, StatRate,
     };
     use std::collections::BTreeMap;
 
@@ -185,7 +185,10 @@ mod tests {
             EventData {
                 event_type: EventType::Challenge,
                 event_bonus: EventBonus {
-                    attributes: vec![],
+                    attributes: vec![EventAttributeBonus {
+                        attribute: Attribute::Cool,
+                        percent: 50.0,
+                    }],
                     characters: vec![],
                     members: vec![],
                     event_character_parameter_bonus: None,
@@ -258,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn calculates_result_from_snapshot_and_player_config() {
+    fn challenge_maximize_applies_event_bonus_to_team_stat() {
         let builder = SnapshotMaximizeInputBuilder::new(snapshot());
 
         let result = builder
@@ -269,6 +272,7 @@ mod tests {
         assert_eq!(result.event_type, EventType::Challenge);
         assert_eq!(result.songs.len(), 1);
         assert_eq!(result.songs[0].team_card_ids.len(), 5);
+        assert_eq!(result.total_stat, 26_000);
         assert!(result.total_score > 0);
     }
 }

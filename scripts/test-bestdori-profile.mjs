@@ -43,6 +43,28 @@ const importer = createBestdoriProfileImporter({
   bestdoriCharacterBonusFromPoints: () => ({ potential: 0, characterTask: 0 }),
 });
 
+const episodeImporter = createBestdoriProfileImporter({
+  normalizedPlayer,
+  normalizedServer: (server) => server ?? 'jp',
+  normalizedCharacterBonus,
+  normalizedStatRate,
+  recordWithFix: (_type, _fixType, cardId) => ({
+    rarity: Number(cardId) === 202 ? 5 : 4,
+    stat: {
+      training: { performance: 400, technique: 400, visual: 400 },
+      episodes: [
+        { performance: 250, technique: 250, visual: 250 },
+        { performance: 600, technique: 600, visual: 600 },
+      ],
+    },
+  }),
+  maxCardLevel: () => 60,
+  maxAreaItemLevel: () => 8,
+  cardCharacterId: () => 1,
+  getCharacterRecords: () => ({}),
+  bestdoriCharacterBonusFromPoints: () => ({ potential: 0, characterTask: 0 }),
+});
+
 {
   const player = importer.bestdoriProfileToPlayerConfig({
     server: 3,
@@ -75,6 +97,38 @@ const importer = createBestdoriProfileImporter({
   });
 
   assert.equal(player.cardList['201'].skillLevel, 5);
+}
+
+{
+  const player = normalizedPlayer();
+  episodeImporter.importMainBandCards(player, {
+    mainDeckUserSituations: {
+      entries: [
+        {
+          situationId: 201,
+          trainingStatus: 'done',
+          limitBreakRank: 0,
+          userAppendParameter: { performance: 400, technique: 400, visual: 400 },
+        },
+        {
+          situationId: 202,
+          trainingStatus: 'done',
+          limitBreakRank: 1,
+          userAppendParameter: { performance: 900, technique: 900, visual: 900 },
+        },
+        {
+          situationId: 203,
+          trainingStatus: 'done',
+          limitBreakRank: 0,
+          userAppendParameter: { performance: 1250, technique: 1250, visual: 1250 },
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(player.cardList['201'].episodes, [false, false]);
+  assert.deepEqual(player.cardList['202'].episodes, [true, false]);
+  assert.deepEqual(player.cardList['203'].episodes, [true, true]);
 }
 
 {

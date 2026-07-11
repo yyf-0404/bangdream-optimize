@@ -71,15 +71,7 @@ pub fn prepare_score_range_input(
     auto_base_multiplier: f64,
 ) -> Result<PreparedScoreRangeInput, DataError> {
     let context = prepare_event_context(data, player, event_id)?;
-    let uses_pt_bonus = matches!(
-        context.event_type,
-        EventType::LiveTry | EventType::Challenge | EventType::MissionLive
-    );
-    let cards = if uses_pt_bonus {
-        &context.cards_without_event_bonus
-    } else {
-        &context.cards_with_stat_bonus
-    };
+    let cards = context.score_range_cards();
     let items = score_range_item_combinations(&context.area_item_percent);
     let teams = prepare_score_range_team_domain(
         cards,

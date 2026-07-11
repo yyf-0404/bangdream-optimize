@@ -57,7 +57,7 @@ export function createBestdoriProfileImporter({
         level: positiveIntegerOrDefault(entry.level, maxCardLevel(cardId)),
         training: entry.trainingStatus === 'done',
         illustTrainingStatus: entry.illust === 'after_training',
-        episodes: [true, true],
+        episodes: mainBandEpisodes(entry, cardId),
         limitBreakRank: integerOrZero(entry.limitBreakRank),
         skillLevel: skillLevelFromBestdori(entry.skillLevel),
       };
@@ -143,6 +143,38 @@ export function createBestdoriProfileImporter({
         visual: appendRate(append.characterBonusVisual, base.visual),
       },
     });
+  }
+
+  function mainBandEpisodes(entry, cardId) {
+    const append = entry?.userAppendParameter;
+    const card = recordWithFix('cards', 'cardsFix', cardId);
+    const episodeStats = card?.stat?.episodes;
+    if (!append || !card || !Array.isArray(episodeStats)
+      || !['performance', 'technique', 'visual'].every((key) => append[key] != null)) {
+      return [true, true];
+    }
+
+    const actual = normalizedStatRate(append);
+    const training = entry.trainingStatus === 'done'
+      ? normalizedStatRate(card.stat?.training)
+      : normalizedStatRate();
+    const master = finiteNumberOrZero(card.rarity)
+      * integerOrZero(entry.limitBreakRank)
+      * 50;
+    const fixed = addStatRate(training, {
+      performance: master,
+      technique: master,
+      visual: master,
+    });
+    const first = normalizedStatRate(episodeStats[0]);
+    const second = normalizedStatRate(episodeStats[1]);
+    const candidates = [
+      { episodes: [true, true], stat: addStatRate(addStatRate(fixed, first), second) },
+      { episodes: [true, false], stat: addStatRate(fixed, first) },
+      { episodes: [false, false], stat: fixed },
+    ];
+    return candidates.find((candidate) => sameStatRate(candidate.stat, actual))?.episodes
+      ?? [true, true];
   }
 
   function cardBaseStatWithAppend(cardId, append) {
@@ -527,6 +559,19 @@ function appendRate(value, base) {
   const number = finiteNumberOrZero(value);
   const denominator = finiteNumberOrZero(base);
   return denominator > 0 ? Math.ceil((1000 * number) / denominator) / 1000 : 0;
+}
+
+function addStatRate(left = {}, right = {}) {
+  return {
+    performance: finiteNumberOrZero(left.performance) + finiteNumberOrZero(right.performance),
+    technique: finiteNumberOrZero(left.technique) + finiteNumberOrZero(right.technique),
+    visual: finiteNumberOrZero(left.visual) + finiteNumberOrZero(right.visual),
+  };
+}
+
+function sameStatRate(left = {}, right = {}) {
+  return ['performance', 'technique', 'visual']
+    .every((key) => finiteNumberOrZero(left[key]) === finiteNumberOrZero(right[key]));
 }
 
 function truthyBestdoriValue(value) {

@@ -91,6 +91,8 @@ PreparedEventContext
 
 `live_try`、`challenge` 和 `mission_live` 使用 PT 加成倍率模式；`medley`、`versus` 和 `festival` 使用活动综合力加成模式。
 
+该分类只适用于控分。最大化计算中的 `challenge` 仍使用 `cards_with_stat_bonus`，把活动加成计入综合力；控分中的 `challenge` 使用 `cards_without_event_bonus`，并把同一活动加成计入 PT 倍率，二者不得共用卡片准备结果。
+
 ## 4. 队伍签名与技能分桶
 
 新的处理顺序：
@@ -304,9 +306,9 @@ PT = (floor((120 + floor(S / 15000)) × B) + U) × F
 PT = floor((130 + floor(S / 26000)) × B) × F
 ```
 
-### 6.3 Challenge
+### 6.3 Challenge 控分（自由演出）
 
-只使用协力部分，其他人得分固定为 `0`，不处理挑战（歌榜）/CP 部分：
+沿用表格的 CP 协力公式，但将“总分数 - 个人分数”固定为 `0`，即只使用自由演出中的个人得分项；不处理挑战（歌榜）/CP 部分：
 
 ```text
 PT = floor((70 + floor(S / 50000)) × B) × F
@@ -342,7 +344,7 @@ PT = (30 + floor(first_song_score / 18500)) × boost_multiplier
 
 工作簿同时给出了 CP 挑战、竞演多人、5V5 多人、组曲二曲和组曲三曲公式。本次不增加活动子模式字段，继续使用此前确认的单人可控路径：
 
-- `challenge` 使用 CP 协力单人公式，不使用 `3250 + floor(S/450)` 的 CP 挑战公式；
+- `challenge` 控分使用 CP 协力中“其他人得分为 0”的自由演出公式，不使用 `3250 + floor(S/450)` 的 CP 挑战公式；最大化仍把活动加成计入综合力；
 - `versus` 使用固定底分 `100` 的单人公式，不枚举多人排名分；
 - `festival` 使用固定底分 `80` 的 5V5 单人公式，不枚举胜负分和队内排名分；
 - `medley` 只完成第一曲后结束，不使用二曲/三曲底分和多曲火倍率之和。

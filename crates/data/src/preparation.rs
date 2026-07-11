@@ -17,6 +17,29 @@ pub struct PreparedEventContext {
     pub preferred: Option<PreferredItemTarget>,
 }
 
+impl PreparedEventContext {
+    /// Maximum-score searches treat event bonuses as deck-power bonuses, including Challenge.
+    pub fn maximize_cards(&self) -> &[PreparedCard] {
+        &self.cards_with_stat_bonus
+    }
+
+    /// Target-PT searches treat Challenge, Live Try, and Mission Live bonuses as PT multipliers.
+    pub fn score_range_cards(&self) -> &[PreparedCard] {
+        if event_uses_point_bonus(self.event_type) {
+            &self.cards_without_event_bonus
+        } else {
+            &self.cards_with_stat_bonus
+        }
+    }
+}
+
+fn event_uses_point_bonus(event_type: EventType) -> bool {
+    matches!(
+        event_type,
+        EventType::LiveTry | EventType::Challenge | EventType::MissionLive
+    )
+}
+
 pub fn prepare_event_context(
     data: &GameDataSnapshot,
     player: &PlayerConfig,
@@ -36,10 +59,7 @@ pub fn prepare_event_context(
         &player.character_bouns,
         &event.event_bonus,
     )?;
-    let uses_point_bonus = matches!(
-        event.event_type,
-        EventType::LiveTry | EventType::Challenge | EventType::MissionLive
-    );
+    let uses_point_bonus = event_uses_point_bonus(event.event_type);
     let cards_without_event_bonus = if uses_point_bonus {
         prepare_cards(
             &card_definitions,

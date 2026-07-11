@@ -999,11 +999,11 @@ mod tests {
         let context = crate::prepare_event_context(&snapshot, &player, Some(100)).unwrap();
 
         assert!(context
-            .cards_with_stat_bonus
+            .maximize_cards()
             .iter()
             .any(|card| card.event_add_stat.sum() > 0.0));
         assert!(context
-            .cards_without_event_bonus
+            .score_range_cards()
             .iter()
             .all(|card| card.event_add_stat == bangdream_optimize_core::StatValue::zero()));
         assert_eq!(context.point_bonus_micros[&1], 30_000_000);

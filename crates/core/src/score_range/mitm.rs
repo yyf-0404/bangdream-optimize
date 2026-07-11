@@ -23,13 +23,13 @@ struct BucketCard<'a> {
 #[derive(Clone, Copy)]
 struct ResolvedCard<'a> {
     card: &'a PreparedCard,
-    stat: i32,
+    stat: f64,
     point_bonus_micros: u64,
 }
 
 #[derive(Clone, Copy)]
 struct PairRecord {
-    stat: i32,
+    stat: f64,
     point_bonus_micros: u64,
     left: usize,
     right: usize,
@@ -41,7 +41,7 @@ struct PairIndex {
     record_count: usize,
 }
 
-type PairStatBounds = BTreeMap<u64, (i64, i64)>;
+type PairStatBounds = BTreeMap<u64, (f64, f64)>;
 
 enum PairQuery<'a> {
     Full(&'a PairIndex),
@@ -146,6 +146,12 @@ struct ValidStatInterval {
 struct StatRange {
     min_stat: i32,
     max_stat: i32,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ExactStatRange {
+    min_stat: f64,
+    max_stat_exclusive: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -825,8 +831,8 @@ fn skill_buckets_for_mode<'a>(
 
 #[derive(Clone, Copy)]
 struct CharacterTeamBounds {
-    min_stat: i32,
-    max_stat: i32,
+    min_stat: f64,
+    max_stat: f64,
     min_bonus_micros: u64,
     max_bonus_micros: u64,
 }
@@ -848,7 +854,6 @@ fn team_bounds<'a>(
                 &items.attribute,
                 items.magazine.as_str(),
             )
-            .floor() as i32
         });
         let first_stat = stats.next()?;
         let (min_stat, max_stat) = stats.fold((first_stat, first_stat), |bounds, stat| {
@@ -889,8 +894,8 @@ fn team_bounds<'a>(
         .values()
         .map(|bounds| bounds.max_bonus_micros)
         .collect::<Vec<_>>();
-    min_stats.sort_unstable();
-    max_stats.sort_unstable_by(|left, right| right.cmp(left));
+    min_stats.sort_unstable_by(f64::total_cmp);
+    max_stats.sort_unstable_by(|left, right| right.total_cmp(left));
     min_bonuses.sort_unstable();
     max_bonuses.sort_unstable_by(|left, right| right.cmp(left));
     let min_bonus_micros = min_bonuses
@@ -902,14 +907,8 @@ fn team_bounds<'a>(
         .take(5)
         .fold(0_u64, u64::saturating_add);
     Some(TeamBounds {
-        min_stat: min_stats
-            .into_iter()
-            .take(5)
-            .fold(0_i32, i32::saturating_add),
-        max_stat: max_stats
-            .into_iter()
-            .take(5)
-            .fold(0_i32, i32::saturating_add),
+        min_stat: min_stats.into_iter().take(5).sum::<f64>().floor() as i32,
+        max_stat: max_stats.into_iter().take(5).sum::<f64>().floor() as i32,
         min_bonus_basis_points: bonus_micros_to_basis_points(min_bonus_micros),
         max_bonus_basis_points: bonus_micros_to_basis_points(max_bonus_micros),
     })
@@ -1194,6 +1193,7 @@ fn enumerate_full_item_context(
         skill_key,
         skill,
         items,
+        area_item_percent,
         &resolved,
         &stats,
         PairQuery::Full(&pairs),
@@ -1317,6 +1317,7 @@ fn enumerate_local_item_batch(
                 skill_key,
                 skill,
                 &base_items,
+                area_item_percent,
                 &resolved,
                 &base_stats,
                 PairQuery::Full(&base_pairs),
@@ -1383,6 +1384,7 @@ fn enumerate_local_item_batch(
                 skill_key,
                 skill,
                 items,
+                area_item_percent,
                 &resolved,
                 &stats,
                 PairQuery::Incremental {
@@ -1471,26 +1473,23 @@ fn resolve_card_stats(
     cards: &[ResolvedCard<'_>],
     area_item_percent: &AreaItemPercent,
     items: &SelectedAreaItems,
-) -> Vec<i32> {
+) -> Vec<f64> {
     cards
         .iter()
         .map(|entry| {
-            entry
-                .card
-                .add_up_stat(
-                    area_item_percent,
-                    &items.band,
-                    &items.attribute,
-                    items.magazine.as_str(),
-                )
-                .floor() as i32
+            entry.card.add_up_stat(
+                area_item_percent,
+                &items.band,
+                &items.attribute,
+                items.magazine.as_str(),
+            )
         })
         .collect()
 }
 
 fn build_pair_index(
     cards: &[ResolvedCard<'_>],
-    stats: &[i32],
+    stats: &[f64],
     only_touching: Option<&[bool]>,
 ) -> PairIndex {
     let mut result = PairIndex::default();
@@ -1502,7 +1501,7 @@ fn build_pair_index(
                 continue;
             }
             let pair = PairRecord {
-                stat: stats[left].saturating_add(stats[right]),
+                stat: stats[left] + stats[right],
                 point_bonus_micros: cards[left]
                     .point_bonus_micros
                     .saturating_add(cards[right].point_bonus_micros),
@@ -1518,12 +1517,21 @@ fn build_pair_index(
         }
     }
     for records in result.by_bonus.values_mut() {
-        records.sort_by_key(|pair| {
-            (
-                pair.stat,
-                cards[pair.left].card.card_id,
-                cards[pair.right].card.card_id,
-            )
+        records.sort_by(|left, right| {
+            left.stat
+                .total_cmp(&right.stat)
+                .then_with(|| {
+                    cards[left.left]
+                        .card
+                        .card_id
+                        .cmp(&cards[right.left].card.card_id)
+                })
+                .then_with(|| {
+                    cards[left.right]
+                        .card
+                        .card_id
+                        .cmp(&cards[right.right].card.card_id)
+                })
         });
     }
     result
@@ -1553,24 +1561,22 @@ fn resolve_cards_for_items<'a>(
     area_item_percent: &AreaItemPercent,
     items: &SelectedAreaItems,
 ) -> Vec<ResolvedCard<'a>> {
-    let mut canonical = BTreeMap::<(u32, i32, u64, u32, &'static str), ResolvedCard<'a>>::new();
+    let mut canonical = BTreeMap::<(u32, u64, u64, u32, &'static str), ResolvedCard<'a>>::new();
     for entry in cards {
+        let exact_stat = entry.card.add_up_stat(
+            area_item_percent,
+            &items.band,
+            &items.attribute,
+            items.magazine.as_str(),
+        );
         let resolved = ResolvedCard {
             card: entry.card,
-            stat: entry
-                .card
-                .add_up_stat(
-                    area_item_percent,
-                    &items.band,
-                    &items.attribute,
-                    items.magazine.as_str(),
-                )
-                .floor() as i32,
+            stat: exact_stat,
             point_bonus_micros: entry.point_bonus_micros,
         };
         let key = (
             resolved.card.character_id,
-            resolved.stat,
+            exact_stat.to_bits(),
             resolved.point_bonus_micros,
             resolved.card.band_id,
             resolved.card.attribute.as_str(),
@@ -1594,26 +1600,23 @@ fn resolve_cards_for_batch<'a>(
     inner_contexts: &[&SelectedAreaItems],
 ) -> Vec<ResolvedCard<'a>> {
     let mut canonical =
-        BTreeMap::<(u32, Vec<i32>, u64, u32, &'static str), ResolvedCard<'a>>::new();
+        BTreeMap::<(u32, Vec<u64>, u64, u32, &'static str), ResolvedCard<'a>>::new();
     for entry in cards {
         let stat_for = |items: &SelectedAreaItems| {
-            entry
-                .card
-                .add_up_stat(
-                    area_item_percent,
-                    &items.band,
-                    &items.attribute,
-                    items.magazine.as_str(),
-                )
-                .floor() as i32
+            entry.card.add_up_stat(
+                area_item_percent,
+                &items.band,
+                &items.attribute,
+                items.magazine.as_str(),
+            )
         };
-        let base_stat = stat_for(base_items);
+        let exact_base_stat = stat_for(base_items);
         let mut stat_signature = Vec::with_capacity(inner_contexts.len() + 1);
-        stat_signature.push(base_stat);
-        stat_signature.extend(inner_contexts.iter().map(|items| stat_for(items)));
+        stat_signature.push(exact_base_stat.to_bits());
+        stat_signature.extend(inner_contexts.iter().map(|items| stat_for(items).to_bits()));
         let resolved = ResolvedCard {
             card: entry.card,
-            stat: base_stat,
+            stat: exact_base_stat,
             point_bonus_micros: entry.point_bonus_micros,
         };
         let key = (
@@ -1635,7 +1638,7 @@ fn resolve_cards_for_batch<'a>(
     canonical.into_values().collect()
 }
 
-fn build_pair_stat_bounds_for_cards(cards: &[ResolvedCard<'_>], stats: &[i32]) -> PairStatBounds {
+fn build_pair_stat_bounds_for_cards(cards: &[ResolvedCard<'_>], stats: &[f64]) -> PairStatBounds {
     let mut result = PairStatBounds::new();
     for left in 0..cards.len() {
         for right in (left + 1)..cards.len() {
@@ -1645,7 +1648,7 @@ fn build_pair_stat_bounds_for_cards(cards: &[ResolvedCard<'_>], stats: &[i32]) -
             let pair_bonus = cards[left]
                 .point_bonus_micros
                 .saturating_add(cards[right].point_bonus_micros);
-            let pair_stat = stats[left].saturating_add(stats[right]) as i64;
+            let pair_stat = stats[left] + stats[right];
             result
                 .entry(pair_bonus)
                 .and_modify(|bounds| {
@@ -1664,7 +1667,7 @@ fn item_context_may_match(
     target_delta: u64,
     divisors: &[u64],
     cards: &[ResolvedCard<'_>],
-    stats: &[i32],
+    stats: &[f64],
     songs: &[SongModel],
     interval_cache: &mut BTreeMap<u32, ValidIntervalSet>,
     score_lower_bounds: &mut BTreeMap<(usize, u64), Option<i32>>,
@@ -1676,7 +1679,7 @@ fn item_context_may_match(
         return Ok(false);
     }
     let bonus_groups = cards_by_bonus_sorted(cards, stats);
-    let mut triple_range_cache = Vec::<(u64, Vec<StatRange>)>::new();
+    let mut triple_range_cache = Vec::<(u64, Vec<ExactStatRange>)>::new();
     for first_group in 0..bonus_groups.len() {
         for second_group in first_group..bonus_groups.len() {
             for third_group in second_group..bonus_groups.len() {
@@ -1717,7 +1720,7 @@ fn item_context_may_match(
                     triple_range_cache.len() - 1
                 };
                 if triple_range_cache[range_index].1.iter().any(|range| {
-                    range.min_stat <= group_max_stat && group_min_stat <= range.max_stat
+                    range.min_stat <= group_max_stat && group_min_stat < range.max_stat_exclusive
                 }) {
                     return Ok(true);
                 }
@@ -1736,8 +1739,9 @@ fn enumerate_item_context(
     skill_key: SkillBucketKey,
     skill: TeamCardSkill,
     items: &SelectedAreaItems,
+    area_item_percent: &AreaItemPercent,
     cards: &[ResolvedCard<'_>],
-    stats: &[i32],
+    stats: &[f64],
     pairs: PairQuery<'_>,
     triple_must_touch: Option<&[bool]>,
     songs: &[SongModel],
@@ -1756,7 +1760,7 @@ fn enumerate_item_context(
     // card be selected by two binary searches instead of enumerating and rejecting every triple.
     let bonus_groups = cards_by_bonus_sorted(cards, stats);
     let pair_bounds = pair_query_stat_bounds(&pairs);
-    let mut triple_range_cache = Vec::<(u64, Vec<StatRange>)>::new();
+    let mut triple_range_cache = Vec::<(u64, Vec<ExactStatRange>)>::new();
     for first_group in 0..bonus_groups.len() {
         for second_group in first_group..bonus_groups.len() {
             for third_group in second_group..bonus_groups.len() {
@@ -1798,7 +1802,7 @@ fn enumerate_item_context(
                     continue;
                 };
                 if !triple_ranges.iter().any(|range| {
-                    range.min_stat <= group_max_stat && group_min_stat <= range.max_stat
+                    range.min_stat <= group_max_stat && group_min_stat < range.max_stat_exclusive
                 }) {
                     continue;
                 }
@@ -1815,7 +1819,7 @@ fn enumerate_item_context(
                         if cards[first].card.character_id == cards[second].card.character_id {
                             continue;
                         }
-                        let partial_stat = stats[first].saturating_add(stats[second]);
+                        let partial_stat = stats[first] + stats[second];
                         let third_start = if second_group == third_group {
                             second_position + 1
                         } else {
@@ -1824,11 +1828,11 @@ fn enumerate_item_context(
                         for range in triple_ranges {
                             let start = third_indices
                                 .partition_point(|&index| {
-                                    partial_stat.saturating_add(stats[index]) < range.min_stat
+                                    partial_stat + stats[index] < range.min_stat
                                 })
                                 .max(third_start);
                             let end = third_indices.partition_point(|&index| {
-                                partial_stat.saturating_add(stats[index]) <= range.max_stat
+                                partial_stat + stats[index] < range.max_stat_exclusive
                             });
                             for &third in &third_indices[start.min(end)..end] {
                                 if triple_must_touch.is_some_and(|affected| {
@@ -1849,6 +1853,7 @@ fn enumerate_item_context(
                                     skill_key,
                                     skill,
                                     items,
+                                    area_item_percent,
                                     cards,
                                     stats,
                                     triple_bonus,
@@ -1871,7 +1876,7 @@ fn enumerate_item_context(
     Ok(())
 }
 
-fn cards_by_bonus_sorted(cards: &[ResolvedCard<'_>], stats: &[i32]) -> Vec<(u64, Vec<usize>)> {
+fn cards_by_bonus_sorted(cards: &[ResolvedCard<'_>], stats: &[f64]) -> Vec<(u64, Vec<usize>)> {
     let mut by_bonus = BTreeMap::<u64, Vec<usize>>::new();
     for (index, card) in cards.iter().enumerate() {
         by_bonus
@@ -1881,19 +1886,23 @@ fn cards_by_bonus_sorted(cards: &[ResolvedCard<'_>], stats: &[i32]) -> Vec<(u64,
     }
     let mut result = by_bonus.into_iter().collect::<Vec<_>>();
     for (_, indices) in &mut result {
-        indices.sort_unstable_by_key(|&index| (stats[index], index));
+        indices.sort_unstable_by(|&left, &right| {
+            stats[left]
+                .total_cmp(&stats[right])
+                .then_with(|| left.cmp(&right))
+        });
     }
     result
 }
 
 fn triple_group_stat_bounds(
-    stats: &[i32],
+    stats: &[f64],
     first_equals_second: bool,
     second_equals_third: bool,
     first: &[usize],
     second: &[usize],
     third: &[usize],
-) -> Option<(i32, i32)> {
+) -> Option<(f64, f64)> {
     let (minimum, maximum) = match (first_equals_second, second_equals_third) {
         (true, true) => {
             if first.len() < 3 {
@@ -1950,10 +1959,8 @@ fn triple_group_stat_bounds(
     ))
 }
 
-fn sum_three_stats(stats: &[i32], first: usize, second: usize, third: usize) -> i32 {
-    stats[first]
-        .saturating_add(stats[second])
-        .saturating_add(stats[third])
+fn sum_three_stats(stats: &[f64], first: usize, second: usize, third: usize) -> f64 {
+    stats[first] + stats[second] + stats[third]
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1964,8 +1971,9 @@ fn search_triple_candidate(
     skill_key: SkillBucketKey,
     skill: TeamCardSkill,
     items: &SelectedAreaItems,
+    area_item_percent: &AreaItemPercent,
     cards: &[ResolvedCard<'_>],
-    stats: &[i32],
+    stats: &[f64],
     triple_bonus: u64,
     triple: [usize; 3],
     pairs: &PairQuery<'_>,
@@ -1983,17 +1991,17 @@ fn search_triple_candidate(
             .get(&point_bonus_basis_points)
             .expect("triple ranges prepare every pair bonus interval");
         let (min_pair_stat, max_pair_stat) = pair_stat_bounds(pairs, pair_bonus, base_pair_records);
-        let min_total_stat = triple_stat as i64 + min_pair_stat;
-        let max_total_stat = triple_stat as i64 + max_pair_stat;
+        let min_total_stat = triple_stat + min_pair_stat;
+        let max_total_stat = triple_stat + max_pair_stat;
         let first_range = interval_set
             .union
-            .partition_point(|range| (range.max_stat as i64) < min_total_stat);
+            .partition_point(|range| range.max_stat as f64 + 1.0 <= min_total_stat);
         for range in interval_set.union[first_range..]
             .iter()
-            .take_while(|range| (range.min_stat as i64) <= max_total_stat)
+            .take_while(|range| range.min_stat as f64 <= max_total_stat)
         {
-            let min_pair = range.min_stat as i64 - triple_stat as i64;
-            let max_pair = range.max_stat as i64 - triple_stat as i64;
+            let min_pair = range.min_stat as f64 - triple_stat;
+            let max_pair_exclusive = range.max_stat as f64 + 1.0 - triple_stat;
             let skip_touching = match pairs {
                 PairQuery::Full(_) => None,
                 PairQuery::Incremental { affected_cards, .. } => Some(*affected_cards),
@@ -2005,14 +2013,15 @@ fn search_triple_candidate(
                 skill_key,
                 skill,
                 items,
+                area_item_percent,
                 cards,
                 songs,
                 interval_set,
                 point_bonus_basis_points,
-                triple_stat,
                 triple,
                 min_pair,
-                max_pair,
+                max_pair_exclusive,
+                triple_stat,
                 base_pair_records,
                 skip_touching,
             )?;
@@ -2029,14 +2038,15 @@ fn search_triple_candidate(
                             skill_key,
                             skill,
                             items,
+                            area_item_percent,
                             cards,
                             songs,
                             interval_set,
                             point_bonus_basis_points,
-                            triple_stat,
                             triple,
                             min_pair,
-                            max_pair,
+                            max_pair_exclusive,
+                            triple_stat,
                             adjusted_records,
                             None,
                         )?;
@@ -2064,7 +2074,7 @@ fn build_triple_stat_ranges(
     songs: &[SongModel],
     interval_cache: &mut BTreeMap<u32, ValidIntervalSet>,
     score_lower_bounds: &mut BTreeMap<(usize, u64), Option<i32>>,
-) -> Result<Vec<StatRange>, ScoreRangeError> {
+) -> Result<Vec<ExactStatRange>, ScoreRangeError> {
     let mut ranges = Vec::new();
     for (&pair_bonus, &(min_pair_stat, max_pair_stat)) in pair_bounds {
         let total_bonus_micros = triple_bonus.saturating_add(pair_bonus);
@@ -2083,16 +2093,17 @@ fn build_triple_stat_ranges(
             )?);
         }
         for range in &interval_cache[&point_bonus_basis_points].union {
-            let min_stat = (range.min_stat as i64 - max_pair_stat)
-                .clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-            let max_stat = (range.max_stat as i64 - min_pair_stat)
-                .clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-            if min_stat <= max_stat {
-                ranges.push(StatRange { min_stat, max_stat });
+            let min_stat = range.min_stat as f64 - max_pair_stat;
+            let max_stat_exclusive = range.max_stat as f64 + 1.0 - min_pair_stat;
+            if min_stat < max_stat_exclusive {
+                ranges.push(ExactStatRange {
+                    min_stat,
+                    max_stat_exclusive,
+                });
             }
         }
     }
-    Ok(merge_stat_ranges(ranges))
+    Ok(merge_exact_stat_ranges(ranges))
 }
 
 fn pair_query_stat_bounds(pairs: &PairQuery<'_>) -> PairStatBounds {
@@ -2108,25 +2119,25 @@ fn pair_stat_bounds(
     pairs: &PairQuery<'_>,
     pair_bonus: u64,
     base_pair_records: &[PairRecord],
-) -> (i64, i64) {
+) -> (f64, f64) {
     let mut min_pair_stat = base_pair_records
         .first()
-        .map(|pair| pair.stat as i64)
-        .unwrap_or(i64::MAX);
+        .map(|pair| pair.stat)
+        .unwrap_or(f64::INFINITY);
     let mut max_pair_stat = base_pair_records
         .last()
-        .map(|pair| pair.stat as i64)
-        .unwrap_or(i64::MIN);
+        .map(|pair| pair.stat)
+        .unwrap_or(f64::NEG_INFINITY);
     if let PairQuery::Incremental {
         adjusted_touching, ..
     } = pairs
     {
         if let Some(adjusted_records) = adjusted_touching.by_bonus.get(&pair_bonus) {
             if let Some(first) = adjusted_records.first() {
-                min_pair_stat = min_pair_stat.min(first.stat as i64);
+                min_pair_stat = min_pair_stat.min(first.stat);
             }
             if let Some(last) = adjusted_records.last() {
-                max_pair_stat = max_pair_stat.max(last.stat as i64);
+                max_pair_stat = max_pair_stat.max(last.stat);
             }
         }
     }
@@ -2141,19 +2152,20 @@ fn candidate_from_pair_records(
     skill_key: SkillBucketKey,
     skill: TeamCardSkill,
     items: &SelectedAreaItems,
+    _area_item_percent: &AreaItemPercent,
     cards: &[ResolvedCard<'_>],
     songs: &[SongModel],
     interval_set: &ValidIntervalSet,
     point_bonus_basis_points: u32,
-    triple_stat: i32,
     triple: [usize; 3],
-    min_pair: i64,
-    max_pair: i64,
+    min_pair: f64,
+    max_pair_exclusive: f64,
+    triple_stat: f64,
     pair_records: &[PairRecord],
     skip_touching: Option<&[bool]>,
 ) -> Result<Option<(CandidateKey, Candidate)>, ScoreRangeError> {
-    let start = pair_records.partition_point(|pair| (pair.stat as i64) < min_pair);
-    let end = pair_records.partition_point(|pair| (pair.stat as i64) <= max_pair);
+    let start = pair_records.partition_point(|pair| pair.stat < min_pair);
+    let end = pair_records.partition_point(|pair| pair.stat < max_pair_exclusive);
     for pair in pair_records[start..end].iter().rev() {
         if skip_touching.is_some_and(|affected| affected[pair.left] || affected[pair.right])
             || !pair_is_disjoint(pair, triple, cards)
@@ -2164,7 +2176,7 @@ fn candidate_from_pair_records(
         if !matches_mode(mode, indices, cards) {
             continue;
         }
-        let total_stat = pair.stat.saturating_add(triple_stat);
+        let total_stat = (pair.stat + triple_stat).floor() as i32;
         let Some(interval) = interval_set
             .ranked
             .iter()
@@ -2327,6 +2339,26 @@ fn merge_stat_ranges(mut ranges: Vec<StatRange>) -> Vec<StatRange> {
         if let Some(previous) = result.last_mut() {
             if range.min_stat <= previous.max_stat.saturating_add(1) {
                 previous.max_stat = previous.max_stat.max(range.max_stat);
+                continue;
+            }
+        }
+        result.push(range);
+    }
+    result
+}
+
+fn merge_exact_stat_ranges(mut ranges: Vec<ExactStatRange>) -> Vec<ExactStatRange> {
+    ranges.sort_by(|left, right| {
+        left.min_stat
+            .total_cmp(&right.min_stat)
+            .then_with(|| left.max_stat_exclusive.total_cmp(&right.max_stat_exclusive))
+    });
+    let mut result = Vec::<ExactStatRange>::new();
+    for range in ranges {
+        if let Some(previous) = result.last_mut() {
+            if range.min_stat <= previous.max_stat_exclusive {
+                previous.max_stat_exclusive =
+                    previous.max_stat_exclusive.max(range.max_stat_exclusive);
                 continue;
             }
         }
@@ -2611,7 +2643,7 @@ mod tests {
                 limit_break_rank: 0,
                 skill_level: 1,
                 stat: StatValue {
-                    performance: 100.0,
+                    performance: 100.4,
                     technique: 100.0,
                     visual: 100.0,
                 },
@@ -2671,12 +2703,13 @@ mod tests {
 
         assert!(!result.is_empty());
         assert_eq!(result[0].0.card_ids, [1, 2, 3, 4, 5]);
+        assert_eq!(result[0].0.stat, 1_502);
         assert_eq!(result[0].1.iter().map(|play| play.count).sum::<u32>(), 1);
     }
 
     #[test]
     fn pair_scan_reaches_disjoint_candidate_after_thirty_two_conflicts() {
-        let cards = (0..37)
+        let mut cards = (0..37)
             .map(|index| {
                 fixture_card(
                     index as u32 + 1,
@@ -2689,22 +2722,25 @@ mod tests {
                 )
             })
             .collect::<Vec<_>>();
+        for card in &mut cards {
+            card.stat = StatValue::zero();
+        }
         let resolved = cards
             .iter()
             .map(|card| ResolvedCard {
                 card,
-                stat: 0,
+                stat: 0.0,
                 point_bonus_micros: 0,
             })
             .collect::<Vec<_>>();
         let mut pair_records = vec![PairRecord {
-            stat: 0,
+            stat: 0.0,
             point_bonus_micros: 0,
             left: 35,
             right: 36,
         }];
         pair_records.extend((0..32).map(|offset| PairRecord {
-            stat: offset + 1,
+            stat: (offset + 1) as f64,
             point_bonus_micros: 0,
             left: 0,
             right: offset as usize + 3,
@@ -2750,14 +2786,15 @@ mod tests {
             SkillBucketKey::from_skill(skill),
             skill,
             &items,
+            &AreaItemPercent::empty(),
             &resolved,
             &songs,
             &intervals,
             0,
-            0,
             [0, 1, 2],
-            0,
-            32,
+            0.0,
+            33.0,
+            0.0,
             &pair_records,
             None,
         )
@@ -2809,9 +2846,9 @@ mod tests {
                     &sample_items.attribute,
                     sample_items.magazine.as_str(),
                 )
-                .floor() as i32
             })
-            .sum::<i32>();
+            .sum::<f64>()
+            .floor() as i32;
         let sample_bonus = point_bonus_basis_points(
             sample_cards
                 .iter()
@@ -2944,16 +2981,15 @@ mod tests {
                                 let stat = indices
                                     .iter()
                                     .map(|&index| {
-                                        cards[index]
-                                            .add_up_stat(
-                                                area_item_percent,
-                                                &selected_items.band,
-                                                &selected_items.attribute,
-                                                selected_items.magazine.as_str(),
-                                            )
-                                            .floor() as i32
+                                        cards[index].add_up_stat(
+                                            area_item_percent,
+                                            &selected_items.band,
+                                            &selected_items.attribute,
+                                            selected_items.magazine.as_str(),
+                                        )
                                     })
-                                    .sum::<i32>();
+                                    .sum::<f64>()
+                                    .floor() as i32;
                                 let bonus = point_bonus_basis_points(
                                     indices
                                         .iter()

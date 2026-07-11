@@ -41,6 +41,8 @@ HTTP 主路由为 `/v1/maximize`、`/v1/maximize/from-candidates`、`/v1/score-r
 `festival` 仍被 `maximize` 拒绝，因为最大化所需的 fever 尚未实现；`score_range` 使用
 5V5 单人公式，不依赖最大化 fever。
 
+`challenge` 在两个用例中有意采用不同的活动加成语义：`maximize` 使用带活动综合力加成的卡片；`score_range` 使用不带活动综合力加成的卡片，把活动加成作为 PT 倍率，并按 CP 协力中其他人得分为 0 的自由演出公式计算。
+
 共享准备层只负责解析活动类型，不决定某个用例是否支持该类型。
 
 score-range 的前后端统一读取 `api/scoreRangeChartMeta.1.json`。每张可搜索谱面按 17 个技能

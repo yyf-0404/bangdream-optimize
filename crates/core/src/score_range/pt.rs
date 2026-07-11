@@ -3,6 +3,8 @@ use crate::EventType;
 use thiserror::Error;
 
 const POINT_BONUS_BASE_BASIS_POINTS: u64 = 10_000;
+const CHALLENGE_FREE_LIVE_FIXED_PT: u64 = 70;
+const CHALLENGE_PERSONAL_SCORE_DIVISOR: u64 = 50_000;
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ScoreRangePtError {
@@ -56,7 +58,12 @@ pub fn score_interval_for_points_with_support(
         EventType::Medley => simple_interval(base_points, 30, 18_500),
         EventType::Festival => simple_interval(base_points, 80, 14_000),
         EventType::LiveTry => bonus_interval(base_points, 130, 26_000, point_bonus_basis_points),
-        EventType::Challenge => bonus_interval(base_points, 70, 50_000, point_bonus_basis_points),
+        EventType::Challenge => bonus_interval(
+            base_points,
+            CHALLENGE_FREE_LIVE_FIXED_PT,
+            CHALLENGE_PERSONAL_SCORE_DIVISOR,
+            point_bonus_basis_points,
+        ),
         EventType::MissionLive => base_points
             .checked_sub(mission_support_pt_bonus)
             .and_then(|points| bonus_interval(points, 120, 15_000, point_bonus_basis_points)),
@@ -145,15 +152,15 @@ pub fn points_for_score_with_support(
     let score = score.max(0) as u64;
     let base_pt = match event_type {
         EventType::LiveTry => apply_point_bonus(130 + score / 26_000, point_bonus_basis_points),
-        EventType::Challenge => apply_point_bonus(70 + score / 50_000, point_bonus_basis_points),
+        EventType::Challenge => apply_point_bonus(
+            CHALLENGE_FREE_LIVE_FIXED_PT + score / CHALLENGE_PERSONAL_SCORE_DIVISOR,
+            point_bonus_basis_points,
+        ),
         EventType::Versus => 100 + score / 9_750,
         EventType::Medley => 30 + score / 18_500,
         EventType::Festival => 80 + score / 14_000,
-        EventType::MissionLive => apply_point_bonus(
-            120 + score / 15_000,
-            point_bonus_basis_points,
-        )
-        .saturating_add(mission_support_pt_bonus),
+        EventType::MissionLive => apply_point_bonus(120 + score / 15_000, point_bonus_basis_points)
+            .saturating_add(mission_support_pt_bonus),
     };
 
     Ok(base_pt.saturating_mul(fire_multiplier as u64))
@@ -177,10 +184,21 @@ mod tests {
     }
 
     #[test]
-    fn challenge_uses_coop_formula() {
+    fn challenge_uses_free_live_formula_with_other_players_score_zero() {
+        assert_eq!(
+            points_for_score(EventType::Challenge, 0, 30_600, 1).unwrap(),
+            284,
+        );
         assert_eq!(
             points_for_score(EventType::Challenge, 1_000_000, 2_000, 1).unwrap(),
             108,
+        );
+        assert_eq!(
+            score_interval_for_points(EventType::Challenge, 108, 2_000, 1).unwrap(),
+            Some(ScoreInterval {
+                min_score: 1_000_000,
+                max_score: 1_049_999,
+            }),
         );
     }
 
@@ -210,24 +228,13 @@ mod tests {
 
     #[test]
     fn mission_support_bonus_is_added_after_event_multiplier() {
-        let points = points_for_score_with_support(
-            EventType::MissionLive,
-            1_500_000,
-            5_000,
-            5,
-            97,
-        )
-        .unwrap();
+        let points =
+            points_for_score_with_support(EventType::MissionLive, 1_500_000, 5_000, 5, 97).unwrap();
         assert_eq!(points, (330 + 97) * 5);
-        let interval = score_interval_for_points_with_support(
-            EventType::MissionLive,
-            points,
-            5_000,
-            5,
-            97,
-        )
-        .unwrap()
-        .unwrap();
+        let interval =
+            score_interval_for_points_with_support(EventType::MissionLive, points, 5_000, 5, 97)
+                .unwrap()
+                .unwrap();
         assert!(interval.min_score <= 1_500_000);
         assert!(interval.max_score >= 1_500_000);
     }
@@ -289,20 +296,11 @@ mod tests {
             let support = u64::from(event_type == EventType::MissionLive) * 97;
             for fire in FIRE_MULTIPLIERS {
                 for score in [0, 1, 9_749, 500_000, 2_345_678] {
-                    let points = points_for_score_with_support(
-                        event_type,
-                        score,
-                        bonus,
-                        fire,
-                        support,
-                    )
-                    .unwrap();
+                    let points =
+                        points_for_score_with_support(event_type, score, bonus, fire, support)
+                            .unwrap();
                     let interval = score_interval_for_points_with_support(
-                        event_type,
-                        points,
-                        bonus,
-                        fire,
-                        support,
+                        event_type, points, bonus, fire, support,
                     )
                     .unwrap()
                     .unwrap();
