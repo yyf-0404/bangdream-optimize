@@ -1,4 +1,4 @@
-import { createRuntime } from './runtime/index.js?v=3';
+import { createRuntime } from './runtime/index.js?v=4';
 import { characterIconUrls } from './assets/index.js?v=3';
 import {
   areaItemGroupIconUrls,

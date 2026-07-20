@@ -12,7 +12,7 @@ import {
   selectPlayerConfig,
 } from '../storage/user.js?v=3';
 
-const ASSET_VERSION = '3';
+const ASSET_VERSION = '4';
 
 export async function createBrowserRuntime({ onProgress } = {}) {
   const config = readRuntimeConfig();

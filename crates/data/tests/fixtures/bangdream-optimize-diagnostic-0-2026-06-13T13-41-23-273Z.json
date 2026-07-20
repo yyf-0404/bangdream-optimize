@@ -69,7 +69,7 @@
     },
     "solver": "avx2",
     "metrics": {
-      "coreVersion": "0.2.1",
+      "coreVersion": "0.2.2",
       "cardCount": 1414,
       "songCount": 3,
       "itemCombinationsBefore": 135,

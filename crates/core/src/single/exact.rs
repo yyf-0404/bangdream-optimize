@@ -1,9 +1,9 @@
 use super::{NumericCardSource, SingleSongError, SingleSongResult};
+use crate::timing::{optional_elapsed_ms, Timer};
 use crate::{
     floor_team_stat, model::chart::CompiledSixSkillScore, Chart, DpChartModel, TeamCardSkill,
 };
 use std::collections::{BTreeMap, HashMap};
-use std::time::Instant;
 
 const TEAM_SIZE: usize = 5;
 const SKILL_COUNT: usize = TEAM_SIZE + 1;
@@ -91,6 +91,7 @@ struct SearchContext<'a> {
     best: Option<SingleSongResult>,
     score_cache: HashMap<(i32, [u16; SKILL_COUNT]), i32>,
     timeline_cache: HashMap<[u16; SKILL_COUNT], CompiledSixSkillScore>,
+    trace: bool,
     profile: ExactProfile,
 }
 
@@ -98,7 +99,8 @@ pub(super) fn solve(
     cards: &[NumericCardSource],
     chart: &Chart,
 ) -> Result<SingleSongResult, SingleSongError> {
-    let prepare_start = Instant::now();
+    let trace = exact_profile_enabled();
+    let prepare_start = trace.then(Timer::start);
     let (skills, groups, raw_cards, active_cards) = prepare_cards(cards, chart)?;
     if groups.len() < TEAM_SIZE {
         return Err(SingleSongError::NotEnoughCards {
@@ -115,22 +117,21 @@ pub(super) fn solve(
         best: None,
         score_cache: HashMap::new(),
         timeline_cache: HashMap::new(),
+        trace,
         profile: ExactProfile {
             raw_cards,
             active_cards,
             groups: groups.len(),
-            prepare_ms: prepare_start.elapsed().as_secs_f64() * 1000.0,
+            prepare_ms: optional_elapsed_ms(prepare_start),
             ..ExactProfile::default()
         },
     };
 
-    let search_start = Instant::now();
+    let search_start = trace.then(Timer::start);
     search(&mut context, 0, 0, &SearchState::empty())?;
-    context.profile.search_ms = search_start.elapsed().as_secs_f64() * 1000.0;
+    context.profile.search_ms = optional_elapsed_ms(search_start);
 
-    if std::env::var_os("BANGDREAM_OPTIMIZE_EXACT_PROFILE").is_some()
-        && context.profile.search_ms >= 10.0
-    {
+    if trace && context.profile.search_ms >= 10.0 {
         eprintln!(
             "single exact profile: raw_cards={} active_cards={} groups={} nodes={} feasibility_prunes={} upper_bound_prunes={} leaves={} leaf_captain_prunes={} exact_score_calls={} score_cache_hits={} compiled_timelines={} incumbent_updates={} prepare_ms={:.3} search_ms={:.3} score_ms={:.3}",
             context.profile.raw_cards,
@@ -152,6 +153,18 @@ pub(super) fn solve(
     }
 
     context.best.ok_or(SingleSongError::NoResult)
+}
+
+fn exact_profile_enabled() -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::env::var_os("BANGDREAM_OPTIMIZE_EXACT_PROFILE").is_some()
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        false
+    }
 }
 
 fn prepare_cards(
@@ -391,7 +404,7 @@ fn score_leaf(context: &mut SearchContext<'_>, state: &SearchState) -> Result<()
         let mut skill_ids = [0_u16; SKILL_COUNT];
         skill_ids[..TEAM_SIZE].copy_from_slice(&state.skill_ids);
         skill_ids[TEAM_SIZE] = state.skill_ids[captain_idx];
-        let score_start = Instant::now();
+        let score_start = context.trace.then(Timer::start);
         let score = if let Some(&score) = context.score_cache.get(&(stat, skill_ids)) {
             context.profile.score_cache_hits += 1;
             score
@@ -413,7 +426,7 @@ fn score_leaf(context: &mut SearchContext<'_>, state: &SearchState) -> Result<()
             context.profile.exact_score_calls += 1;
             score
         };
-        context.profile.score_ms += score_start.elapsed().as_secs_f64() * 1000.0;
+        context.profile.score_ms += optional_elapsed_ms(score_start);
         let candidate = SingleSongResult {
             score,
             stat,

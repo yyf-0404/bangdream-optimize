@@ -14,6 +14,36 @@
 cargo install wasm-bindgen-cli
 ```
 
+### 浏览器 WASM 中的时间 API
+
+`bangdream-optimize-web-wasm` 会把 `crates/core` 等共享 Rust crate 编译到
+`wasm32-unknown-unknown`。这些共享代码不得直接调用
+`std::time::Instant::now()` 或 `std::time::SystemTime::now()`：接口能够通过编译，
+原生测试也能正常运行，但浏览器执行到该调用时可能以 `RuntimeError: unreachable`
+终止。因此，这类问题无法只靠原生 `cargo check/test` 提前发现，并且容易在新增
+profiling 后重复出现。
+
+计时统一使用 `crates/core/src/timing.rs` 中的跨平台 `Timer`：原生目标使用
+`std::time::Instant`，浏览器目标使用 `performance.now()`。仅供诊断的 profiling
+还应显式控制是否启用；如果浏览器不需要该统计，应使用 `cfg(target_arch =
+"wasm32")` 关闭，而不是先创建标准库计时器再忽略结果。
+
+```rust
+// 错误：共享求解路径在浏览器中可能运行到这里。
+let started = std::time::Instant::now();
+
+// 正确：需要跨平台计时时使用项目封装。
+let started = Timer::start();
+let elapsed_ms = started.elapsed_ms();
+
+// 正确：可选 profiling 不启用时不要创建计时器。
+let started = trace.then(Timer::start);
+let elapsed_ms = optional_elapsed_ms(started);
+```
+
+WASM 静态资源的查询版本只负责部署缓存失效，不是时间 API 崩溃的修复手段；仅在
+实际部署的缓存策略需要客户端换取新产物时更新。
+
 ## 2. 同步游戏数据
 
 默认同步全量（含全部活动详情/全部谱面/全部卡片）：

@@ -1,3 +1,10 @@
+//! Cross-platform monotonic timing for code shared with the browser WASM build.
+//!
+//! Do not call `std::time::Instant::now()` directly from shared calculation paths:
+//! it can compile for `wasm32-unknown-unknown` and then panic when executed in a
+//! browser. Use `Timer` so native builds use `Instant` and WASM uses
+//! `performance.now()`.
+
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
