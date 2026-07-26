@@ -1,4 +1,4 @@
-import { createRuntime } from './runtime/index.js?v=4';
+import { createRuntime } from './runtime/index.js?v=6';
 import { characterIconUrls } from './assets/index.js?v=3';
 import {
   areaItemGroupIconUrls,
@@ -7,7 +7,7 @@ import {
 } from './domain/area.js?v=3';
 import { attributeSwatch } from './ui/attribute.js?v=3';
 import { createActivityActions } from './actions/activity.js?v=3';
-import { createAppLifecycle } from './app/lifecycle.js?v=3';
+import { createAppLifecycle } from './app/lifecycle.js?v=5';
 import { createInitialState } from './app/state.js?v=3';
 import {
   createBestdoriProfileImporter,
@@ -25,7 +25,7 @@ import {
   diagnosticFileName,
 } from './data/diagnostics.js?v=3';
 import { createDownloadActions } from './actions/download.js?v=3';
-import { queryElements } from './app/elements.js?v=3';
+import { queryElements } from './app/elements.js?v=5';
 import {
   createEventModel,
   CUSTOM_EVENT_ID,
@@ -36,6 +36,7 @@ import {
 import { createEventActions } from './actions/event.js?v=3';
 import { createEventContext } from './app/event.js?v=3';
 import { createFormActions } from './actions/form.js?v=3';
+import { createFeedbackActions } from './actions/feedback.js?v=2';
 import {
   numericStringSort,
   optionText,
@@ -488,6 +489,12 @@ const calculationActions = createCalculationActions({
   clearPersistedResultCache: resultCacheStorage.clearResultCache,
 });
 
+const feedbackActions = createFeedbackActions({
+  state,
+  elements,
+  diagnosticFileName,
+});
+
 const resourceActions = createResourceActions({
   state,
   elements,
@@ -731,6 +738,7 @@ const { bootstrap } = createAppLifecycle({
     ...calculationActions,
     ...configActions,
     ...formActions,
+    ...feedbackActions,
     ...profileActions,
     ...downloadActions,
     ...resourceActions,

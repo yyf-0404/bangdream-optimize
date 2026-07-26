@@ -43,7 +43,8 @@ globalThis.BANGDREAM_OPTIMIZE_CONFIG = {
 
 前端计算不访问 `/v1/`，默认由浏览器 WASM 使用 `/game-data` 本地计算。
 导入 Bestdori 玩家资料会访问同源 `/bestdori/player/*`，国服游戏账号导入会访问
-同源 `/bangdream/user-data/import`。生产同域部署需要将这两个路径反代到后端。
+同源 `/bangdream/user-data/import`，前端反馈会访问同源 `/api/feedback`。生产同域部署
+需要将这三个路径反代到后端。
 只有需要对外暴露后端计算 API 时，才需要同时反代 `/v1`。
 可直接参考 `docs/nginx-reverse-proxy.conf` 的可编辑示例。
 
@@ -63,7 +64,7 @@ globalThis.BANGDREAM_OPTIMIZE_CONFIG = {
 - `BANGDREAM_OPTIMIZE_GAME_DATA_SYNC_COMMAND`：指定用于执行同步的可执行文件，未配置时会尝试自动发现。
 - `BANGDREAM_OPTIMIZE_ENABLE_CALC_ROUTES=false`：关闭
   `/v1/maximize`、`/v1/score-range`、`/v1/calc-result` 与候选计算路由，仅保留
-  `/bestdori/player/...`、`/game-data` 与站点根目录；若同时开启
+  `/bestdori/player/...`、`/game-data`、`/api/feedback` 与站点根目录；若同时开启
   国服游戏账号导入，也会保留
   `/bangdream/user-data/import`。该模式适用于仅作导入/静态代理且不对外暴露计算 API
   的部署。
@@ -73,6 +74,17 @@ globalThis.BANGDREAM_OPTIMIZE_CONFIG = {
   `var/bangdream-account/persist.json`。
 - `BANGDREAM_OPTIMIZE_BD_PERSIST_DIR`：覆盖固定 persist 目录，后端读取其中的
   `persist.json`。
+- `BANGDREAM_OPTIMIZE_FEEDBACK_SMTP_HOST`：设置后启用反馈邮件，例如
+  `mail.example.com`。
+- `BANGDREAM_OPTIMIZE_FEEDBACK_SMTP_PORT`：SMTPS 端口，默认 `465`。
+- `BANGDREAM_OPTIMIZE_FEEDBACK_SMTP_USERNAME` 与
+  `BANGDREAM_OPTIMIZE_FEEDBACK_SMTP_PASSWORD`：SMTP 账户与应用密码。
+- `BANGDREAM_OPTIMIZE_FEEDBACK_FROM` 与 `BANGDREAM_OPTIMIZE_FEEDBACK_TO`：
+  固定发件人与收件人；默认都使用 SMTP 用户名。
+- `BANGDREAM_OPTIMIZE_FEEDBACK_RATE_LIMIT`：一个窗口内允许的反馈数，默认 `3`。
+- `BANGDREAM_OPTIMIZE_FEEDBACK_RATE_WINDOW_SECONDS`：限流窗口，默认 `600` 秒。
+- `BANGDREAM_OPTIMIZE_FEEDBACK_TRUST_PROXY_HEADERS=true`：信任反向代理提供的
+  客户端 IP。只有在代理覆盖 `X-Real-IP`/`X-Forwarded-For` 时才能开启。
 
 当同时设置 `BANGDREAM_OPTIMIZE_GAME_DATA_BASE_URL` 与
 `BANGDREAM_OPTIMIZE_GAME_DATA_CACHE_ROOT` 时，计算数据会从缓存化的
@@ -142,6 +154,48 @@ GET /health
 }
 ```
 
+## 提交反馈
+
+配置反馈 SMTP 后，网页端和桌面端通过该接口提交反馈。SMTP 凭据、发件人和收件人
+全部由后端控制，客户端不能指定邮件目标。
+
+```http
+POST /api/feedback
+Content-Type: multipart/form-data
+```
+
+表单中的 `payload` 字段是反馈 JSON；可附带多个同名的 `attachment` 文件字段。例如：
+
+```bash
+curl https://calc.example.com/api/feedback \
+  -F 'payload={"category":"problem","subject":"计算结果异常","content":"复现步骤与预期结果……","contactEmail":"user@example.com","context":{"runtime":"browser","appVersion":"0.3.1","page":"result"},"website":""};type=application/json' \
+  -F 'attachment=@diagnostic.json;type=application/json' \
+  -F 'attachment=@screenshot.png;type=image/png'
+```
+
+`category` 可为 `problem`、`suggestion`、`data` 或 `other`。`contactEmail` 可省略；
+填写有效邮箱时，后端会将其设为邮件的 `Reply-To`。`website` 是前端蜜罐字段，
+正常客户端必须留空。
+
+附件允许 `png`、`jpg/jpeg`、`gif`、`webp`、`txt/log`、`json`、`zip` 和 `pdf`；
+最多 3 个，单个不超过 5 MiB，总计不超过 10 MiB。后端请求体上限为 12 MiB，
+反向代理的请求体上限也必须至少设为 12 MiB。
+
+成功响应：
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "feedbackId": "F-1785000000000-0001"
+  }
+}
+```
+
+部署时还需要把 `/api/feedback` 反代到后端，并允许 12 MiB 请求体。反馈限流依赖代理提供的真实客户端
+地址时，应确保 Nginx/Caddy 覆盖客户端传入的转发头后再启用
+`BANGDREAM_OPTIMIZE_FEEDBACK_TRUST_PROXY_HEADERS=true`。
+
 ## 导入国服游戏账号数据
 
 该接口默认开启。后端读取固定 `persist.json`，刷新 Unity 登录态，
@@ -190,6 +244,9 @@ Content-Type: application/json
   }
 }
 ```
+
+若国服上游接口返回 HTTP 405，接口会返回“请使用自己的设备登陆一次该账号后重试”；
+网页端和桌面端会直接显示该提示。
 
 该接口面向受控后端部署；错误响应不会返回 `access_key`、`X-Token`、persist
 路径或原始响应头。
@@ -255,7 +312,7 @@ POST /v1/maximize
     },
     "solver": "avx2",
     "metrics": {
-      "coreVersion": "0.3.0",
+      "coreVersion": "0.3.1",
       "cardCount": 1950,
       "songCount": 3,
       "itemCombinationsBefore": 120,

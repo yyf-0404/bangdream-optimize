@@ -14,7 +14,8 @@ Web 端不需要运行时计算后端。
 ## 生产部署
 
 生产环境建议使用 Nginx 托管前端静态文件，并将 `/game-data/`、
-`/bestdori/player/` 与 `/bangdream/user-data/import` 反向代理到后端。
+`/bestdori/player/`、`/bangdream/user-data/import` 与 `/api/feedback`
+反向代理到后端。
 后端负责挂载 `BANGDREAM_OPTIMIZE_GAME_DATA_ROOT` 并提供 `/game-data`。
 
 部署前先准备 Rust/Cargo、WASM 工具链和基础系统工具，见
@@ -106,7 +107,8 @@ globalThis.BANGDREAM_OPTIMIZE_CONFIG = {
 
 该部署下，前端计算在浏览器 WASM 内完成，不访问 `/v1/`；导入
 Bestdori 玩家资料会访问同源 `/bestdori/player/`，国服游戏账号导入会访问同源
-`/bangdream/user-data/import`，因此 Nginx 需要保留这两个反代。
+`/bangdream/user-data/import`，反馈表单会访问同源 `/api/feedback`，因此 Nginx
+需要保留这三个 API 反代。
 
 7. 构建并发布前端
 
@@ -139,6 +141,7 @@ sudo systemctl reload nginx
 - 将 `/game-data/` 反代到 `http://127.0.0.1:3100`；
 - 将 `/bestdori/player/` 反代到 `http://127.0.0.1:3100`；
 - 将 `/bangdream/user-data/import` 反代到 `http://127.0.0.1:3100`；
+- 将 `/api/feedback` 反代到 `http://127.0.0.1:3100`，并允许 12 MiB 请求体以支持附件；
 - 对其他路径做 SPA 回退。
 
 9. 验证

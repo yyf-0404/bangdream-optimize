@@ -11,6 +11,7 @@ use crate::single::SingleSongError;
 use crate::timing::Timer;
 use bangdream_optimize_medley_solver::{MedleySolverError, MedleySolverPreference};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use thiserror::Error;
 
 pub use crate::single::mode_candidates;
@@ -25,6 +26,9 @@ pub enum CalculationError {
 
     #[error("no build result found")]
     NoBuildResult,
+
+    #[error("at least five distinct characters are required, got {count}")]
+    NotEnoughDistinctCharacters { count: usize },
 
     #[error("team build error: {0}")]
     Team(#[from] TeamBuildError),
@@ -99,6 +103,21 @@ pub fn calculate_best_result_for_items(
     validate_song_inputs(event_type, &song_list, charts)?;
     let item_combinations =
         item_combinations(area_item_percent, event_type, options.preferred.clone())?;
+    if cards.len() < 5 {
+        return Err(CalculationError::Single(SingleSongError::NotEnoughCards {
+            count: cards.len(),
+        }));
+    }
+    let character_count = cards
+        .iter()
+        .map(|card| card.character_id)
+        .collect::<HashSet<_>>()
+        .len();
+    if character_count < 5 {
+        return Err(CalculationError::NotEnoughDistinctCharacters {
+            count: character_count,
+        });
+    }
     let item_combination_count = item_combinations.len();
     let item_combinations =
         prune_dominated_item_combinations(item_combinations, cards, area_item_percent);
@@ -132,6 +151,7 @@ pub fn calculate_best_result_for_items(
     };
 
     let mut best: Option<BuildResult> = None;
+    let mut last_recoverable_error = None;
     if event_type == EventType::Medley && cards.len() > 128 {
         let upper_bounds = medley_item_upper_bounds
             .as_ref()
@@ -214,18 +234,25 @@ pub fn calculate_best_result_for_items(
                 best = Some(result);
             }
             Ok(_) => {}
-            Err(CalculationError::Single(SingleSongError::NotEnoughCards { .. }))
-            | Err(CalculationError::Single(SingleSongError::NoResult))
-            | Err(CalculationError::Team(TeamBuildError::NotEnoughCards { .. }))
-            | Err(CalculationError::Candidate(BuildError::EmptyCandidates))
-            | Err(CalculationError::Candidate(BuildError::MedleySolver(
-                MedleySolverError::NoValidPlan,
-            ))) => {}
+            Err(error @ CalculationError::Single(SingleSongError::NotEnoughCards { .. }))
+            | Err(error @ CalculationError::Single(SingleSongError::NoResult))
+            | Err(error @ CalculationError::Team(TeamBuildError::NotEnoughCards { .. }))
+            | Err(error @ CalculationError::Candidate(BuildError::EmptyCandidates))
+            | Err(
+                error @ CalculationError::Candidate(BuildError::MedleySolver(
+                    MedleySolverError::NoValidPlan,
+                )),
+            ) => last_recoverable_error = Some(error),
             Err(error) => return Err(error),
         }
     }
 
-    let mut result = best.ok_or(CalculationError::NoBuildResult)?;
+    let mut result = match best {
+        Some(result) => result,
+        None => {
+            return Err(last_recoverable_error.unwrap_or(CalculationError::NoBuildResult));
+        }
+    };
     if event_type == EventType::Medley {
         for (song, chart) in result.songs.iter_mut().zip(charts) {
             song.skill_queue_risk = !chart.warning.is_empty();
@@ -625,6 +652,61 @@ mod tests {
         assert_eq!(result.solver.as_deref(), Some("exact"));
         assert_eq!(result.songs.len(), 1);
         assert!(result.total_score > 0);
+    }
+
+    #[test]
+    fn preserves_insufficient_card_error_after_trying_item_combinations() {
+        let cards = (1..=4)
+            .map(|idx| prepared_card(idx, idx, 2))
+            .collect::<Vec<_>>();
+
+        let error = calculate_best_result_for_items(
+            200,
+            EventType::Challenge,
+            vec![SongSelection {
+                song_id: 1,
+                difficulty: 3,
+            }],
+            &cards,
+            &[chart(0)],
+            &area_item_percent(),
+            ItemSearchOptions::default(),
+        )
+        .unwrap_err();
+
+        assert!(
+            matches!(
+                error,
+                CalculationError::Single(SingleSongError::NotEnoughCards { count: 4 })
+            ),
+            "unexpected error: {error:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_card_pool_with_fewer_than_five_distinct_characters() {
+        let cards = (1..=5)
+            .map(|idx| prepared_card(idx, 1, 2))
+            .collect::<Vec<_>>();
+
+        let error = calculate_best_result_for_items(
+            200,
+            EventType::Challenge,
+            vec![SongSelection {
+                song_id: 1,
+                difficulty: 3,
+            }],
+            &cards,
+            &[chart(0)],
+            &area_item_percent(),
+            ItemSearchOptions::default(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            CalculationError::NotEnoughDistinctCharacters { count: 1 }
+        ));
     }
 
     #[test]

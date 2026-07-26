@@ -23,7 +23,7 @@ repository = "https://github.com/yyf-0404/bangdream-optimize"
 [workspace.dependencies]
 aes = "0.8.4"
 async-trait = "0.1.89"
-axum = "0.8.7"
+axum = { version = "0.8.7", features = ["multipart"] }
 bangdream-optimize-bangdream-account = { path = "crates/bangdream-account" }
 bangdream-optimize-core = { path = "crates/core" }
 bangdream-optimize-data = { path = "crates/data" }
@@ -34,6 +34,7 @@ bangdream-optimize-medley-solver = { path = "crates/medley-solver" }
 bangdream-optimize-storage-local = { path = "crates/storage-local" }
 bangdream-optimize-storage-mongodb = { path = "crates/storage-mongodb" }
 mongodb = "3.3.0"
+lettre = { version = "0.11.22", default-features = false, features = ["builder", "smtp-transport", "pool", "tokio1-rustls", "ring", "webpki-roots"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"

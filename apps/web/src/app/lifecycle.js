@@ -33,9 +33,13 @@ const CHANGE_BINDINGS = [
   ['eventCharacterParamTechnique', 'handleEventCharacterParamChange'],
   ['eventCharacterParamVisual', 'handleEventCharacterParamChange'],
   ['eventId', 'handleEventIdChange'],
+  ['feedbackAttachments', 'handleFeedbackAttachmentsChange'],
 ];
 
 const CLICK_BINDINGS = [
+  ['openFeedback', 'handleOpenFeedback'],
+  ['feedbackResult', 'handleOpenResultFeedback'],
+  ['closeFeedback', 'handleCloseFeedback'],
   ['newPlayerProfile', 'handleNewPlayerProfile'],
   ['copyPlayerProfile', 'handleCopyPlayerProfile'],
   ['deletePlayerProfile', 'handleDeletePlayerProfile'],
@@ -140,6 +144,10 @@ export function createAppLifecycle({
 
   function bindEvents() {
     requiredElement('form').addEventListener('submit', requiredHandler('handleCalculate'));
+    requiredElement('feedbackForm').addEventListener(
+      'submit',
+      requiredHandler('handleSubmitFeedback'),
+    );
     bindInputValidation();
     for (const tab of elements.pageTabs) {
       tab.addEventListener('click', () => activatePage(tab.dataset.page));

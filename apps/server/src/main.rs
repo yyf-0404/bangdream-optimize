@@ -1,6 +1,8 @@
+mod feedback;
+
 use axum::{
-    extract::{Path, Query, State},
-    http::StatusCode,
+    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
@@ -20,6 +22,10 @@ use bangdream_optimize_data::{
 };
 use bangdream_optimize_service::{MaximizeService, PtMaximizeService, ScoreRangeService};
 use bangdream_optimize_storage_mongodb::MongoPlayerConfigStore;
+use feedback::{
+    validate_attachment_set, FeedbackAttachment, FeedbackRateLimiter, FeedbackReceipt,
+    FeedbackRequest, FeedbackSender, FeedbackSubmission, SmtpFeedbackSender,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -31,7 +37,10 @@ use std::{
     net::SocketAddr,
     path::{Path as FsPath, PathBuf},
     process::Command,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -42,6 +51,7 @@ use tower_http::{
 use tracing_subscriber::EnvFilter;
 
 const DEFAULT_GAME_DATA_SYNC_INTERVAL_SECONDS: u64 = 60 * 60;
+static FEEDBACK_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Default)]
 struct AppState {
@@ -51,6 +61,9 @@ struct AppState {
     pt_maximize_service: Option<PtMaximizeService>,
     pt_maximize_searcher: Option<Arc<dyn PtMaximizeInputBuilder>>,
     bangdream_importer: Option<BangDreamAccountImporter>,
+    feedback_sender: Option<Arc<dyn FeedbackSender>>,
+    feedback_rate_limiter: FeedbackRateLimiter,
+    trust_proxy_headers: bool,
     telemetry: TelemetryLogger,
 }
 
@@ -98,6 +111,7 @@ impl AppState {
         } else {
             None
         };
+        let feedback_sender = SmtpFeedbackSender::from_env()?;
 
         Ok(Self {
             maximize_service,
@@ -106,6 +120,9 @@ impl AppState {
             pt_maximize_service,
             pt_maximize_searcher,
             bangdream_importer,
+            feedback_sender,
+            feedback_rate_limiter: FeedbackRateLimiter::from_env(),
+            trust_proxy_headers: env_bool("BANGDREAM_OPTIMIZE_FEEDBACK_TRUST_PROXY_HEADERS", false),
             telemetry: TelemetryLogger::from_env(),
         })
     }
@@ -1299,6 +1316,10 @@ fn build_app(
         "/bestdori/player/{server}/{player_id}",
         get(bestdori_player),
     );
+    app = app.route(
+        "/api/feedback",
+        post(submit_feedback).layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
+    );
 
     if state.bangdream_importer.is_some() {
         app = app.route(
@@ -1484,7 +1505,8 @@ async fn bangdream_user_data_import(
 }
 
 fn bangdream_import_error_response(err: BangDreamImportError) -> axum::response::Response {
-    let status = match err {
+    let login_required = matches!(&err, BangDreamImportError::HttpStatus { status: 405, .. });
+    let status = match &err {
         BangDreamImportError::MissingPersistField(_)
         | BangDreamImportError::Crypto(_)
         | BangDreamImportError::Protobuf(_) => StatusCode::BAD_GATEWAY,
@@ -1495,12 +1517,17 @@ fn bangdream_import_error_response(err: BangDreamImportError) -> axum::response:
         | BangDreamImportError::HttpStatus { .. }
         | BangDreamImportError::MissingHeader(_) => StatusCode::BAD_GATEWAY,
     };
+    let message = if login_required {
+        "请使用自己的设备登陆一次该账号后重试".to_owned()
+    } else {
+        err.to_string()
+    };
 
     (
         status,
         Json(ApiError {
             status: "error",
-            message: err.to_string(),
+            message,
         }),
     )
         .into_response()
@@ -1581,6 +1608,158 @@ async fn score_range_from_config(
         Ok(result) => ok_response(result),
         Err(err) => data_error_response(err),
     }
+}
+
+async fn submit_feedback(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    multipart: Multipart,
+) -> impl IntoResponse {
+    let (request, attachments) = match parse_feedback_multipart(multipart).await {
+        Ok(parsed) => parsed,
+        Err(message) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ApiError {
+                    status: "error",
+                    message,
+                }),
+            )
+                .into_response();
+        }
+    };
+    let feedback_id = next_feedback_id();
+    if !request.website.trim().is_empty() {
+        return ok_response(FeedbackReceipt { feedback_id });
+    }
+    let Some(sender) = state.feedback_sender.as_ref() else {
+        return service_unavailable("feedback service is not configured");
+    };
+    let user_agent = headers
+        .get(axum::http::header::USER_AGENT)
+        .and_then(|value| value.to_str().ok());
+    let submission = match FeedbackSubmission::validate(request, feedback_id.clone(), user_agent) {
+        Ok(submission) => submission,
+        Err(message) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ApiError {
+                    status: "error",
+                    message,
+                }),
+            )
+                .into_response();
+        }
+    };
+    let client_key = feedback_client_key(&headers, state.trust_proxy_headers);
+    if let Err(retry_after) = state.feedback_rate_limiter.check(client_key) {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(ApiError {
+                status: "error",
+                message: format!("反馈提交过于频繁，请在 {retry_after} 秒后重试"),
+            }),
+        )
+            .into_response();
+    }
+    if let Err(err) = sender.send(&submission, &attachments).await {
+        tracing::error!(
+            feedback_id = %submission.feedback_id,
+            error = %err,
+            "failed to submit feedback email"
+        );
+        return (
+            StatusCode::BAD_GATEWAY,
+            Json(ApiError {
+                status: "error",
+                message: "反馈邮件发送失败，请稍后重试".to_owned(),
+            }),
+        )
+            .into_response();
+    }
+    tracing::info!(
+        feedback_id = %submission.feedback_id,
+        category = %submission.category,
+        "feedback email submitted"
+    );
+    ok_response(FeedbackReceipt { feedback_id })
+}
+
+async fn parse_feedback_multipart(
+    mut multipart: Multipart,
+) -> Result<(FeedbackRequest, Vec<FeedbackAttachment>), String> {
+    let mut request = None;
+    let mut attachments = Vec::new();
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|err| format!("无法读取反馈表单：{err}"))?
+    {
+        let name = field.name().unwrap_or_default().to_owned();
+        match name.as_str() {
+            "payload" => {
+                if request.is_some() {
+                    return Err("反馈表单包含重复 payload".to_owned());
+                }
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|err| format!("无法读取反馈内容：{err}"))?;
+                if text.len() > 64 * 1024 {
+                    return Err("反馈表单内容过大".to_owned());
+                }
+                request = Some(
+                    serde_json::from_str::<FeedbackRequest>(&text)
+                        .map_err(|_| "反馈表单格式无效".to_owned())?,
+                );
+            }
+            "attachment" => {
+                if attachments.len() >= feedback::MAX_ATTACHMENT_COUNT {
+                    return Err(format!(
+                        "最多只能上传 {} 个附件",
+                        feedback::MAX_ATTACHMENT_COUNT
+                    ));
+                }
+                let file_name = field.file_name().map(str::to_owned);
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|err| format!("无法读取附件：{err}"))?;
+                attachments.push(FeedbackAttachment::validate(
+                    file_name.as_deref(),
+                    bytes.to_vec(),
+                )?);
+            }
+            _ => return Err(format!("不支持的反馈表单字段：{name}")),
+        }
+    }
+    let request = request.ok_or_else(|| "反馈表单缺少 payload".to_owned())?;
+    validate_attachment_set(&attachments)?;
+    Ok((request, attachments))
+}
+
+fn next_feedback_id() -> String {
+    let timestamp = unix_timestamp_ms();
+    let sequence = FEEDBACK_SEQUENCE.fetch_add(1, Ordering::Relaxed) % 10_000;
+    format!("F-{timestamp}-{sequence:04}")
+}
+
+fn feedback_client_key(headers: &HeaderMap, trust_proxy_headers: bool) -> String {
+    if trust_proxy_headers {
+        for header in ["x-real-ip", "x-forwarded-for"] {
+            if let Some(value) = headers.get(header).and_then(|value| value.to_str().ok()) {
+                if let Some(first) = value
+                    .split(',')
+                    .next()
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                {
+                    return first.chars().take(80).collect();
+                }
+            }
+        }
+    }
+    "direct-client".to_owned()
 }
 
 async fn pt_maximize_result(
@@ -1728,6 +1907,7 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
     use axum::{
         body::{to_bytes, Body},
         http::{Method, Request},
@@ -1735,6 +1915,7 @@ mod tests {
     use std::{
         fs,
         path::{Path, PathBuf},
+        sync::Mutex,
         time::{SystemTime, UNIX_EPOCH},
     };
     use tower::ServiceExt;
@@ -1972,6 +2153,145 @@ mod tests {
             .expect("Bang Dream import request should complete");
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         assert_body_contains(response, "userId must be a positive integer").await;
+    }
+
+    #[tokio::test]
+    async fn bangdream_import_maps_upstream_405_to_account_login_hint() {
+        let response = bangdream_import_error_response(BangDreamImportError::HttpStatus {
+            status: 405,
+            context: "Unity login failed".to_owned(),
+        });
+
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        assert_body_contains(response, "请使用自己的设备登陆一次该账号后重试").await;
+    }
+
+    #[derive(Default)]
+    struct RecordingFeedbackSender {
+        submissions: Mutex<Vec<(String, Vec<String>)>>,
+    }
+
+    #[async_trait]
+    impl FeedbackSender for RecordingFeedbackSender {
+        async fn send(
+            &self,
+            submission: &FeedbackSubmission,
+            attachments: &[FeedbackAttachment],
+        ) -> Result<(), String> {
+            self.submissions.lock().unwrap().push((
+                submission.feedback_id.clone(),
+                attachments
+                    .iter()
+                    .map(|attachment| attachment.file_name.clone())
+                    .collect(),
+            ));
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn feedback_route_validates_and_sends_through_configured_sender() {
+        let sender = Arc::new(RecordingFeedbackSender::default());
+        let app = build_app(
+            AppState {
+                feedback_sender: Some(sender.clone()),
+                feedback_rate_limiter: FeedbackRateLimiter::new(3, Duration::from_secs(60)),
+                ..Default::default()
+            },
+            None,
+            None,
+            false,
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/feedback")
+                    .header(
+                        "content-type",
+                        "multipart/form-data; boundary=feedback-boundary",
+                    )
+                    .header("user-agent", "feedback-test")
+                    .body(Body::from(multipart_feedback_body(
+                        "feedback-boundary",
+                        r#"{
+                            "category":"problem",
+                            "subject":"测试反馈",
+                            "content":"这里是反馈内容",
+                            "contactEmail":"user@example.com",
+                            "context":{"runtime":"browser","appVersion":"0.3.1","page":"activity"}
+                        }"#,
+                        Some(("diagnostic.json", r#"{"ok":true}"#)),
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_body_contains(response, r#""feedbackId":"F-"#).await;
+        let submissions = sender.submissions.lock().unwrap();
+        assert_eq!(submissions.len(), 1);
+        assert_eq!(submissions[0].1, vec!["diagnostic.json"]);
+    }
+
+    #[tokio::test]
+    async fn feedback_route_rejects_invalid_contact_without_sending() {
+        let sender = Arc::new(RecordingFeedbackSender::default());
+        let app = build_app(
+            AppState {
+                feedback_sender: Some(sender.clone()),
+                ..Default::default()
+            },
+            None,
+            None,
+            false,
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/feedback")
+                    .header(
+                        "content-type",
+                        "multipart/form-data; boundary=feedback-boundary",
+                    )
+                    .body(Body::from(multipart_feedback_body(
+                        "feedback-boundary",
+                        r#"{
+                            "category":"problem",
+                            "subject":"测试反馈",
+                            "content":"这里是反馈内容",
+                            "contactEmail":"invalid"
+                        }"#,
+                        None,
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(sender.submissions.lock().unwrap().len(), 0);
+    }
+
+    fn multipart_feedback_body(
+        boundary: &str,
+        payload: &str,
+        attachment: Option<(&str, &str)>,
+    ) -> String {
+        let mut body = format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"payload\"\r\n\r\n{payload}\r\n"
+        );
+        if let Some((file_name, content)) = attachment {
+            body.push_str(&format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"attachment\"; filename=\"{file_name}\"\r\nContent-Type: application/json\r\n\r\n{content}\r\n"
+            ));
+        }
+        body.push_str(&format!("--{boundary}--\r\n"));
+        body
     }
 
     #[tokio::test]

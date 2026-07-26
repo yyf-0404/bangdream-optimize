@@ -17,6 +17,7 @@ import {
 import { cardPreviewItem } from '../ui/card-preview.js?v=3';
 import { emptyMessage } from '../ui/dom.js?v=3';
 import { renderDifficultyList } from './song.js?v=3';
+import { scoreRangeEmptyExplanation } from '../data/calculation-errors.js?v=1';
 
 const POINT_BONUS_EVENT_TYPES = new Set(['challenge', 'live_try', 'mission_live']);
 const FIRE_PT_MULTIPLIERS = Object.freeze([
@@ -65,7 +66,7 @@ export function renderResultSummary(resultElement, result, deps, { diagnostic } 
   }
 
   if (Array.isArray(result)) {
-    renderScoreRangeSummary(resultElement, result, deps);
+    renderScoreRangeSummary(resultElement, result, deps, diagnostic);
     return;
   }
   if (result.team?.evaluation?.averagePt) {
@@ -350,7 +351,8 @@ function renderFailureDiagnostic(resultElement, diagnostic) {
   overview.className = 'result-overview';
   overview.append(
     resultStat('状态', '计算失败', 'danger'),
-    resultStat('错误类型', error.name ?? 'Error'),
+    resultStat('原因', error.title ?? '未分类错误', 'danger'),
+    resultStat('问题类型', calculationErrorCategoryLabel(error.category)),
     resultStat('活动', diagnostic.eventId == null ? '-' : `ID ${diagnostic.eventId}`),
   );
 
@@ -361,7 +363,9 @@ function renderFailureDiagnostic(resultElement, diagnostic) {
   const details = document.createElement('dl');
   details.className = 'result-diagnostic-grid';
   details.append(
-    diagnosticItem('错误信息', error.message ?? '未知错误'),
+    diagnosticItem('问题说明', error.detail ?? error.message ?? '未知错误'),
+    diagnosticItem('处理建议', error.suggestion ?? '请附带诊断数据提交反馈。'),
+    diagnosticItem('原始错误', error.message ?? '未知错误'),
     diagnosticItem('运行阶段', diagnostic.phase ?? 'calculation'),
     diagnosticItem('运行时', diagnostic.runtime ?? 'unknown'),
     diagnosticItem('执行位置', error.executionContext ?? '-'),
@@ -392,10 +396,31 @@ function diagnosticItem(label, value) {
   return wrapper;
 }
 
-function renderScoreRangeSummary(resultElement, results, deps) {
+function calculationErrorCategoryLabel(category) {
+  return {
+    configuration: '配置问题',
+    data: '数据问题',
+    unsupported: '模式不支持',
+    internal: '内部错误',
+  }[category] ?? '未分类';
+}
+
+function renderScoreRangeSummary(resultElement, results, deps, diagnostic) {
   const first = results[0];
   if (!first) {
-    resultElement.append(emptyMessage('没有精确命中目标 PT 的方案', 'result-empty'));
+    const explanation = scoreRangeEmptyExplanation(diagnostic?.calculationRequest);
+    const section = document.createElement('section');
+    section.className = 'result-section result-diagnostic';
+    const title = document.createElement('h3');
+    title.textContent = explanation.title;
+    const details = document.createElement('dl');
+    details.className = 'result-diagnostic-grid';
+    details.append(
+      diagnosticItem('可能原因', explanation.detail),
+      diagnosticItem('处理建议', explanation.suggestion),
+    );
+    section.append(title, details);
+    resultElement.append(section);
     return;
   }
 

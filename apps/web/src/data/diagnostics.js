@@ -1,9 +1,19 @@
+import { explainCalculationError } from './calculation-errors.js?v=1';
+
 export function createDiagnostics({
   getRuntime,
   getCore,
   appendLog,
 }) {
-  async function buildDiagnostic({ player, server, eventId, result, error, phase }) {
+  async function buildDiagnostic({
+    player,
+    server,
+    eventId,
+    result,
+    error,
+    phase,
+    calculationRequest,
+  }) {
     const runtimeInfo = await readRuntimeInfo();
     const core = getCore();
     return {
@@ -16,7 +26,17 @@ export function createDiagnostics({
       server,
       eventId: eventId ?? player.currentEvent ?? null,
       ...(result === undefined ? {} : { result: cloneJson(result) }),
-      ...(error == null ? {} : { error: serializeError(error) }),
+      ...(calculationRequest === undefined
+        ? {}
+        : { calculationRequest: cloneJson(calculationRequest) }),
+      ...(error == null
+        ? {}
+        : {
+            error: serializeError(error, {
+              player,
+              calculationRequest,
+            }),
+          }),
       player: cloneJson(player),
       gameData: {
         cachedCore: Boolean(core),
@@ -49,10 +69,11 @@ function cloneJson(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
-function serializeError(error) {
+function serializeError(error, context) {
   const diagnostic = {
     name: typeof error?.name === 'string' && error.name ? error.name : 'Error',
     message: error?.message ?? String(error),
+    ...explainCalculationError(error, context),
   };
   if (typeof error?.stack === 'string' && error.stack) {
     diagnostic.stack = error.stack;

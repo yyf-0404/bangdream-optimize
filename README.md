@@ -44,6 +44,8 @@
 - `/game-data/` 的后端反向代理
 - `/bestdori/player/` 的同源 API 反向代理
 - `/bangdream/user-data/import` 的同源 API 反向代理
+- `/api/feedback` 的同源反馈 API 反向代理
+- 反馈附件上传所需的 12 MiB 请求体上限
 - SPA 回退配置
 
 服务端内部遥测与 API 说明见：

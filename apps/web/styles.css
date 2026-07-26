@@ -419,6 +419,124 @@ button.primary.is-loading::after {
   min-height: 40px;
 }
 
+.feedback-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.feedback-dialog[open] {
+  display: block;
+}
+
+.feedback-dialog::backdrop {
+  background: rgba(27, 28, 28, 0.38);
+}
+
+.feedback-dialog-content {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.feedback-dialog-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.feedback-dialog-header h3 {
+  color: var(--accent);
+  font-size: 17px;
+}
+
+.feedback-dialog-header p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.feedback-dialog-content > label,
+.feedback-field-row label {
+  display: grid;
+  gap: 6px;
+}
+
+.feedback-field-row {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.feedback-dialog textarea {
+  min-height: 180px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 10px;
+  font-family: var(--font-main);
+}
+
+.feedback-dialog input[type="file"] {
+  min-height: 38px;
+  padding: 6px 8px;
+}
+
+.feedback-dialog-content label small,
+.feedback-attachment-summary {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.feedback-attachment-summary {
+  overflow-wrap: anywhere;
+}
+
+.feedback-diagnostic-notice {
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.feedback-honeypot {
+  position: absolute !important;
+  left: -10000px !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+}
+
+.feedback-status {
+  min-height: 20px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.feedback-status.success {
+  color: #2e6b3b;
+}
+
+.feedback-status.error {
+  color: var(--danger);
+}
+
+.feedback-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 620px) {
+  .feedback-field-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 #toggle-topbar .button-icon {
   transition: transform 0.16s ease;
 }
@@ -1149,9 +1267,10 @@ pre {
   min-height: 38px;
   overflow-x: auto;
   overflow-y: hidden;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: 4px;
   background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line);
 }
 
 .segmented-control > label {
@@ -1161,7 +1280,7 @@ pre {
   place-items: center;
   align-self: stretch;
   height: 100%;
-  min-height: 36px;
+  min-height: 38px;
   width: var(--segment-width);
   min-width: var(--segment-width);
   margin: 0;

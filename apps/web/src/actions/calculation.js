@@ -162,7 +162,7 @@ export function createCalculationActions({
 
   function applyResult(result, diagnostic, cacheKey) {
     elements.result.textContent = JSON.stringify(result, null, 2);
-    renderResultSummary(result);
+    renderResultSummary(result, { diagnostic });
     renderMetrics(result.metrics);
     state.lastDiagnostic = diagnostic;
     state.activeResultCacheKey = cacheKey;
@@ -216,15 +216,17 @@ export function createCalculationActions({
         return;
       }
 
-      const scoreRangeRequest = player.calculationMode === 'scoreRange'
-        ? readScoreRangeRequest()
-        : undefined;
-      const ptMaximizeRequest = player.calculationMode === 'ptMaximize'
-        ? readPtMaximizeRequest(player, eventId)
-        : undefined;
       setStatus('计算中');
       let result;
+      let calculationRequest;
       try {
+        const scoreRangeRequest = player.calculationMode === 'scoreRange'
+          ? readScoreRangeRequest()
+          : undefined;
+        const ptMaximizeRequest = player.calculationMode === 'ptMaximize'
+          ? readPtMaximizeRequest(player, eventId)
+          : undefined;
+        calculationRequest = scoreRangeRequest ?? ptMaximizeRequest;
         result = player.calculationMode === 'scoreRange'
           ? await calculateScoreRange({
             player,
@@ -253,9 +255,10 @@ export function createCalculationActions({
           eventId,
           error,
           phase: 'calculation',
+          calculationRequest,
         });
         applyFailureDiagnostic(diagnostic);
-        setStatus('计算失败，已生成诊断');
+        setStatus(`计算失败：${diagnostic.error?.title ?? '已生成诊断'}`);
         return;
       }
       const diagnostic = await buildDiagnostic({
@@ -263,6 +266,7 @@ export function createCalculationActions({
         server: player.server,
         eventId,
         result,
+        calculationRequest,
       });
       const resultCacheSaved = await setCachedResult(cacheKey, {
         player,

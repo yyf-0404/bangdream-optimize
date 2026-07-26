@@ -208,6 +208,8 @@ pub fn search_single_song_with_metrics(
     let mut best = None;
     let mut trace = SingleSearchTrace::new(true, trace_enabled());
     let mut exact_scratch = SinglePtScoreScratch::default();
+    let mut saw_searchable_mode = false;
+    let mut saw_not_enough_distinct_characters = false;
     for (item_index, selected_items) in items.iter().enumerate() {
         for (mode_index, &mode) in modes.iter().enumerate() {
             trace.current_item = item_index;
@@ -228,8 +230,11 @@ pub fn search_single_song_with_metrics(
                 &mut trace,
                 &mut exact_scratch,
             ) {
-                Ok(()) => {}
-                Err(PtMaximizeError::NotEnoughDistinctCharacters) => continue,
+                Ok(()) => saw_searchable_mode = true,
+                Err(PtMaximizeError::NotEnoughDistinctCharacters) => {
+                    saw_not_enough_distinct_characters = true;
+                    continue;
+                }
                 Err(error) => return Err(error),
             }
             if trace.log_enabled && trace.exact_evaluations - before_exact >= 1_000 {
@@ -274,7 +279,13 @@ pub fn search_single_song_with_metrics(
             trace.total_start.elapsed_ms(),
         );
     }
-    let result = best.ok_or(PtMaximizeError::NoResult)?;
+    let result = match best {
+        Some(result) => result,
+        None if saw_not_enough_distinct_characters && !saw_searchable_mode => {
+            return Err(PtMaximizeError::NotEnoughDistinctCharacters);
+        }
+        None => return Err(PtMaximizeError::NoResult),
+    };
     let metrics = trace.metrics(items.len(), modes.len());
     Ok((result, metrics))
 }

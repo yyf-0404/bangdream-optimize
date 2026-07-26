@@ -93,9 +93,26 @@ test('segmented controls use context-specific fixed widths and stay left aligned
   const segmentedBlock = stylesSource.match(/\.segmented-control\s*\{([^}]*)\}/)?.[1] ?? '';
   assert.match(segmentedBlock, /display: flex;/);
   assert.match(segmentedBlock, /justify-self: start;/);
+  assert.match(segmentedBlock, /border: 0;/);
+  assert.match(segmentedBlock, /box-shadow: inset 0 0 0 1px var\(--line\);/);
   assert.doesNotMatch(segmentedBlock, /grid-auto-columns/);
   assert.match(stylesSource, /flex: 0 0 var\(--segment-width\)/);
+  assert.match(stylesSource, /\.segmented-control > label[\s\S]*min-height: 38px;/);
   assert.match(stylesSource, /\.calculation-mode-control\s*\{\s*--segment-width: 132px;/);
   assert.match(stylesSource, /#pt-maximize-versus-rank,[\s\S]*--segment-width: 44px;/);
   assert.match(stylesSource, /\.result-multiplier-control\s*\{\s*--segment-width: 132px;/);
+});
+
+test('result feedback uses the inverse action style', () => {
+  assert.match(
+    indexSource,
+    /id="feedback-result" class="inverse-action"/,
+  );
+});
+
+test('calculation failures show a classified reason and a recovery suggestion', () => {
+  assert.match(resultViewSource, /resultStat\('原因', error\.title/);
+  assert.match(resultViewSource, /diagnosticItem\('问题说明'/);
+  assert.match(resultViewSource, /diagnosticItem\('处理建议'/);
+  assert.match(resultViewSource, /scoreRangeEmptyExplanation\(diagnostic\?\.calculationRequest\)/);
 });

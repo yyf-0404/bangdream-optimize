@@ -31,7 +31,15 @@ JSON 编辑器仅用于直接编辑当前 schema。
 计算成功后，UI 可导出包含当前玩家配置、结果、metrics 和运行时类型的诊断 JSON。
 计算执行失败时会进入结果页，并生成包含错误信息与调用栈的失败诊断；若为桌面模式，
 诊断还会附带桌面数据/缓存路径与引用数据计数。
-该导出为手动操作，仅用于内部测试。
+诊断仍可手动导出。结果页复制按钮旁的反馈入口会在诊断存在时自动将其作为 JSON
+附件加入反馈；侧栏反馈入口不会自动附加诊断。
+
+侧栏反馈表单通过后端 `/api/feedback` 发送邮件。网页端默认使用
+`feedbackApiBaseUrl ?? apiBaseUrl`，生产同域部署时两者都可为空；桌面端必须在
+`config.desktop.js` 中设置 `feedbackApiBaseUrl`，且该地址与
+`bangDreamImportApiBaseUrl` 相互独立。反馈可上传 `png/jpg/jpeg/gif/webp`、
+`txt/log/json/zip/pdf`，最多 3 个，单个不超过 5 MiB、总计不超过 10 MiB。
+SMTP 账户和密码只存在于后端环境变量。
 
 ## 构建 WASM
 
@@ -145,6 +153,14 @@ server {
     proxy_pass http://127.0.0.1:3100;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
+  }
+
+  location = /api/feedback {
+    client_max_body_size 12m;
+    proxy_pass http://127.0.0.1:3100;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
   }
 
   location / {

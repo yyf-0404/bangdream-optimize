@@ -7,7 +7,7 @@
     <link rel="icon" type="image/png" href="./icon.png?v=3" />
     <link rel="apple-touch-icon" href="./icon.png?v=3" />
     <meta name="theme-color" content="#d9467c" />
-    <link rel="stylesheet" href="./styles.css?v=3" />
+    <link rel="stylesheet" href="./styles.css?v=5" />
     <link
       rel="preconnect"
       href="https://fonts.googleapis.com"
@@ -22,7 +22,7 @@
       rel="stylesheet"
     />
     <script src="./config.js?v=3"></script>
-    <script type="module" src="./src/main.js?v=4"></script>
+    <script type="module" src="./src/main.js?v=6"></script>
   </head>
   <body>
     <main class="app-shell">
@@ -64,6 +64,10 @@
         </section>
 
         <div class="sidebar-actions">
+          <button type="button" id="open-feedback">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2h11A2.5 2.5 0 0 1 20 4.5v10a2.5 2.5 0 0 1-2.5 2.5H10l-4.4 3.3A1 1 0 0 1 4 19.5v-15ZM6.5 4a.5.5 0 0 0-.5.5v13l3.1-2.3a1 1 0 0 1 .6-.2h7.8a.5.5 0 0 0 .5-.5v-10a.5.5 0 0 0-.5-.5h-11ZM8 8a1 1 0 1 1 0-2h8a1 1 0 1 1 0 2H8Zm0 4a1 1 0 1 1 0-2h5a1 1 0 1 1 0 2H8Z"/></svg>
+            <span class="button-label">反馈</span>
+          </button>
           <button class="primary calculate-submit" type="submit" form="controls">
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.8a1.5 1.5 0 0 1 2.3-1.27l8.1 5.2a1.5 1.5 0 0 1 0 2.54l-8.1 5.2A1.5 1.5 0 0 1 8 16.2V5.8Z"/></svg>
             <span class="button-label">计算</span>
@@ -631,6 +635,7 @@
                     <div class="panel-actions">
                       <button type="button" id="export-diagnostics">导出诊断</button>
                       <button type="button" id="copy-result">复制</button>
+                      <button type="button" id="feedback-result" class="inverse-action">反馈</button>
                     </div>
                   </div>
                   <dl class="metrics-grid" id="metrics" hidden></dl>
@@ -665,6 +670,62 @@
       <datalist id="song-options"></datalist>
       <datalist id="area-item-options"></datalist>
       <datalist id="character-options"></datalist>
+      <dialog id="feedback-dialog" class="feedback-dialog">
+        <form id="feedback-form" class="feedback-dialog-content">
+          <div class="feedback-dialog-header">
+            <div>
+              <h3>提交反馈</h3>
+              <p>反馈会发送到维护者邮箱；填写联系邮箱后可收到回复。</p>
+            </div>
+            <button type="button" id="close-feedback" class="compact-button" aria-label="关闭反馈窗口">关闭</button>
+          </div>
+          <div class="feedback-field-row">
+            <label>
+              <span>反馈类型</span>
+              <select id="feedback-category" required>
+                <option value="problem">问题反馈</option>
+                <option value="suggestion">功能建议</option>
+                <option value="data">数据问题</option>
+                <option value="other">其他</option>
+              </select>
+            </label>
+            <label>
+              <span>联系邮箱（选填）</span>
+              <input id="feedback-contact-email" type="email" maxlength="254" autocomplete="email" placeholder="用于接收回复" />
+            </label>
+          </div>
+          <label>
+            <span>标题</span>
+            <input id="feedback-subject" maxlength="120" required placeholder="请简要描述问题或建议" />
+          </label>
+          <label>
+            <span>反馈内容</span>
+            <textarea id="feedback-content" maxlength="10000" required placeholder="请说明复现步骤、预期结果或建议内容"></textarea>
+          </label>
+          <label>
+            <span>附件（选填）</span>
+            <input
+              id="feedback-attachments"
+              type="file"
+              multiple
+              accept=".png,.jpg,.jpeg,.gif,.webp,.txt,.log,.json,.zip,.pdf"
+            />
+            <small>最多 3 个；单个不超过 5 MiB，总计不超过 10 MiB。</small>
+          </label>
+          <div id="feedback-diagnostic-notice" class="feedback-diagnostic-notice" hidden>
+            将自动附加当前计算诊断，其中可能包含玩家配置、计算结果和错误堆栈。
+          </div>
+          <div id="feedback-attachment-summary" class="feedback-attachment-summary">未选择附件</div>
+          <label class="feedback-honeypot" aria-hidden="true">
+            <span>Website</span>
+            <input id="feedback-website" tabindex="-1" autocomplete="off" />
+          </label>
+          <div id="feedback-status" class="feedback-status" aria-live="polite"></div>
+          <div class="feedback-dialog-actions">
+            <button type="submit" id="submit-feedback" class="primary">发送反馈</button>
+          </div>
+        </form>
+      </dialog>
     </main>
   </body>
 </html>
