@@ -17,6 +17,16 @@ const CHANGE_BINDINGS = [
   ['scoreRangeTargetTotalPt', 'handleScoreRangeInputChange'],
   ['scoreRangeAutoBaseMultiplier', 'handleScoreRangeInputChange'],
   ['scoreRangeMissionSupportPt', 'handleScoreRangeInputChange'],
+  ['ptMaximizeLiveVariant', 'handlePtMaximizeInputChange'],
+  ['ptMaximizeMinimumStat', 'handlePtMaximizeInputChange'],
+  ['ptMaximizeMissionSupportPt', 'handlePtMaximizeInputChange'],
+  ['ptMaximizeCooperativeLeaderMode', 'handlePtMaximizeInputChange'],
+  ['ptMaximizeSpecifiedLeader', 'handlePtMaximizeInputChange'],
+  ['ptMaximizeTeammateMode', 'handlePtMaximizeInputChange'],
+  ['ptMaximizeVersusRank', 'handlePtMaximizeInputChange'],
+  ['ptMaximizeFestivalTeammateMode', 'handlePtMaximizeInputChange'],
+  ['ptMaximizeFestivalRank', 'handlePtMaximizeInputChange'],
+  ['ptMaximizeFestivalWon', 'handlePtMaximizeInputChange'],
   ['eventSearch', 'handleEventSearchChange'],
   ['eventCombinedPercent', 'handleEventScalarChange'],
   ['eventCharacterParamPerformance', 'handleEventCharacterParamChange'],
@@ -67,6 +77,7 @@ export function createAppLifecycle({
   installRecoveringDatalistInput,
   ensureCore,
   ensurePlayerProfiles,
+  initializePlayerDefaults,
   readPlayer,
   writePlayer,
   renderConfigForms,
@@ -74,6 +85,7 @@ export function createAppLifecycle({
   activatePage,
   preloadReferenceData,
   warmupCardSearchIndex,
+  renderReferenceOptions,
   handlers,
   appendLog,
   setStatus,
@@ -108,9 +120,16 @@ export function createAppLifecycle({
       setStatus('加载游戏数据');
       await ensureCore();
       setStatus('加载用户配置');
-      const player = await state.runtime.loadPlayerConfig();
+      const loadedPlayer = await state.runtime.loadPlayerConfig();
+      const {
+        player,
+        changed: initializedDefaults,
+      } = initializePlayerDefaults(loadedPlayer);
       writePlayer(player, { autosave: false });
       await ensurePlayerProfiles(player);
+      if (initializedDefaults) {
+        await state.runtime.savePlayerConfig(readPlayer());
+      }
       renderConfigForms(readPlayer());
       setStatus('就绪');
       warmupCardSearchIndex?.();
@@ -131,6 +150,30 @@ export function createAppLifecycle({
     }
 
     bindAll('change', CHANGE_BINDINGS);
+    const ptHandler = requiredHandler('handlePtMaximizeInputChange');
+    for (const collection of [
+      elements.ptMaximizeTeammateStats,
+      elements.ptMaximizeTeammateScoreUps,
+      elements.ptMaximizeTeammateDurations,
+      elements.ptMaximizeFestivalTeammateScores,
+    ]) {
+      for (const input of collection) {
+        input.addEventListener('change', ptHandler);
+      }
+    }
+    for (const input of elements.eventTypeFilters) {
+      input.addEventListener('change', renderReferenceOptions);
+    }
+    elements.toggleEventTypeFilters.addEventListener('click', () => {
+      const available = Array.from(elements.eventTypeFilters)
+        .filter((input) => !input.disabled);
+      const allSelected =
+        available.length > 0 && available.every((input) => input.checked);
+      for (const input of available) {
+        input.checked = !allSelected;
+      }
+      renderReferenceOptions();
+    });
     bindAll('click', CLICK_BINDINGS);
     bindTopbarToggle();
 

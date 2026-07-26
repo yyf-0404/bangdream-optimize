@@ -4,7 +4,7 @@ use crate::model::schema::Attribute;
 const TEAM_SIZE: usize = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::medley) enum MedleyPruneSignature {
+pub(crate) enum MedleyPruneSignature {
     Mixed,
     UnifiedBand(u32),
     UnifiedAttribute(Attribute),
@@ -12,7 +12,7 @@ pub(in crate::medley) enum MedleyPruneSignature {
 }
 
 impl MedleyPruneSignature {
-    pub(in crate::medley) fn allows(self, card: &PreparedCard) -> bool {
+    pub(crate) fn allows(self, card: &PreparedCard) -> bool {
         match self {
             Self::Mixed => true,
             Self::UnifiedBand(band_id) => card.band_id == band_id,
@@ -23,14 +23,14 @@ impl MedleyPruneSignature {
         }
     }
 
-    pub(in crate::medley) fn team_band_id(self) -> Option<u32> {
+    pub(crate) fn team_band_id(self) -> Option<u32> {
         match self {
             Self::Mixed | Self::UnifiedAttribute(_) => None,
             Self::UnifiedBand(band_id) | Self::UnifiedBandAttribute(band_id, _) => Some(band_id),
         }
     }
 
-    pub(in crate::medley) fn team_attribute(self) -> Option<Attribute> {
+    pub(crate) fn team_attribute(self) -> Option<Attribute> {
         match self {
             Self::Mixed | Self::UnifiedBand(_) => None,
             Self::UnifiedAttribute(attribute) | Self::UnifiedBandAttribute(_, attribute) => {
@@ -40,7 +40,7 @@ impl MedleyPruneSignature {
     }
 }
 
-pub(in crate::medley) fn seed_signatures(cards: &[PreparedCard]) -> Vec<MedleyPruneSignature> {
+pub(crate) fn seed_signatures(cards: &[PreparedCard]) -> Vec<MedleyPruneSignature> {
     let mut signatures = vec![MedleyPruneSignature::Mixed];
     for card in cards {
         push_seed_signature(
@@ -68,7 +68,7 @@ fn push_seed_signature(
     }
 }
 
-pub(in crate::medley) fn signature_label(signature: MedleyPruneSignature) -> String {
+pub(crate) fn signature_label(signature: MedleyPruneSignature) -> String {
     match signature {
         MedleyPruneSignature::Mixed => "mixed".to_owned(),
         MedleyPruneSignature::UnifiedBand(band_id) => format!("unifiedBand({band_id})"),
@@ -94,7 +94,7 @@ fn attribute_label(attribute: Attribute) -> &'static str {
     }
 }
 
-pub(in crate::medley) fn signature_improves_any_skill(
+pub(crate) fn signature_improves_any_skill(
     cards: &[PreparedCard],
     signature: MedleyPruneSignature,
 ) -> bool {
@@ -108,7 +108,7 @@ pub(in crate::medley) fn signature_improves_any_skill(
         })
 }
 
-pub(in crate::medley) fn signature_can_complete_with_card(
+pub(crate) fn signature_can_complete_with_card(
     cards: &[PreparedCard],
     idx: usize,
     signature: MedleyPruneSignature,

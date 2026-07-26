@@ -191,6 +191,39 @@ export class GameDataClient {
     };
   }
 
+  async buildPtMaximizePayload({ player, server, eventId, request, core: preloadedCore }) {
+    const selectedEventId = eventId ?? player.currentEvent;
+    if (selectedEventId == null) {
+      throw new Error('current event is not set');
+    }
+
+    const core = preloadedCore ?? await this.syncCore({ refreshManifest: true });
+    const [cards, event] = await Promise.all([
+      this.cardsWithRequestedDetails(core.cards, player),
+      this.calculationEvent(selectedEventId, player, core),
+    ]);
+    const songs = selectSongs(core.songs, request.songs ?? []);
+    const charts = await Promise.all(
+      (request.songs ?? []).map((song) => this.syncChart(song.songId, song.difficulty)),
+    );
+    return {
+      cards,
+      characters: core.characters,
+      skills: core.skills,
+      areaItems: core.areaItems,
+      cardsFix: core.cardsFix,
+      skillsFix: core.skillsFix,
+      areaItemsFix: core.areaItemsFix,
+      event,
+      songs,
+      charts,
+      player,
+      server,
+      eventId: selectedEventId,
+      request,
+    };
+  }
+
   async calculationEvent(selectedEventId, player, core) {
     const key = String(selectedEventId);
     const isCustomEvent = Number(selectedEventId) === CUSTOM_EVENT_ID;

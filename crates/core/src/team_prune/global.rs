@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 
 const MEDLEY_TEAM_COUNT: usize = 3;
 
-pub(in crate::medley) fn global_prune_stats(
+pub(crate) fn global_prune_stats(
     cards: &[PreparedCard],
     charts: &[Chart],
     profiles: &[MedleyCardPruneProfile],

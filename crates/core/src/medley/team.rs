@@ -130,6 +130,46 @@ pub(crate) fn build_raw_team_candidates_with_current_best(
     options: TeamGenerationOptions,
     current_best: i32,
 ) -> Result<Vec<RawTeamCandidate>, TeamBuildError> {
+    build_raw_team_candidates_internal(
+        cards,
+        charts,
+        area_item_percent,
+        selected_items,
+        options,
+        current_best,
+        true,
+    )
+}
+
+pub(crate) fn build_raw_team_candidates_with_fixed_score_floor(
+    cards: &[PreparedCard],
+    charts: &[Chart],
+    area_item_percent: &AreaItemPercent,
+    selected_items: &SelectedAreaItems,
+    options: TeamGenerationOptions,
+    score_floor: i32,
+) -> Result<Vec<RawTeamCandidate>, TeamBuildError> {
+    build_raw_team_candidates_internal(
+        cards,
+        charts,
+        area_item_percent,
+        selected_items,
+        options,
+        score_floor,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_raw_team_candidates_internal(
+    cards: &[PreparedCard],
+    charts: &[Chart],
+    area_item_percent: &AreaItemPercent,
+    selected_items: &SelectedAreaItems,
+    options: TeamGenerationOptions,
+    current_best: i32,
+    refresh_incumbent: bool,
+) -> Result<Vec<RawTeamCandidate>, TeamBuildError> {
     let trace = trace_enabled();
     let trace_detail = trace_detail_enabled();
     let build_start = trace.then(Timer::start);
@@ -243,12 +283,14 @@ pub(crate) fn build_raw_team_candidates_with_current_best(
                 return Err(error.source);
             }
         }
-        if should_refresh_candidate_incumbent(
-            current_best,
-            charts.len(),
-            raw_candidates.len(),
-            next_incumbent_refresh_at,
-        ) {
+        if refresh_incumbent
+            && should_refresh_candidate_incumbent(
+                current_best,
+                charts.len(),
+                raw_candidates.len(),
+                next_incumbent_refresh_at,
+            )
+        {
             current_best = refresh_candidate_incumbent(&raw_candidates, current_best, trace);
             next_incumbent_refresh_at = next_incumbent_refresh_count(raw_candidates.len());
         }
@@ -499,7 +541,7 @@ fn trace_prune_timing(trace: &MedleyPruneTrace) {
     );
 }
 
-pub(in crate::medley) fn adjusted_card_stats(
+pub(crate) fn adjusted_card_stats(
     cards: &[PreparedCard],
     area_item_percent: &AreaItemPercent,
     selected_items: &SelectedAreaItems,
@@ -540,7 +582,7 @@ pub(crate) fn medley_same_team_item_score_upper_bound(
     Ok(total)
 }
 
-pub(in crate::medley) fn medley_chart_item_score_upper_bound(
+pub(crate) fn medley_chart_item_score_upper_bound(
     cards: &[PreparedCard],
     profiles: &[super::prune::MedleyCardPruneProfile],
     chart: &Chart,

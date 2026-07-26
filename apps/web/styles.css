@@ -1110,7 +1110,7 @@ pre {
 
 .activity-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 0.8fr) minmax(250px, 1fr) auto;
+  grid-template-columns: minmax(280px, 1fr) auto minmax(330px, auto);
   gap: 12px;
   align-items: end;
 }
@@ -1126,6 +1126,7 @@ pre {
 .calculation-mode-field {
   display: flex;
   flex-direction: column;
+  grid-column: 1 / -1;
   min-width: 0;
   margin: 0;
   border: 0;
@@ -1140,25 +1141,37 @@ pre {
 }
 
 .segmented-control {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  --segment-width: 96px;
+  display: flex;
+  justify-self: start;
+  width: fit-content;
+  max-width: 100%;
   min-height: 38px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid var(--line);
   border-radius: 4px;
   background: var(--surface);
 }
 
-.activity-grid .segmented-control label {
+.segmented-control > label {
   position: relative;
   display: grid;
+  flex: 0 0 var(--segment-width);
   place-items: center;
-  min-width: 0;
+  align-self: stretch;
+  height: 100%;
+  min-height: 36px;
+  width: var(--segment-width);
+  min-width: var(--segment-width);
+  margin: 0;
+  padding: 0;
+  gap: 0;
   color: var(--muted);
   cursor: pointer;
 }
 
-.activity-grid .segmented-control label + label {
+.segmented-control > label + label {
   border-left: 1px solid var(--line);
 }
 
@@ -1169,18 +1182,123 @@ pre {
   opacity: 0;
 }
 
-.segmented-control span {
+.segmented-control > label > span {
+  position: absolute;
+  inset: 0;
   display: grid;
   place-items: center;
-  width: 100%;
-  min-height: 36px;
+  width: auto;
+  height: auto;
+  min-height: 0;
   padding: 0 10px;
   color: inherit;
   font-size: 13px;
   font-weight: 600;
+  white-space: nowrap;
+}
+
+.calculation-mode-control {
+  --segment-width: 132px;
+}
+
+#pt-maximize-live-variant {
+  --segment-width: 104px;
+}
+
+#pt-maximize-versus-rank,
+#pt-maximize-festival-rank {
+  --segment-width: 44px;
+}
+
+#pt-maximize-festival-won {
+  --segment-width: 88px;
+}
+
+#pt-maximize-cooperative-leader-mode {
+  --segment-width: 104px;
+}
+
+#pt-maximize-specified-leader {
+  --segment-width: 72px;
+}
+
+#pt-maximize-teammate-mode,
+#pt-maximize-festival-teammate-mode {
+  --segment-width: 104px;
+}
+
+.event-type-filter-field {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.event-type-filter-field legend {
+  margin-bottom: 6px;
+  padding: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.event-type-filter-list {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+
+.activity-grid .event-type-filter-list label {
+  position: relative;
+  display: block;
+  cursor: pointer;
+}
+
+.event-type-filter-list input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.event-type-filter-list span,
+.event-type-filter-toggle {
+  display: grid;
+  place-items: center;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  padding: 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.event-type-filter-list input:checked + span,
+.event-type-filter-toggle.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.event-type-filter-list input:focus-visible + span,
+.event-type-filter-toggle:focus-visible {
+  box-shadow: 0 0 0 3px var(--focus);
+}
+
+.event-type-filter-toggle:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .segmented-control input:checked + span {
+  background: var(--accent);
+  color: #fff;
+}
+
+.segmented-control > label:has(> input:checked) {
+  border-left-color: var(--accent);
   background: var(--accent);
   color: #fff;
 }
@@ -1213,6 +1331,12 @@ pre {
 
 .score-range-controls [hidden] {
   display: none !important;
+}
+
+@media (max-width: 980px) {
+  .event-type-filter-list {
+    flex-wrap: wrap;
+  }
 }
 
 .score-range-controls label {
@@ -3170,6 +3294,194 @@ td select {
   border-bottom: 1px solid var(--line);
 }
 
+.pt-maximize-controls {
+  display: grid;
+  gap: 12px;
+}
+
+.pt-maximize-controls[hidden],
+.pt-maximize-controls [hidden] {
+  display: none !important;
+}
+
+.pt-choice-field {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.pt-choice-field legend {
+  margin-bottom: 6px;
+  padding: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.pt-live-variant-field {
+  width: 100%;
+  height: 100%;
+}
+
+.pt-maximize-parameter-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  border-top: 1px dashed var(--line);
+  padding-top: 12px;
+}
+
+.pt-maximize-parameter-grid.has-teammate-pane {
+  grid-template-columns: minmax(190px, 0.7fr) minmax(0, 1.6fr);
+}
+
+.pt-parameter-pane,
+.pt-teammate-parameter-fields,
+.pt-festival-other-fields {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.pt-other-parameter-pane {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  align-content: start;
+}
+
+.pt-maximize-parameter-grid.has-teammate-pane .pt-other-parameter-pane {
+  grid-template-columns: 1fr;
+}
+
+.pt-parameter-pane > h3,
+.pt-choice-field > legend.pt-parameter-subheading,
+.pt-teammate-parameter-fields > h3.pt-parameter-subheading {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pt-teammate-parameter-pane {
+  align-content: start;
+  border-left: 1px dashed var(--line);
+  padding-left: 16px;
+}
+
+.pt-maximize-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.pt-maximize-controls .segmented-control > label {
+  position: relative;
+  display: grid;
+  place-items: center;
+  gap: 0;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.pt-festival-other-fields {
+  grid-template-columns: 1fr;
+}
+
+.pt-teammate-table-wrap {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.pt-teammate-table {
+  width: 100%;
+  min-width: 510px;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.pt-teammate-table th,
+.pt-teammate-table td {
+  border: 0;
+  padding: 4px 6px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.pt-teammate-table thead th {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pt-teammate-table tbody th {
+  width: 68px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pt-teammate-table th:first-child {
+  width: 68px;
+}
+
+.pt-teammate-table input {
+  width: 100%;
+  min-width: 0;
+}
+
+.pt-specified-leader-field {
+  margin-top: 6px;
+}
+
+.pt-specified-leader-control {
+  min-height: 32px;
+}
+
+.pt-specified-leader-control > label,
+.pt-specified-leader-control > label > span {
+  min-height: 30px;
+}
+
+.pt-specified-leader-control > label > span {
+  padding-inline: 6px;
+  font-size: 12px;
+}
+
+.pt-festival-teammate-table {
+  min-width: 320px;
+}
+
+.input-with-unit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.input-with-unit > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .pt-maximize-parameter-grid.has-teammate-pane {
+    grid-template-columns: 1fr;
+  }
+
+  .pt-teammate-parameter-pane {
+    border-top: 1px dashed var(--line);
+    border-left: 0;
+    padding-top: 12px;
+    padding-left: 0;
+  }
+
+}
+
 .result-risk {
   padding: 12px 14px;
   border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--line));
@@ -3236,6 +3548,20 @@ td select {
   color: var(--danger);
 }
 
+.result-multiplier-section {
+  border-top: 1px dashed var(--line);
+  padding-top: 12px;
+}
+
+.result-multiplier-control {
+  --segment-width: 132px;
+}
+
+.result-scenario:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
 .result-diagnostic {
   border-top: 1px dashed var(--line);
   padding-top: 12px;
@@ -3245,6 +3571,12 @@ td select {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 0;
+}
+
+.result-scenario-grid {
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-template-columns: none;
 }
 
 .result-diagnostic-grid > div {
@@ -3785,6 +4117,11 @@ td select {
 
   .result-diagnostic-grid > div + div {
     border-top: 1px dashed var(--line);
+  }
+
+  .result-scenario-grid {
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
   }
 
   .result-song-header {

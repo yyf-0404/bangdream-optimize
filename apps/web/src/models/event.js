@@ -13,10 +13,15 @@ const CALCULATION_EVENT_TYPES = {
     medley: ['medley'],
     single: ['challenge', 'versus', 'live_try', 'festival', 'mission_live'],
   },
+  ptMaximize: {
+    medley: ['medley'],
+    single: ['challenge', 'versus', 'live_try', 'festival', 'mission_live'],
+  },
 };
 const DEFAULT_EVENT_TYPE = 'challenge';
 const HIDDEN_EVENT_IDS = new Set([5001]);
 export const CUSTOM_EVENT_ID = 0;
+const DEFAULT_SERVER_INDEX = 3;
 
 export function isHiddenEventId(value) {
   return HIDDEN_EVENT_IDS.has(Number(value));
@@ -163,7 +168,7 @@ export function activityModeForEvent(event) {
 }
 
 export function normalizedCalculationMode(value) {
-  return value === 'scoreRange' ? 'scoreRange' : 'maximize';
+  return ['maximize', 'scoreRange', 'ptMaximize'].includes(value) ? value : 'ptMaximize';
 }
 
 export function normalizedActivityMode(value) {
@@ -192,6 +197,52 @@ export function isSupportedEventType(value, calculationMode = 'maximize') {
   const type = String(value);
   const modes = CALCULATION_EVENT_TYPES[normalizedCalculationMode(calculationMode)];
   return modes.medley.includes(type) || modes.single.includes(type);
+}
+
+export function recentUnfinishedEvent(
+  events,
+  {
+    serverIndex = DEFAULT_SERVER_INDEX,
+    now = Date.now(),
+    calculationMode = 'ptMaximize',
+  } = {},
+) {
+  const active = [];
+  const upcoming = [];
+  for (const [eventId, event] of Object.entries(events ?? {})) {
+    const id = Number.parseInt(eventId, 10);
+    if (
+      !Number.isInteger(id)
+      || id <= 0
+      || isHiddenEventId(id)
+      || !eventMatchesActivityMode(event, 'single', calculationMode)
+        && !eventMatchesActivityMode(event, 'medley', calculationMode)
+    ) {
+      continue;
+    }
+    const endAt = serverEventTimestamp(event?.endAt, serverIndex);
+    if (endAt == null || endAt <= now) {
+      continue;
+    }
+    const startAt = serverEventTimestamp(event?.startAt, serverIndex);
+    const candidate = { id, event, startAt: startAt ?? Number.NEGATIVE_INFINITY, endAt };
+    if (startAt != null && startAt > now) {
+      upcoming.push(candidate);
+    } else {
+      active.push(candidate);
+    }
+  }
+  active.sort((left, right) =>
+    right.startAt - left.startAt || right.id - left.id);
+  upcoming.sort((left, right) =>
+    left.startAt - right.startAt || left.id - right.id);
+  return active[0] ?? upcoming[0];
+}
+
+function serverEventTimestamp(value, serverIndex) {
+  const scoped = Array.isArray(value) ? value[serverIndex] : value;
+  const timestamp = Number(scoped);
+  return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : undefined;
 }
 
 function collectSongEntries(value, entries) {

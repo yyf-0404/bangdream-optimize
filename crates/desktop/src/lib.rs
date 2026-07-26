@@ -1,11 +1,12 @@
 use async_trait::async_trait;
 use bangdream_optimize_core::{
-    BuildResult, ItemSearchOptions, PlayerConfig, ScoreRangeRequest, ScoreRangeResult, Server,
+    BuildResult, ItemSearchOptions, PlayerConfig, PtMaximizeRequest, PtMaximizeResult,
+    ScoreRangeRequest, ScoreRangeResult, Server,
 };
 use bangdream_optimize_data::{
     update_published_score_range_chart_meta, BestdoriCachedFilesystemCalculator,
     BestdoriFilesystemCalculator, BestdoriFilesystemConfig, BestdoriStaticMirrorConfig, DataError,
-    MaximizeInputBuilder, ScoreRangeInputBuilder,
+    MaximizeInputBuilder, PtMaximizeInputBuilder, ScoreRangeInputBuilder,
 };
 use bangdream_optimize_service::MaximizeService;
 use bangdream_optimize_storage_local::LocalPlayerConfigStore;
@@ -201,8 +202,20 @@ impl DesktopOptimizer {
         self.player_store.load_active_user_config()
     }
 
+    pub fn load_user_config_value(&self, config_id: &str) -> Result<Option<Value>, DataError> {
+        self.player_store.load_user_config_value(config_id)
+    }
+
+    pub fn load_active_user_config_value(&self) -> Result<Option<Value>, DataError> {
+        self.player_store.load_active_user_config_value()
+    }
+
     pub fn save_active_user_config(&self, player: PlayerConfig) -> Result<(), DataError> {
         self.player_store.save_active_user_config(player)
+    }
+
+    pub fn save_active_user_config_value(&self, player: Value) -> Result<(), DataError> {
+        self.player_store.save_active_user_config_value(player)
     }
 
     pub fn create_user_config(
@@ -211,6 +224,14 @@ impl DesktopOptimizer {
         player: PlayerConfig,
     ) -> Result<UserConfigProfile, DataError> {
         self.player_store.create_user_config(name, player)
+    }
+
+    pub fn create_user_config_value(
+        &self,
+        name: impl Into<String>,
+        player: Value,
+    ) -> Result<UserConfigProfile, DataError> {
+        self.player_store.create_user_config_value(name, player)
     }
 
     pub fn save_user_config(&self, config_id: &str, player: PlayerConfig) -> Result<(), DataError> {
@@ -300,6 +321,17 @@ impl DesktopOptimizer {
             .score_range_sync(player, server, event_id, request)
     }
 
+    pub fn pt_maximize_for_config(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        request: PtMaximizeRequest,
+    ) -> Result<PtMaximizeResult, DataError> {
+        self.calculator
+            .pt_maximize_sync(player, server, event_id, request)
+    }
+
     pub async fn calculate_for_player_async(
         &self,
         player_id: i64,
@@ -362,6 +394,26 @@ impl DesktopCalculator {
                     calculator.clear_loaded_calculator()?;
                 }
                 calculator.score_range_sync(player, server, event_id, request)
+            }
+        }
+    }
+
+    fn pt_maximize_sync(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        request: PtMaximizeRequest,
+    ) -> Result<PtMaximizeResult, DataError> {
+        match self {
+            Self::Filesystem { root, calculator } => pt_maximize_from_cached_filesystem(
+                root, calculator, player, server, event_id, request,
+            ),
+            Self::Remote { calculator, .. } => {
+                if ensure_embedded_fix_files(calculator.cache_root())? {
+                    calculator.clear_loaded_calculator()?;
+                }
+                calculator.pt_maximize_sync(player, server, event_id, request)
             }
         }
     }
@@ -471,6 +523,19 @@ impl ScoreRangeInputBuilder for DesktopCalculator {
     }
 }
 
+#[async_trait]
+impl PtMaximizeInputBuilder for DesktopCalculator {
+    async fn pt_maximize(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        request: PtMaximizeRequest,
+    ) -> Result<PtMaximizeResult, DataError> {
+        self.pt_maximize_sync(player, server, event_id, request)
+    }
+}
+
 fn calculate_from_cached_filesystem(
     root: &Path,
     calculator: &Mutex<Option<BestdoriFilesystemCalculator>>,
@@ -512,6 +577,26 @@ fn score_range_from_cached_filesystem(
         .as_ref()
         .expect("filesystem calculator was loaded")
         .score_range_sync(player, server, event_id, request)
+}
+
+fn pt_maximize_from_cached_filesystem(
+    root: &Path,
+    calculator: &Mutex<Option<BestdoriFilesystemCalculator>>,
+    player: PlayerConfig,
+    server: Server,
+    event_id: Option<u32>,
+    request: PtMaximizeRequest,
+) -> Result<PtMaximizeResult, DataError> {
+    let mut calculator = calculator_lock(calculator)?;
+    if calculator.is_none() {
+        *calculator = Some(BestdoriFilesystemCalculator::load(
+            BestdoriFilesystemConfig::from_root(root.to_path_buf()),
+        )?);
+    }
+    calculator
+        .as_ref()
+        .expect("filesystem calculator was loaded")
+        .pt_maximize_sync(player, server, event_id, request)
 }
 
 fn calculator_lock(

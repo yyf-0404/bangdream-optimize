@@ -53,7 +53,9 @@ function normalizeEntry(entry) {
   if (!key || (cacheVersion !== 2 && cacheVersion !== CACHE_SCHEMA_VERSION)) {
     return undefined;
   }
-  const calculationMode = entry.calculationMode === 'scoreRange' ? 'scoreRange' : 'maximize';
+  const calculationMode = ['scoreRange', 'ptMaximize'].includes(entry.calculationMode)
+    ? entry.calculationMode
+    : 'maximize';
   const result = cloneJson(entry.result);
   return {
     cacheVersion: CACHE_SCHEMA_VERSION,
@@ -71,11 +73,34 @@ function normalizeEntry(entry) {
     totalFireCost: safeInteger(entry.totalFireCost)
       ?? safeInteger(result?.[0]?.totalFireCost)
       ?? (calculationMode === 'scoreRange' ? totalFireCost(result?.[0]?.plays) : undefined),
+    averagePt: safeNumber(entry.averagePt) ?? averagePtFromResult(result),
+    averageScore: safeNumber(entry.averageScore) ?? averageScoreFromResult(result),
     createdAt: safeNumber(entry.createdAt, Date.now()),
     accessedAt: safeNumber(entry.accessedAt, Date.now()),
     result,
     diagnostic: cloneJson(entry.diagnostic),
   };
+}
+
+function averagePtFromResult(result) {
+  const average = result?.team?.evaluation?.averagePt ?? result?.medley?.averagePt;
+  const numerator = safeNumber(average?.ptSum);
+  const denominator = safeNumber(average?.sampleCount);
+  return numerator != null && denominator > 0 ? numerator / denominator : undefined;
+}
+
+function averageScoreFromResult(result) {
+  const distribution = result?.team?.evaluation?.scoreDistribution;
+  if (distribution) {
+    return safeAverage(distribution.scoreSum, distribution.sampleCount);
+  }
+  return safeAverage(result?.medley?.totalScoreSum, result?.medley?.sampleCount);
+}
+
+function safeAverage(sum, count) {
+  const numerator = safeNumber(sum);
+  const denominator = safeNumber(count);
+  return numerator != null && denominator > 0 ? numerator / denominator : undefined;
 }
 
 function safeNumber(value, fallback) {

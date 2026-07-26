@@ -21,6 +21,15 @@ pub(crate) fn solve_random_bucket_narrow(
     team_masks: &[TeamMask],
     scores: &[[Score; 3]],
 ) -> Result<MedleySolverPlan, MedleySolverError> {
+    solve_random_bucket_narrow_with_rounds(current_best, team_masks, scores, RANDOM_BUCKET_ROUNDS)
+}
+
+pub(crate) fn solve_random_bucket_narrow_with_rounds(
+    current_best: Score,
+    team_masks: &[TeamMask],
+    scores: &[[Score; 3]],
+    rounds: usize,
+) -> Result<MedleySolverPlan, MedleySolverError> {
     let trace = trace_enabled();
     let prepare_start = trace.then(std::time::Instant::now);
     let team_cards = team_masks
@@ -34,7 +43,7 @@ pub(crate) fn solve_random_bucket_narrow(
             elapsed_ms(prepare_start),
         );
     }
-    solve_random_bucket(current_best, &team_cards, scores, RANDOM_BUCKET_ROUNDS)
+    solve_random_bucket(current_best, &team_cards, scores, rounds)
 }
 
 pub(crate) fn solve_random_bucket_wide(

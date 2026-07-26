@@ -72,10 +72,12 @@ export function magazineLabel(value) {
 
 export function eventTypeLabel(value) {
   return {
-    medley: '组曲',
-    challenge: '挑战',
-    versus: '对邦',
-    festival: 'Festival',
+    medley: '组曲LIVE',
+    challenge: '挑战LIVE',
+    versus: '竞演LIVE',
+    live_try: 'LIVE试炼',
+    festival: '团队LIVE FES',
+    mission_live: '任务LIVE',
   }[value] ?? String(value ?? '-');
 }
 

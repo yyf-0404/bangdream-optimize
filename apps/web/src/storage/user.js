@@ -1,3 +1,9 @@
+import {
+  PLAYER_CONFIG_SCHEMA_VERSION,
+  createDefaultPtMaximizeConfig,
+  createDefaultScoreRangeConfig,
+} from '../models/player-settings.js?v=3';
+
 const DB_NAME = 'bangdream-optimize-user-data-v1';
 const LEGACY_DB_NAME = 'bangdream-optimize-user-data';
 const DB_VERSION = 1;
@@ -93,24 +99,15 @@ export async function clearPlayerConfigCache() {
 
 export function samplePlayerConfig() {
   return {
+    playerConfigVersion: PLAYER_CONFIG_SCHEMA_VERSION,
     playerId: 0,
     server: 'cn',
-    currentEvent: 287,
-    calculationMode: 'maximize',
-    activityMode: 'medley',
-    scoreRange: {
-      currentPt: 0,
-      targetTotalPt: 0,
-      autoBaseMultiplier: 0.5,
-      maxResults: 1,
-    },
-    eventSongs: {
-      287: [
-        { songId: 232, difficulty: 3 },
-        { songId: 86, difficulty: 3 },
-        { songId: 669, difficulty: 3 },
-      ],
-    },
+    currentEvent: undefined,
+    calculationMode: 'ptMaximize',
+    activityMode: 'single',
+    scoreRange: createDefaultScoreRangeConfig('cn'),
+    ptMaximize: createDefaultPtMaximizeConfig(),
+    eventSongs: {},
     eventPresets: {},
     eventOverrides: {},
     cardList: {},
@@ -120,16 +117,18 @@ export function samplePlayerConfig() {
 }
 
 async function ensurePlayerProfiles(db) {
-  await deleteDatabase(LEGACY_DB_NAME);
   const storedProfiles = await getValue(db, PLAYER_PROFILES_KEY);
   if (Array.isArray(storedProfiles)) {
-    await deleteValue(db, LEGACY_PLAYER_KEY);
     const profiles = storedProfiles
       .map(normalizedPlayerProfile)
       .filter((profile) => profile.id);
     if (profiles.length === 0) {
-      return createDefaultPlayerProfile(db);
+      const legacyPlayer = (await getValue(db, LEGACY_PLAYER_KEY))
+        ?? await takeLegacyPlayerConfig();
+      return createDefaultPlayerProfile(db, legacyPlayer);
     }
+    await deleteValue(db, LEGACY_PLAYER_KEY);
+    await deleteDatabase(LEGACY_DB_NAME);
     await putValue(db, PLAYER_PROFILES_KEY, profiles);
     let activeId = await getValue(db, ACTIVE_PLAYER_PROFILE_KEY);
     if (!profiles.some((profile) => profile.id === activeId)) {
@@ -142,20 +141,34 @@ async function ensurePlayerProfiles(db) {
     return { profiles, activeId };
   }
 
-  return createDefaultPlayerProfile(db);
+  const legacyPlayer = (await getValue(db, LEGACY_PLAYER_KEY))
+    ?? await takeLegacyPlayerConfig();
+  return createDefaultPlayerProfile(db, legacyPlayer);
 }
 
-async function createDefaultPlayerProfile(db) {
+async function createDefaultPlayerProfile(db, player = samplePlayerConfig()) {
   const profile = {
     id: DEFAULT_PROFILE_ID,
     name: '默认配置',
     updatedAt: Date.now(),
   };
   await putValue(db, PLAYER_PROFILES_KEY, [profile]);
-  await putValue(db, playerProfileKey(profile.id), samplePlayerConfig());
+  await putValue(db, playerProfileKey(profile.id), player);
   await putValue(db, ACTIVE_PLAYER_PROFILE_KEY, profile.id);
   await deleteValue(db, LEGACY_PLAYER_KEY);
+  await deleteDatabase(LEGACY_DB_NAME);
   return { profiles: [profile], activeId: profile.id };
+}
+
+async function takeLegacyPlayerConfig() {
+  const db = await openNamedDatabase(LEGACY_DB_NAME);
+  let player;
+  if (db.objectStoreNames.contains(STORE)) {
+    player = await getValue(db, LEGACY_PLAYER_KEY);
+  }
+  db.close();
+  await deleteDatabase(LEGACY_DB_NAME);
+  return player;
 }
 
 async function touchPlayerProfile(db, id) {
@@ -197,11 +210,23 @@ function playerProfileKey(id) {
 }
 
 function openDatabase() {
+  return openNamedDatabase(DB_NAME, {
+    version: DB_VERSION,
+    createStore: true,
+  });
+}
+
+function openNamedDatabase(name, {
+  version,
+  createStore = false,
+} = {}) {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    const request = version == null
+      ? indexedDB.open(name)
+      : indexedDB.open(name, version);
     request.onupgradeneeded = () => {
       const db = request.result;
-      if (!db.objectStoreNames.contains(STORE)) {
+      if (createStore && !db.objectStoreNames.contains(STORE)) {
         db.createObjectStore(STORE);
       }
     };

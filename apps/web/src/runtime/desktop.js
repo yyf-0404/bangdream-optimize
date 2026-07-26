@@ -65,6 +65,13 @@ export async function createDesktopRuntime() {
         eventId,
         request,
       }),
+    ptMaximize: ({ player, server, eventId, request }) =>
+      invokeJson(invoke, 'pt_maximize_for_config', {
+        player,
+        server,
+        eventId,
+        request,
+      }),
   };
 }
 

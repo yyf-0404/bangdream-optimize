@@ -34,6 +34,10 @@ export async function createBrowserRuntime({ onProgress } = {}) {
       const wasm = await getWasm();
       return wasm.scoreRangeFromStaticData(payloadJson);
     },
+    ptMaximizeOnMainThread: async (payloadJson) => {
+      const wasm = await getWasm();
+      return wasm.ptMaximizeFromStaticData(payloadJson);
+    },
   });
 
   return {
@@ -87,10 +91,25 @@ export async function createBrowserRuntime({ onProgress } = {}) {
       const resultJson = await calculationWorker.scoreRange(JSON.stringify(payload));
       return JSON.parse(resultJson);
     },
+    ptMaximize: async ({ player, server, eventId, request, core }) => {
+      const payload = await gameData.buildPtMaximizePayload({
+        player,
+        server,
+        eventId,
+        request,
+        core,
+      });
+      const resultJson = await calculationWorker.ptMaximize(JSON.stringify(payload));
+      return JSON.parse(resultJson);
+    },
   };
 }
 
-function createCalculationWorkerClient({ calculateOnMainThread, scoreRangeOnMainThread }) {
+function createCalculationWorkerClient({
+  calculateOnMainThread,
+  scoreRangeOnMainThread,
+  ptMaximizeOnMainThread,
+}) {
   let worker = null;
   let nextId = 1;
   let disabled = false;
@@ -102,6 +121,10 @@ function createCalculationWorkerClient({ calculateOnMainThread, scoreRangeOnMain
 
   function scoreRange(payloadJson) {
     return run('scoreRange', payloadJson, scoreRangeOnMainThread);
+  }
+
+  function ptMaximize(payloadJson) {
+    return run('ptMaximize', payloadJson, ptMaximizeOnMainThread);
   }
 
   function run(type, payloadJson, runOnMainThread) {
@@ -171,7 +194,7 @@ function createCalculationWorkerClient({ calculateOnMainThread, scoreRangeOnMain
     pending.clear();
   }
 
-  return { calculate, scoreRange };
+  return { calculate, scoreRange, ptMaximize };
 }
 
 function errorFromWorker(payload) {

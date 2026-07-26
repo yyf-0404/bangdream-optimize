@@ -564,6 +564,12 @@ pub(crate) struct ExactScoreScratch {
     rateup_profiles: [RateUpProfileScratch; 5],
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct IndependentSkillScoreMatrix {
+    pub(crate) base_score: i32,
+    pub(crate) deltas: [[i32; 6]; 5],
+}
+
 #[derive(Debug, Default)]
 struct RateUpProfileScratch {
     score_up_bits: u64,
@@ -622,6 +628,8 @@ pub struct Chart {
     pub score_as_medley: bool,
     pub warning: Vec<SkillWarning>,
     pub meta: ChartMeta,
+    fever_start: Option<f64>,
+    fever_enabled: bool,
     score_rule: ScoreRule,
     score_factors: Vec<f64>,
     skill_node_indices: Vec<usize>,
@@ -651,7 +659,15 @@ impl Chart {
         }
     }
 
-    pub fn new(level: i32, mut nodes: Vec<ChartNode>) -> Self {
+    pub fn new(level: i32, nodes: Vec<ChartNode>) -> Self {
+        Self::new_with_fever_start(level, nodes, None)
+    }
+
+    pub fn new_with_fever_start(
+        level: i32,
+        mut nodes: Vec<ChartNode>,
+        fever_start: Option<f64>,
+    ) -> Self {
         nodes.sort_by(|a, b| {
             let time_order = sgn(a.time - b.time);
             if time_order != 0 {
@@ -673,6 +689,8 @@ impl Chart {
             score_as_medley: false,
             warning: Vec::new(),
             meta: ChartMeta::default(),
+            fever_start,
+            fever_enabled: false,
             score_rule: ScoreRule::STANDARD,
             score_factors: Vec::new(),
             skill_node_indices,
@@ -680,7 +698,15 @@ impl Chart {
     }
 
     pub fn init(&mut self, combo: i32, is_medley: bool) -> Result<(), ChartError> {
-        self.init_with_rule(combo, is_medley, ScoreRule::STANDARD)
+        self.init_with_rule_and_fever(combo, is_medley, ScoreRule::STANDARD, false)
+    }
+
+    pub fn init_with_fever(&mut self, combo: i32, is_medley: bool) -> Result<(), ChartError> {
+        self.init_with_rule_and_fever(combo, is_medley, ScoreRule::STANDARD, true)
+    }
+
+    pub fn has_fever_section(&self) -> bool {
+        self.fever_start.is_some()
     }
 
     pub fn init_auto(&mut self) -> Result<(), ChartError> {
@@ -940,6 +966,16 @@ impl Chart {
         is_medley: bool,
         score_rule: ScoreRule,
     ) -> Result<(), ChartError> {
+        self.init_with_rule_and_fever(combo, is_medley, score_rule, false)
+    }
+
+    fn init_with_rule_and_fever(
+        &mut self,
+        combo: i32,
+        is_medley: bool,
+        score_rule: ScoreRule,
+        fever_enabled: bool,
+    ) -> Result<(), ChartError> {
         if self.count == 0 {
             return Err(ChartError::EmptyChart);
         }
@@ -947,6 +983,7 @@ impl Chart {
         sort_nodes(&mut self.nodes, score_rule.simultaneous_skill_order);
         self.combo = combo;
         self.score_as_medley = is_medley;
+        self.fever_enabled = fever_enabled;
         self.score_rule = score_rule;
         self.warning.clear();
         self.meta = ChartMeta::default();
@@ -964,7 +1001,7 @@ impl Chart {
                 * score_rule.base_multiplier
                 * combo_mod(combo_cursor, is_medley, score_rule.combo_mode);
             self.score_factors.push(score_factor);
-            self.meta.no_skill += score_factor;
+            self.meta.no_skill += score_factor * self.fever_multiplier_at_node(node_idx);
 
             if node.node_type != ChartNodeType::Skill {
                 continue;
@@ -976,14 +1013,15 @@ impl Chart {
                 let mut temp_combo = combo_cursor;
                 let mut value = 0.0;
                 let deadline = self.scoring_skill_end_time(node.time, duration);
-                for later in self.nodes.iter().skip(node_idx + 1) {
+                for (later_idx, later) in self.nodes.iter().enumerate().skip(node_idx + 1) {
                     if self.is_after_scoring_boundary(later.time, deadline) {
                         break;
                     }
                     temp_combo += 1;
                     value += base
                         * score_rule.base_multiplier
-                        * combo_mod(temp_combo, is_medley, score_rule.combo_mode);
+                        * combo_mod(temp_combo, is_medley, score_rule.combo_mode)
+                        * self.fever_multiplier_at_node(later_idx);
                 }
                 skill.insert(duration_key(duration), value);
             }
@@ -995,7 +1033,7 @@ impl Chart {
                 let mut skill_mod = 200.0;
                 let mut value = 0.0;
                 let deadline = self.scoring_skill_end_time(node.time, duration);
-                for later in self.nodes.iter().skip(node_idx + 1) {
+                for (later_idx, later) in self.nodes.iter().enumerate().skip(node_idx + 1) {
                     if skill_mod < 300.0 {
                         skill_mod += 1.0;
                     }
@@ -1007,7 +1045,8 @@ impl Chart {
                         * score_rule.base_multiplier
                         * combo_mod(temp_combo, is_medley, score_rule.combo_mode)
                         * skill_mod
-                        / 200.0;
+                        / 200.0
+                        * self.fever_multiplier_at_node(later_idx);
                 }
                 rateup_skill.insert(duration_key(duration), value);
             }
@@ -1116,7 +1155,11 @@ impl Chart {
         is_medley: bool,
     ) -> i32 {
         let base = 3.0 * stat as f64 * (1.0 + 0.01 * (self.level as f64 - 5.0)) / self.count as f64;
-        if !window.rateup && self.score_as_medley == is_medley && avx2_available() {
+        if !self.fever_enabled
+            && !window.rateup
+            && self.score_as_medley == is_medley
+            && avx2_available()
+        {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {
                 // SAFETY: runtime AVX2 support is checked above and the score
@@ -1135,8 +1178,8 @@ impl Chart {
 
         for node_idx in window.range_start..window.range_end {
             let combo = self.combo + node_idx as i32 + 1;
-            let no_skill =
-                self.exact_base_score_at_node(node_idx, stat, combo, is_medley, base) as i32;
+            let no_skill = (self.exact_base_score_at_node(node_idx, stat, combo, is_medley, base)
+                * self.fever_multiplier_at_node(node_idx)) as i32;
             let skill_mod = if window.rateup {
                 if sgn(rateup_mod - 2.5) < 0 {
                     rateup_mod += 0.005;
@@ -1160,7 +1203,7 @@ impl Chart {
             return Err(ChartError::EmptyChart);
         }
 
-        if self.score_as_medley == is_medley && avx2_available() {
+        if !self.fever_enabled && self.score_as_medley == is_medley && avx2_available() {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {
                 // SAFETY: runtime AVX2 support is checked above.
@@ -1174,13 +1217,13 @@ impl Chart {
             .iter()
             .enumerate()
             .map(|(node_idx, _)| {
-                self.exact_base_score_at_node(
+                (self.exact_base_score_at_node(
                     node_idx,
                     stat,
                     self.combo + node_idx as i32 + 1,
                     is_medley,
                     base,
-                ) as i32
+                ) * self.fever_multiplier_at_node(node_idx)) as i32
             })
             .sum())
     }
@@ -1196,7 +1239,7 @@ impl Chart {
         }
         output.resize(self.nodes.len(), 0);
 
-        if self.score_as_medley == is_medley && avx2_available() {
+        if !self.fever_enabled && self.score_as_medley == is_medley && avx2_available() {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {
                 // SAFETY: runtime AVX2 support is checked above and the output
@@ -1211,7 +1254,8 @@ impl Chart {
         let mut total = 0i32;
         for (node_idx, score) in output.iter_mut().enumerate() {
             let combo = self.combo + node_idx as i32 + 1;
-            *score = self.exact_base_score_at_node(node_idx, stat, combo, is_medley, base) as i32;
+            *score = (self.exact_base_score_at_node(node_idx, stat, combo, is_medley, base)
+                * self.fever_multiplier_at_node(node_idx)) as i32;
             total += *score;
         }
         Ok(total)
@@ -1403,6 +1447,125 @@ impl Chart {
             None,
             false,
         )
+    }
+
+    /// Builds the exact additive 5x6 skill matrix when the selected skills do not queue.
+    /// Returns `None` when the strict queued timeline is required.
+    pub(crate) fn independent_skill_score_matrix(
+        &self,
+        team: &[TeamCardSkill; 5],
+        stat: i32,
+        is_medley: bool,
+        scratch: &mut ExactScoreScratch,
+    ) -> Result<Option<IndependentSkillScoreMatrix>, ChartError> {
+        if self.team_skills_may_overlap(team)? {
+            return Ok(None);
+        }
+        if self.count == 0 {
+            return Err(ChartError::EmptyChart);
+        }
+        let (_, skill_count) = self.six_skill_indices()?;
+        if skill_count != 6 {
+            return Err(ChartError::MissingSkillProfile {
+                activation: usize::from(skill_count),
+            });
+        }
+
+        let mut skill_windows = [[ExactSkillWindow::default(); 6]; 5];
+        for card_idx in 0..5 {
+            skill_windows[card_idx] = self.compile_exact_skill_windows(team[card_idx])?;
+        }
+
+        self.independent_skill_score_matrix_from_windows(
+            team,
+            stat,
+            is_medley,
+            &skill_windows,
+            scratch,
+        )
+        .map(Some)
+    }
+
+    pub(crate) fn compile_exact_skill_windows(
+        &self,
+        skill: TeamCardSkill,
+    ) -> Result<[ExactSkillWindow; 6], ChartError> {
+        let mut windows = [ExactSkillWindow::default(); 6];
+        for (activation, window) in windows.iter_mut().enumerate() {
+            *window = self.compile_exact_skill_window(activation, skill)?;
+        }
+        Ok(windows)
+    }
+
+    pub(crate) fn independent_skill_score_matrix_from_windows(
+        &self,
+        team: &[TeamCardSkill; 5],
+        stat: i32,
+        is_medley: bool,
+        skill_windows: &[[ExactSkillWindow; 6]; 5],
+        scratch: &mut ExactScoreScratch,
+    ) -> Result<IndependentSkillScoreMatrix, ChartError> {
+        let base_score =
+            self.populate_exact_base_scores(stat, is_medley, &mut scratch.base_scores)?;
+        for card_idx in 0..5 {
+            if !team[card_idx].rateup {
+                continue;
+            }
+            let max_len = skill_windows[card_idx]
+                .iter()
+                .map(|window| window.range_end - window.range_start)
+                .max()
+                .unwrap_or(0);
+            let padded_len = max_len.saturating_add(3) & !3;
+            scratch.rateup_profiles[card_idx].prepare(team[card_idx].score_up, padded_len);
+        }
+
+        let mut deltas = [[0i32; 6]; 5];
+        if avx2_available() {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            for activation in 0..6 {
+                let windows = std::array::from_fn(|card_idx| skill_windows[card_idx][activation]);
+                let profiles: [&[f64]; 5] = std::array::from_fn(|card_idx| {
+                    scratch.rateup_profiles[card_idx].multipliers.as_slice()
+                });
+                // SAFETY: runtime AVX2 support is checked above. All windows for one
+                // activation share their start, and rate-up profiles are vector-padded.
+                let activation_deltas = unsafe {
+                    five_skill_deltas_from_base_scores_avx2(
+                        &scratch.base_scores,
+                        &windows,
+                        &profiles,
+                    )
+                };
+                for card_idx in 0..5 {
+                    deltas[card_idx][activation] = activation_deltas[card_idx];
+                }
+            }
+        } else {
+            for activation in 0..6 {
+                let windows = std::array::from_fn(|card_idx| skill_windows[card_idx][activation]);
+                let representatives = skill_window_representatives(&windows);
+                for card_idx in 0..5 {
+                    let representative = representatives[card_idx];
+                    if representative != card_idx {
+                        deltas[card_idx][activation] = deltas[representative][activation];
+                        continue;
+                    }
+                    let window = skill_windows[card_idx][activation];
+                    let base_scores = &scratch.base_scores[window.range_start..window.range_end];
+                    deltas[card_idx][activation] = if window.rateup {
+                        self.rateup_delta_from_base_scores(
+                            base_scores,
+                            &scratch.rateup_profiles[card_idx].multipliers[..base_scores.len()],
+                        )
+                    } else {
+                        self.constant_delta_from_base_scores(base_scores, 1.0 + window.score_up)
+                    };
+                }
+            }
+        }
+
+        Ok(IndependentSkillScoreMatrix { base_score, deltas })
     }
 
     // Retained for diagnostics and strict queued-timeline verification. Production Medley uses
@@ -1616,7 +1779,10 @@ impl Chart {
         })
     }
 
-    fn team_skills_may_overlap(&self, team: &[TeamCardSkill; 5]) -> Result<bool, ChartError> {
+    pub(crate) fn team_skills_may_overlap(
+        &self,
+        team: &[TeamCardSkill; 5],
+    ) -> Result<bool, ChartError> {
         if self.warning.is_empty() {
             return Ok(false);
         }
@@ -1757,7 +1923,8 @@ impl Chart {
 
             let no_skill =
                 self.exact_base_score_at_node(node_idx, stat, combo, is_medley, base) as f64;
-            result += (no_skill * skill_mod).floor() as i32;
+            result +=
+                (no_skill * skill_mod * self.fever_multiplier_at_node(node_idx)).floor() as i32;
 
             if node.node_type != ChartNodeType::Skill {
                 continue;
@@ -1805,7 +1972,7 @@ impl Chart {
         stat: i32,
         is_medley: bool,
     ) -> Result<i32, ChartError> {
-        if self.score_as_medley == is_medley && avx2_available() {
+        if !self.fever_enabled && self.score_as_medley == is_medley && avx2_available() {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {
                 // SAFETY: runtime AVX2 support is checked above. The AVX2
@@ -1854,7 +2021,7 @@ impl Chart {
         let mut events: VecDeque<SkillEvent> = VecDeque::new();
         let mut scheduler = SkillScheduler::new(self.uses_ideal_60fps_timing());
 
-        for node in &self.nodes {
+        for (node_idx, node) in self.nodes.iter().enumerate() {
             while events
                 .front()
                 .map(|event| scheduler.event_is_due(node.time, event.time))
@@ -1868,7 +2035,7 @@ impl Chart {
             if rateup && sgn(skill_mod - 2.5) < 0 {
                 skill_mod += 0.005;
             }
-            visit(skill_mod);
+            visit(skill_mod * self.fever_multiplier_at_node(node_idx));
 
             if node.node_type != ChartNodeType::Skill {
                 continue;
@@ -2053,7 +2220,8 @@ impl Chart {
 
             let no_skill =
                 self.exact_base_score_at_node(node_idx, stat, combo, is_medley, base) as f64;
-            result += (no_skill * skill_mod).floor() as i32;
+            result +=
+                (no_skill * skill_mod * self.fever_multiplier_at_node(node_idx)).floor() as i32;
 
             if node.node_type != ChartNodeType::Skill {
                 continue;
@@ -2226,7 +2394,9 @@ impl Chart {
                 if skill.rateup && sgn(multiplier - 2.5) < 0 {
                     multiplier += 0.005;
                 }
-                total += self.score_factors[idx] * (multiplier - 1.0);
+                total += self.score_factors[idx]
+                    * self.fever_multiplier_at_node(idx)
+                    * (multiplier - 1.0);
             }
             best = best.max(total);
         }
@@ -2276,6 +2446,19 @@ impl Chart {
         }
 
         base_score(base, combo, is_medley, self.score_rule)
+    }
+
+    #[inline]
+    fn fever_multiplier_at_node(&self, node_idx: usize) -> f64 {
+        if self.fever_enabled
+            && self
+                .fever_start
+                .is_some_and(|start| self.nodes[node_idx].time > start)
+        {
+            2.0
+        } else {
+            1.0
+        }
     }
 }
 

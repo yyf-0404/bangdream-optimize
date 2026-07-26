@@ -1,6 +1,10 @@
 import { confirmDialog } from '../ui/confirm.js?v=3';
 import { copyTextToClipboard } from '../ui/clipboard.js?v=3';
 import { totalFireCost } from '../utils.js?v=3';
+import {
+  ptMaximizeLiveVariant,
+  withPtMaximizeLiveVariant,
+} from '../models/player-settings.js?v=3';
 
 export function createCalculationActions({
   state,
@@ -10,6 +14,7 @@ export function createCalculationActions({
   savePlayerNow,
   readOptionalInteger,
   applyEventInputToPlayer,
+  editableEventSnapshot,
   normalizeCurrentActivityForMode,
   ensureOwnedCardCharacterBonuses,
   ensureCore,
@@ -62,6 +67,7 @@ export function createCalculationActions({
       calculationMode: player.calculationMode,
       activityMode: player.activityMode,
       scoreRange: player.scoreRange,
+      ptMaximize: player.ptMaximize,
       eventId,
       eventSearch: player.eventSearch,
       currentEvent: player.currentEvent,
@@ -106,28 +112,46 @@ export function createCalculationActions({
       calculationMode: player.calculationMode,
       activityMode: player.activityMode,
       totalScore: safeNumber(result?.totalScore),
-      totalStat: safeNumber(result?.totalStat ?? result?.[0]?.totalStat),
+      totalStat: safeNumber(
+        result?.totalStat
+          ?? result?.team?.totalStat
+          ?? result?.medley?.teams?.reduce((sum, team) => sum + Number(team.totalStat || 0), 0)
+          ?? result?.[0]?.totalStat,
+      ),
       songCount: safeInteger(result?.songs?.length ?? result?.[0]?.distinctSongCount),
       targetDeltaPt: safeNumber(result?.[0]?.targetDeltaPt),
       playCount: safeInteger(result?.[0]?.playCount),
       totalFireCost: Array.isArray(result)
         ? safeInteger(result[0]?.totalFireCost) ?? totalFireCost(result[0]?.plays)
         : undefined,
+      averagePt: result?.team?.evaluation?.averagePt
+        ? Number(result.team.evaluation.averagePt.ptSum)
+          / Number(result.team.evaluation.averagePt.sampleCount)
+        : result?.medley?.averagePt
+          ? Number(result.medley.averagePt.ptSum)
+            / Number(result.medley.averagePt.sampleCount)
+          : undefined,
+      averageScore: ptMaximizeAverageScore(result),
     });
     if (nextCache.length > cacheLimit) {
       nextCache.length = cacheLimit;
     }
     state.resultCache = nextCache;
-    await persistResultCacheState();
+    try {
+      await persistResultCacheState();
+      return true;
+    } catch (error) {
+      console.warn(`result-cache-save-error: ${error?.message ?? String(error)}`);
+      return false;
+    }
   }
 
   async function persistResultCacheState(activeKey = state.activeResultCacheKey) {
     try {
       await persistCache(state.resultCache || []);
-    } catch (error) {
-      setError(error);
+    } finally {
+      renderResultCachePanel(activeKey);
     }
-    renderResultCachePanel(activeKey);
   }
 
   function renderResultCachePanel(activeKey = state.activeResultCacheKey) {
@@ -174,6 +198,7 @@ export function createCalculationActions({
       const player = readPlayer();
       applyEventInputToPlayer(player);
       applyScoreRangeInputToPlayer(player);
+      applyPtMaximizeInputToPlayer(player);
       const eventId = readCurrentEventId(player, readOptionalInteger(elements.eventId.value));
       const core = await ensureCore({ refreshManifest: true });
       normalizeCurrentActivityForMode(player);
@@ -194,6 +219,9 @@ export function createCalculationActions({
       const scoreRangeRequest = player.calculationMode === 'scoreRange'
         ? readScoreRangeRequest()
         : undefined;
+      const ptMaximizeRequest = player.calculationMode === 'ptMaximize'
+        ? readPtMaximizeRequest(player, eventId)
+        : undefined;
       setStatus('计算中');
       let result;
       try {
@@ -204,6 +232,13 @@ export function createCalculationActions({
             core,
             request: scoreRangeRequest,
           })
+          : player.calculationMode === 'ptMaximize'
+            ? await calculatePtMaximize({
+              player,
+              eventId,
+              core,
+              request: ptMaximizeRequest,
+            })
           : await state.runtime.calculate({
             player,
             server: player.server,
@@ -229,14 +264,14 @@ export function createCalculationActions({
         eventId,
         result,
       });
-      await setCachedResult(cacheKey, {
+      const resultCacheSaved = await setCachedResult(cacheKey, {
         player,
         eventId,
         result,
         diagnostic,
       });
       applyResult(result, diagnostic, cacheKey);
-      setStatus('完成');
+      setStatus(resultCacheSaved ? '完成' : '完成（结果缓存保存失败）');
     } catch (error) {
       setError(error);
     } finally {
@@ -250,6 +285,19 @@ export function createCalculationActions({
       throw new Error('当前运行时不支持目标 PT 搜索');
     }
     return state.runtime.scoreRange({
+      player,
+      server: player.server,
+      eventId,
+      request,
+      core,
+    });
+  }
+
+  async function calculatePtMaximize({ player, eventId, core, request }) {
+    if (typeof state.runtime.ptMaximize !== 'function') {
+      throw new Error('当前运行时不支持最大PT（平均）搜索');
+    }
+    return state.runtime.ptMaximize({
       player,
       server: player.server,
       eventId,
@@ -347,6 +395,186 @@ export function createCalculationActions({
     }
   }
 
+  function applyPtMaximizeInputToPlayer(player) {
+    player.ptMaximize = readPtMaximizeForm({
+      strict: false,
+      config: player.ptMaximize,
+      eventType: ptMaximizeEventType(player),
+    });
+  }
+
+  function readPtMaximizeRequest(player, eventId) {
+    const eventType = ptMaximizeEventType(player, eventId);
+    if (!eventType) {
+      throw new Error('未设置活动类型');
+    }
+    const form = readPtMaximizeForm({
+      strict: true,
+      config: player.ptMaximize,
+      eventType,
+    });
+    const liveVariant = ptMaximizeLiveVariant(form, eventType);
+    if (elements.ptMaximizeMissionSupportPt.required && form.missionSupportPtBonus == null) {
+      throw new Error('任务 Live 自由演出必须填写支援乐队 PT 加成');
+    }
+    const songs = player.eventSongs?.[String(eventId)] ?? [];
+    const request = {
+      eventType: 'challenge',
+      liveVariant,
+      songs,
+      minimumPersonalStat: liveVariant === 'cooperative'
+        ? form.minimumPersonalStat
+        : undefined,
+      missionSupportPtBonus: elements.ptMaximizeMissionSupportPt.required
+        ? form.missionSupportPtBonus
+        : undefined,
+    };
+    if (liveVariant === 'cooperative') {
+      if (form.minimumPersonalStat == null) {
+        throw new Error('协力演出必须填写自己的最低综合力');
+      }
+      const teammateCount = form.teammateMode === 'uniform' ? 1 : 4;
+      const teammates = form.teammates.slice(0, teammateCount).map((teammate, index) => {
+        if (
+          teammate.expectedStat == null
+          || teammate.leaderScoreUp == null
+          || teammate.leaderSkillDuration == null
+        ) {
+          throw new Error(`协力演出必须完整填写队友 ${index + 1} 参数`);
+        }
+        return {
+          ...teammate,
+          leaderScoreUp: teammate.leaderScoreUp / 100,
+        };
+      });
+      request.cooperative = {
+        teammates: form.teammateMode === 'uniform' ? teammates[0] : teammates,
+        leaderSelection: form.cooperativeLeaderMode === 'specified'
+          ? {
+              mode: 'specified',
+              playerIndex: form.cooperativeSpecifiedLeader,
+            }
+          : { mode: form.cooperativeLeaderMode },
+      };
+    } else if (liveVariant === 'versus') {
+      request.versus = { teamRank: form.versusTeamRank };
+    } else if (liveVariant === 'festival') {
+      const scoreCount = form.festivalTeammateMode === 'uniform' ? 1 : 4;
+      const teammateScores = form.festivalTeammateScores.slice(0, scoreCount);
+      if (teammateScores.some((score) => score == null)) {
+        throw new Error('团队演出必须填写队友预计分数');
+      }
+      request.festival = {
+        teammateScores: form.festivalTeammateMode === 'uniform'
+          ? teammateScores[0]
+          : teammateScores,
+        teamRank: form.festivalTeamRank,
+        won: form.festivalWon,
+      };
+    }
+    return request;
+  }
+
+  function readPtMaximizeForm({ strict, config, eventType }) {
+    const teammates = Array.from({ length: 4 }, (_, index) => ({
+      expectedStat: readFormInteger(
+        elements.ptMaximizeTeammateStats[index],
+        `队友 ${index + 1} 综合力`,
+        { optional: true, strict },
+      ),
+      leaderScoreUp: readNonNegativeNumber(
+        elements.ptMaximizeTeammateScoreUps[index],
+        `队友 ${index + 1} 技能加成`,
+        { optional: true, strict },
+      ),
+      leaderSkillDuration: readNonNegativeNumber(
+        elements.ptMaximizeTeammateDurations[index],
+        `队友 ${index + 1} 技能时长`,
+        { optional: true, strict },
+      ),
+    }));
+    const festivalTeammateScores = Array.from({ length: 4 }, (_, index) =>
+      readFormInteger(
+        elements.ptMaximizeFestivalTeammateScores[index],
+        `队友 ${index + 1} 预计分数`,
+        { optional: true, strict },
+      ));
+    const liveVariant = selectedRadioValue(
+      elements.ptMaximizeLiveVariant,
+      ptMaximizeLiveVariant(config, eventType),
+    );
+    return {
+      liveVariantByEventType: withPtMaximizeLiveVariant(
+        config,
+        eventType,
+        liveVariant,
+      ).liveVariantByEventType,
+      minimumPersonalStat: readFormInteger(
+        elements.ptMaximizeMinimumStat,
+        '最低综合力',
+        { optional: true, strict },
+      ),
+      missionSupportPtBonus: readFormInteger(
+        elements.ptMaximizeMissionSupportPt,
+        '支援乐队 PT 加成',
+        { optional: true, strict },
+      ),
+      teammateMode: selectedRadioValue(elements.ptMaximizeTeammateMode, 'uniform'),
+      cooperativeLeaderMode: selectedRadioValue(
+        elements.ptMaximizeCooperativeLeaderMode,
+        'max_stat',
+      ),
+      cooperativeSpecifiedLeader:
+        Number(selectedRadioValue(elements.ptMaximizeSpecifiedLeader, '0')) || 0,
+      teammates,
+      versusTeamRank: Number(selectedRadioValue(elements.ptMaximizeVersusRank, '0')) || 0,
+      festivalTeamRank:
+        Number(selectedRadioValue(elements.ptMaximizeFestivalRank, '0')) || 0,
+      festivalWon: selectedRadioValue(elements.ptMaximizeFestivalWon, 'false') === 'true',
+      festivalTeammateMode:
+        selectedRadioValue(elements.ptMaximizeFestivalTeammateMode, 'uniform'),
+      festivalTeammateScores,
+    };
+  }
+
+  function ptMaximizeEventType(player, eventId = player.currentEvent) {
+    const eventType = editableEventSnapshot(eventId, player)?.eventType;
+    return typeof eventType === 'string' && eventType ? eventType : undefined;
+  }
+
+  function selectedRadioValue(container, fallback) {
+    return container.querySelector('input[type="radio"]:checked')?.value ?? fallback;
+  }
+
+  function readNonNegativeNumber(input, label, {
+    optional = false,
+    strict = true,
+  } = {}) {
+    const raw = String(input?.value ?? '').trim();
+    if (!raw && optional) {
+      return undefined;
+    }
+    const value = Number(raw);
+    if (raw && Number.isFinite(value) && value >= 0) {
+      return value;
+    }
+    if (!strict) {
+      return undefined;
+    }
+    throw new Error(`${label}必须是非负数`);
+  }
+
+  function handlePtMaximizeInputChange() {
+    try {
+      const player = readPlayer();
+      applyPtMaximizeInputToPlayer(player);
+      writePlayer(player);
+      renderConfigForms(player);
+    } catch (error) {
+      setError(error);
+    }
+  }
+
   async function handleResultCacheAction(event) {
     const button = event.target.closest('[data-result-cache-action]');
     if (!button) {
@@ -396,12 +624,21 @@ export function createCalculationActions({
       if (!confirmed) {
         return;
       }
+      const previousCache = state.resultCache || [];
+      const previousActiveKey = state.activeResultCacheKey;
       state.resultCache = (state.resultCache || [])
         .filter((entry) => entry.key !== cacheKey);
       if (state.activeResultCacheKey === cacheKey) {
         state.activeResultCacheKey = null;
       }
-      await persistResultCacheState(state.activeResultCacheKey);
+      try {
+        await persistResultCacheState(state.activeResultCacheKey);
+      } catch (error) {
+        state.resultCache = previousCache;
+        state.activeResultCacheKey = previousActiveKey;
+        renderResultCachePanel(previousActiveKey);
+        throw error;
+      }
       setStatus('已删除结果缓存');
     } catch (error) {
       setError(error);
@@ -419,9 +656,18 @@ export function createCalculationActions({
       if (!confirmed) {
         return;
       }
+      const previousCache = state.resultCache || [];
+      const previousActiveKey = state.activeResultCacheKey;
       state.resultCache = [];
       state.activeResultCacheKey = null;
-      await clearPersisted();
+      try {
+        await clearPersisted();
+      } catch (error) {
+        state.resultCache = previousCache;
+        state.activeResultCacheKey = previousActiveKey;
+        renderResultCachePanel(previousActiveKey);
+        throw error;
+      }
       renderResultCachePanel(null);
       setStatus('结果缓存已清空');
     } catch (error) {
@@ -437,6 +683,22 @@ export function createCalculationActions({
   function safeInteger(value) {
     const number = Number(value);
     return Number.isInteger(number) ? number : undefined;
+  }
+
+  function ptMaximizeAverageScore(result) {
+    const distribution = result?.team?.evaluation?.scoreDistribution;
+    if (distribution) {
+      return safeAverage(distribution.scoreSum, distribution.sampleCount);
+    }
+    return safeAverage(result?.medley?.totalScoreSum, result?.medley?.sampleCount);
+  }
+
+  function safeAverage(sum, count) {
+    const numerator = Number(sum);
+    const denominator = Number(count);
+    return Number.isFinite(numerator) && Number.isFinite(denominator) && denominator > 0
+      ? numerator / denominator
+      : undefined;
   }
 
   async function handleCopyResult() {
@@ -509,6 +771,7 @@ export function createCalculationActions({
     handleResultCacheAction,
     handleClearResultCache,
     handleScoreRangeInputChange,
+    handlePtMaximizeInputChange,
   };
 }
 

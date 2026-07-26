@@ -1,8 +1,9 @@
 use super::FIRE_MULTIPLIERS;
+use crate::event_pt;
 use crate::EventType;
 use thiserror::Error;
 
-const POINT_BONUS_BASE_BASIS_POINTS: u64 = 10_000;
+const POINT_BONUS_BASE_BASIS_POINTS: u64 = event_pt::POINT_BONUS_BASE_BASIS_POINTS;
 const CHALLENGE_FREE_LIVE_FIXED_PT: u64 = 70;
 const CHALLENGE_PERSONAL_SCORE_DIVISOR: u64 = 50_000;
 
@@ -149,26 +150,23 @@ pub fn points_for_score_with_support(
         });
     }
 
-    let score = score.max(0) as u64;
     let base_pt = match event_type {
-        EventType::LiveTry => apply_point_bonus(130 + score / 26_000, point_bonus_basis_points),
-        EventType::Challenge => apply_point_bonus(
-            CHALLENGE_FREE_LIVE_FIXED_PT + score / CHALLENGE_PERSONAL_SCORE_DIVISOR,
+        // Score range intentionally models ending a Medley after its first song.
+        EventType::Medley => 30 + score.max(0) as u64 / 18_500,
+        EventType::LiveTry
+        | EventType::Challenge
+        | EventType::Versus
+        | EventType::Festival
+        | EventType::MissionLive => event_pt::solo_points(
+            event_type,
+            score,
             point_bonus_basis_points,
-        ),
-        EventType::Versus => 100 + score / 9_750,
-        EventType::Medley => 30 + score / 18_500,
-        EventType::Festival => 80 + score / 14_000,
-        EventType::MissionLive => apply_point_bonus(120 + score / 15_000, point_bonus_basis_points)
-            .saturating_add(mission_support_pt_bonus),
+            mission_support_pt_bonus,
+        )
+        .expect("all non-Medley score-range event types have a solo PT formula"),
     };
 
     Ok(base_pt.saturating_mul(fire_multiplier as u64))
-}
-
-fn apply_point_bonus(value: u64, bonus_basis_points: u32) -> u64 {
-    value.saturating_mul(POINT_BONUS_BASE_BASIS_POINTS + bonus_basis_points as u64)
-        / POINT_BONUS_BASE_BASIS_POINTS
 }
 
 #[cfg(test)]

@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use bangdream_optimize_core::PlayerConfig;
 use bangdream_optimize_data::{DataError, PlayerConfigRepository, PlayerConfigStore};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -157,6 +158,12 @@ impl LocalPlayerConfigStore {
     }
 
     pub fn load_user_config(&self, config_id: &str) -> Result<Option<PlayerConfig>, DataError> {
+        self.load_user_config_value(config_id)?
+            .map(player_config_from_value)
+            .transpose()
+    }
+
+    pub fn load_user_config_value(&self, config_id: &str) -> Result<Option<Value>, DataError> {
         validate_config_id(config_id)?;
         let path = self.user_config_path(config_id);
         if !path.exists() {
@@ -173,17 +180,27 @@ impl LocalPlayerConfigStore {
     }
 
     pub fn load_active_user_config(&self) -> Result<Option<PlayerConfig>, DataError> {
+        self.load_active_user_config_value()?
+            .map(player_config_from_value)
+            .transpose()
+    }
+
+    pub fn load_active_user_config_value(&self) -> Result<Option<Value>, DataError> {
         let Some(config_id) = self.active_user_config_id()? else {
             return Ok(None);
         };
-        self.load_user_config(&config_id)
+        self.load_user_config_value(&config_id)
     }
 
     pub fn save_active_user_config(&self, player: PlayerConfig) -> Result<(), DataError> {
+        self.save_active_user_config_value(player_config_to_value(player)?)
+    }
+
+    pub fn save_active_user_config_value(&self, player: Value) -> Result<(), DataError> {
         if let Some(config_id) = self.active_user_config_id()? {
-            self.save_user_config(&config_id, player)?;
+            self.save_user_config_value(&config_id, player)?;
         } else {
-            self.create_user_config("默认配置", player)?;
+            self.create_user_config_value("默认配置", player)?;
         }
         Ok(())
     }
@@ -193,13 +210,21 @@ impl LocalPlayerConfigStore {
         name: impl Into<String>,
         player: PlayerConfig,
     ) -> Result<UserConfigProfile, DataError> {
+        self.create_user_config_value(name, player_config_to_value(player)?)
+    }
+
+    pub fn create_user_config_value(
+        &self,
+        name: impl Into<String>,
+        player: Value,
+    ) -> Result<UserConfigProfile, DataError> {
         let mut profiles = self.read_user_config_profiles()?;
         let profile = UserConfigProfile {
             id: unique_config_id(),
             name: normalize_profile_name(name.into(), "新配置"),
             updated_at: now_millis(),
         };
-        self.write_user_config_file(&profile.id, &player)?;
+        self.write_user_config_value(&profile.id, &player)?;
         profiles.push(profile.clone());
         self.write_user_config_profiles(&profiles)?;
         self.set_active_user_config_id(&profile.id)?;
@@ -207,6 +232,10 @@ impl LocalPlayerConfigStore {
     }
 
     pub fn save_user_config(&self, config_id: &str, player: PlayerConfig) -> Result<(), DataError> {
+        self.save_user_config_value(config_id, player_config_to_value(player)?)
+    }
+
+    pub fn save_user_config_value(&self, config_id: &str, player: Value) -> Result<(), DataError> {
         validate_config_id(config_id)?;
         let mut profiles = self.read_user_config_profiles()?;
         let Some(profile) = profiles.iter_mut().find(|profile| profile.id == config_id) else {
@@ -215,7 +244,7 @@ impl LocalPlayerConfigStore {
             });
         };
         profile.updated_at = now_millis();
-        self.write_user_config_file(config_id, &player)?;
+        self.write_user_config_value(config_id, &player)?;
         self.write_user_config_profiles(&profiles)
     }
 
@@ -350,17 +379,25 @@ impl LocalPlayerConfigStore {
         write_file(&self.user_config_profiles_path(), &data)
     }
 
-    fn write_user_config_file(
-        &self,
-        config_id: &str,
-        player: &PlayerConfig,
-    ) -> Result<(), DataError> {
+    fn write_user_config_value(&self, config_id: &str, player: &Value) -> Result<(), DataError> {
         validate_config_id(config_id)?;
         let data = serde_json::to_vec_pretty(player).map_err(|err| DataError::JsonString {
             message: err.to_string(),
         })?;
         write_file(&self.user_config_path(config_id), &data)
     }
+}
+
+fn player_config_to_value(player: PlayerConfig) -> Result<Value, DataError> {
+    serde_json::to_value(player).map_err(|err| DataError::JsonString {
+        message: err.to_string(),
+    })
+}
+
+fn player_config_from_value(value: Value) -> Result<PlayerConfig, DataError> {
+    serde_json::from_value(value).map_err(|err| DataError::JsonString {
+        message: err.to_string(),
+    })
 }
 
 fn validate_config_id(config_id: &str) -> Result<(), DataError> {
@@ -560,6 +597,42 @@ mod tests {
             Some(second.id.clone())
         );
         assert_eq!(store.active_user_config_id().unwrap(), Some(second.id));
+    }
+
+    #[test]
+    fn user_config_values_preserve_frontend_only_settings() {
+        let dir = TestDir::new();
+        let store = LocalPlayerConfigStore::new(dir.path());
+        let value = serde_json::json!({
+            "playerId": 42,
+            "server": "jp",
+            "calculationMode": "ptMaximize",
+            "ptMaximize": {
+                "liveVariantByEventType": {
+                    "challenge": "cooperative",
+                    "festival": "solo"
+                },
+                "cooperativeLeaderMode": "specified",
+                "cooperativeSpecifiedLeader": 3
+            },
+            "cardList": {},
+            "areaItem": {},
+            "characterBouns": {}
+        });
+
+        let profile = store
+            .create_user_config_value("完整前端配置", value.clone())
+            .unwrap();
+        assert_eq!(
+            store.load_user_config_value(&profile.id).unwrap(),
+            Some(value.clone())
+        );
+
+        let mut edited = value;
+        edited["ptMaximize"]["liveVariantByEventType"]["festival"] =
+            Value::String("festival".to_string());
+        store.save_active_user_config_value(edited.clone()).unwrap();
+        assert_eq!(store.load_active_user_config_value().unwrap(), Some(edited));
     }
 
     #[test]

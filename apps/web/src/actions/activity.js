@@ -191,7 +191,11 @@ export function createActivityActions({
       writePlayer(player);
       renderReferenceOptions();
       renderConfigForms(player);
-      setStatus(calculationMode === 'scoreRange' ? '已切换到目标 PT' : '已切换到最高得分');
+      setStatus(calculationMode === 'scoreRange'
+        ? '已切换到目标 PT'
+        : calculationMode === 'ptMaximize'
+          ? '已切换到最大PT（平均）'
+          : '已切换到最高得分');
     } catch (error) {
       renderConfigForms(readPlayer());
       setError(error);

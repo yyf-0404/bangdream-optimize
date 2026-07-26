@@ -1,25 +1,25 @@
 use super::signature::{signature_label, MedleyPruneSignature};
 
 #[derive(Debug, Clone, Copy, Default)]
-pub(in crate::medley) struct MedleyPruneTrace {
-    pub(in crate::medley) context_ms: f64,
-    pub(in crate::medley) upper_bounds_init_ms: f64,
-    pub(in crate::medley) signatures_ms: f64,
-    pub(in crate::medley) active_indices_ms: f64,
-    pub(in crate::medley) hard_graph_ms: f64,
-    pub(in crate::medley) hard_cover_ms: f64,
-    pub(in crate::medley) contribution_context_ms: f64,
-    pub(in crate::medley) contribution_graph_ms: f64,
-    pub(in crate::medley) contribution_cover_ms: f64,
-    pub(in crate::medley) upper_bound_ms: f64,
-    pub(in crate::medley) completion_ms: f64,
-    pub(in crate::medley) capacity_ms: f64,
-    pub(in crate::medley) signature_count: usize,
-    pub(in crate::medley) contribution_graph_count: usize,
+pub(crate) struct MedleyPruneTrace {
+    pub(crate) context_ms: f64,
+    pub(crate) upper_bounds_init_ms: f64,
+    pub(crate) signatures_ms: f64,
+    pub(crate) active_indices_ms: f64,
+    pub(crate) hard_graph_ms: f64,
+    pub(crate) hard_cover_ms: f64,
+    pub(crate) contribution_context_ms: f64,
+    pub(crate) contribution_graph_ms: f64,
+    pub(crate) contribution_cover_ms: f64,
+    pub(crate) upper_bound_ms: f64,
+    pub(crate) completion_ms: f64,
+    pub(crate) capacity_ms: f64,
+    pub(crate) signature_count: usize,
+    pub(crate) contribution_graph_count: usize,
 }
 
 impl MedleyPruneTrace {
-    pub(in crate::medley) fn add(&mut self, other: &Self) {
+    pub(crate) fn add(&mut self, other: &Self) {
         self.context_ms += other.context_ms;
         self.upper_bounds_init_ms += other.upper_bounds_init_ms;
         self.signatures_ms += other.signatures_ms;
@@ -38,55 +38,55 @@ impl MedleyPruneTrace {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-pub(in crate::medley) struct DominanceRejectionCounts {
-    pub(in crate::medley) stat: usize,
-    pub(in crate::medley) unification: usize,
-    pub(in crate::medley) meta: usize,
-    pub(in crate::medley) tie: usize,
+pub(crate) struct DominanceRejectionCounts {
+    pub(crate) stat: usize,
+    pub(crate) unification: usize,
+    pub(crate) meta: usize,
+    pub(crate) tie: usize,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-pub(in crate::medley) struct SignaturePoolStats {
-    pub(in crate::medley) signature: Option<MedleyPruneSignature>,
-    pub(in crate::medley) allowed_count: usize,
-    pub(in crate::medley) active_count: usize,
-    pub(in crate::medley) same_character_pruned: usize,
-    pub(in crate::medley) cross_character_pruned: usize,
-    pub(in crate::medley) score_contribution_same_pruned: usize,
-    pub(in crate::medley) score_contribution_cross_pruned: usize,
-    pub(in crate::medley) upper_bound_pruned: usize,
-    pub(in crate::medley) max_same_character_cover: usize,
-    pub(in crate::medley) max_cross_character_cover: usize,
-    pub(in crate::medley) max_score_contribution_same_cover: usize,
-    pub(in crate::medley) max_score_contribution_cross_cover: usize,
-    pub(in crate::medley) fixed_point_passes: usize,
-    pub(in crate::medley) estimated_candidates: usize,
-    pub(in crate::medley) trace: MedleyPruneTrace,
+pub(crate) struct SignaturePoolStats {
+    pub(crate) signature: Option<MedleyPruneSignature>,
+    pub(crate) allowed_count: usize,
+    pub(crate) active_count: usize,
+    pub(crate) same_character_pruned: usize,
+    pub(crate) cross_character_pruned: usize,
+    pub(crate) score_contribution_same_pruned: usize,
+    pub(crate) score_contribution_cross_pruned: usize,
+    pub(crate) upper_bound_pruned: usize,
+    pub(crate) max_same_character_cover: usize,
+    pub(crate) max_cross_character_cover: usize,
+    pub(crate) max_score_contribution_same_cover: usize,
+    pub(crate) max_score_contribution_cross_cover: usize,
+    pub(crate) fixed_point_passes: usize,
+    pub(crate) estimated_candidates: usize,
+    pub(crate) trace: MedleyPruneTrace,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-pub(in crate::medley) struct MedleyCardPruneStats {
-    pub(in crate::medley) raw_count: usize,
-    pub(in crate::medley) same_character_pruned: usize,
-    pub(in crate::medley) cross_character_pruned: usize,
-    pub(in crate::medley) score_contribution_same_pruned: usize,
-    pub(in crate::medley) score_contribution_cross_pruned: usize,
-    pub(in crate::medley) upper_bound_context_pruned: usize,
-    pub(in crate::medley) active_count: usize,
-    pub(in crate::medley) character_count: usize,
-    pub(in crate::medley) characters_with_four_or_more_cards: usize,
-    pub(in crate::medley) unified_band_count: usize,
-    pub(in crate::medley) unified_attribute_count: usize,
-    pub(in crate::medley) unified_band_attribute_count: usize,
-    pub(in crate::medley) obligation_count: usize,
-    pub(in crate::medley) max_obligations_per_card: usize,
-    pub(in crate::medley) max_same_character_cover: usize,
-    pub(in crate::medley) max_cross_character_cover: usize,
-    pub(in crate::medley) max_score_contribution_same_cover: usize,
-    pub(in crate::medley) max_score_contribution_cross_cover: usize,
-    pub(in crate::medley) max_cross_character_cover_ignoring_unification: usize,
-    pub(in crate::medley) cross_prunable_ignoring_unification: usize,
-    pub(in crate::medley) rejection_counts: DominanceRejectionCounts,
+pub(crate) struct MedleyCardPruneStats {
+    pub(crate) raw_count: usize,
+    pub(crate) same_character_pruned: usize,
+    pub(crate) cross_character_pruned: usize,
+    pub(crate) score_contribution_same_pruned: usize,
+    pub(crate) score_contribution_cross_pruned: usize,
+    pub(crate) upper_bound_context_pruned: usize,
+    pub(crate) active_count: usize,
+    pub(crate) character_count: usize,
+    pub(crate) characters_with_four_or_more_cards: usize,
+    pub(crate) unified_band_count: usize,
+    pub(crate) unified_attribute_count: usize,
+    pub(crate) unified_band_attribute_count: usize,
+    pub(crate) obligation_count: usize,
+    pub(crate) max_obligations_per_card: usize,
+    pub(crate) max_same_character_cover: usize,
+    pub(crate) max_cross_character_cover: usize,
+    pub(crate) max_score_contribution_same_cover: usize,
+    pub(crate) max_score_contribution_cross_cover: usize,
+    pub(crate) max_cross_character_cover_ignoring_unification: usize,
+    pub(crate) cross_prunable_ignoring_unification: usize,
+    pub(crate) rejection_counts: DominanceRejectionCounts,
 }
 
 impl MedleyCardPruneStats {
@@ -111,7 +111,7 @@ impl MedleyCardPruneStats {
     }
 }
 
-pub(in crate::medley) fn trace_medley_prune_stats(label: &str, prune_stats: &MedleyCardPruneStats) {
+pub(crate) fn trace_medley_prune_stats(label: &str, prune_stats: &MedleyCardPruneStats) {
     eprintln!(
         "{label}: raw_cards={} active_cards={} same_pruned={} cross_pruned={} score_contribution_same_pruned={} score_contribution_cross_pruned={} bound_pruned={} after_same_prune={} character_count={} characters_with_4plus={} unified_bands={} unified_attributes={} unified_band_attributes={} obligations={} max_obligations={} max_same_cover={} max_cross_cover={} max_score_contribution_same_cover={} max_score_contribution_cross_cover={} max_cross_cover_no_unification={} cross_prunable_no_unification={} stat_rejects={} unification_rejects={} meta_rejects={} tie_rejects={}",
         prune_stats.raw_count,
@@ -142,7 +142,7 @@ pub(in crate::medley) fn trace_medley_prune_stats(label: &str, prune_stats: &Med
     );
 }
 
-pub(in crate::medley) fn trace_signature_pool_stats(stats: &SignaturePoolStats) {
+pub(crate) fn trace_signature_pool_stats(stats: &SignaturePoolStats) {
     let signature = stats
         .signature
         .map(signature_label)

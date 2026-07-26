@@ -7,6 +7,7 @@ export function createResourceActions({
   readPlayer,
   writePlayer,
   refreshPlayerProfiles,
+  initializePlayerDefaults,
   renderConfigForms,
   renderReferenceOptions,
   renderResultSummary,
@@ -115,11 +116,18 @@ export function createResourceActions({
       if (!confirmed) {
         return;
       }
-      cancelPendingSave();
+      await cancelPendingSave();
       await state.runtime.clearLocalCache();
-      const player = await state.runtime.loadPlayerConfig();
+      const loadedPlayer = await state.runtime.loadPlayerConfig();
+      const {
+        player,
+        changed: initializedDefaults,
+      } = initializePlayerDefaults(loadedPlayer);
       writePlayer(player, { autosave: false });
       await refreshPlayerProfiles({ defaultPlayer: player });
+      if (initializedDefaults) {
+        await state.runtime.savePlayerConfig(readPlayer());
+      }
       renderConfigForms(player);
       setStatus('本地缓存已清空');
     } catch (error) {

@@ -23,7 +23,7 @@ const SCORE_CONTRIBUTION_EPS: f64 = 1e-7;
 const CONTRIBUTION_DIAGNOSTIC_TARGETS: usize = 3;
 const CONTRIBUTION_DIAGNOSTIC_NEAR_MISSES: usize = 4;
 
-pub(in crate::medley) fn contribution_dominance_graph_for_signature(
+pub(crate) fn contribution_dominance_graph_for_signature(
     cards: &[PreparedCard],
     signature: MedleyPruneSignature,
     hard_dominance_graph: &DominanceGraph,
@@ -40,12 +40,13 @@ pub(in crate::medley) fn contribution_dominance_graph_for_signature(
     )
 }
 
-pub(in crate::medley) fn same_shape_contribution_active_indices(
+pub(crate) fn same_shape_contribution_active_indices(
     cards: &[PreparedCard],
     charts: &[Chart],
     profiles: &[MedleyCardPruneProfile],
     signature: MedleyPruneSignature,
     required_cover: usize,
+    replacement_values: Option<&[u64]>,
 ) -> Vec<usize> {
     let mut dominance = MedleyContributionDominance::new(cards, charts, profiles, 0);
     let allowed = cards
@@ -82,6 +83,11 @@ pub(in crate::medley) fn same_shape_contribution_active_indices(
                     if dominator_idx == target_idx {
                         return false;
                     }
+                    if replacement_values
+                        .is_some_and(|values| values[dominator_idx] < values[target_idx])
+                    {
+                        return false;
+                    }
                     dominance.card_can_replace_for_signature(dominator_idx, target_idx, signature)
                 })
                 .take(required_cover)
@@ -91,7 +97,7 @@ pub(in crate::medley) fn same_shape_contribution_active_indices(
         .collect()
 }
 
-pub(in crate::medley) fn same_character_score_contribution_cover(
+pub(crate) fn same_character_score_contribution_cover(
     idx: usize,
     card: &PreparedCard,
     cards: &[PreparedCard],
@@ -116,7 +122,7 @@ pub(in crate::medley) fn same_character_score_contribution_cover(
         .unwrap_or_default()
 }
 
-pub(in crate::medley) fn full_medley_score_contribution_cover(
+pub(crate) fn full_medley_score_contribution_cover(
     idx: usize,
     card: &PreparedCard,
     cards: &[PreparedCard],
@@ -141,7 +147,7 @@ pub(in crate::medley) fn full_medley_score_contribution_cover(
         .unwrap_or_default()
 }
 
-pub(in crate::medley) fn trace_score_contribution_cover_diagnostics(
+pub(crate) fn trace_score_contribution_cover_diagnostics(
     cards: &[PreparedCard],
     charts: &[Chart],
     profiles: &[MedleyCardPruneProfile],
@@ -448,7 +454,7 @@ struct ContributionNearMiss {
     reverse_comparison: ContributionReplacementComparison,
 }
 
-pub(in crate::medley) struct MedleyContributionDominance<'a> {
+pub(crate) struct MedleyContributionDominance<'a> {
     cards: &'a [PreparedCard],
     charts: &'a [Chart],
     profiles: &'a [MedleyCardPruneProfile],
@@ -624,7 +630,7 @@ fn contribution_replacement_reject(
 }
 
 impl<'a> MedleyContributionDominance<'a> {
-    pub(in crate::medley) fn new(
+    pub(crate) fn new(
         cards: &'a [PreparedCard],
         charts: &'a [Chart],
         profiles: &'a [MedleyCardPruneProfile],
@@ -644,7 +650,7 @@ impl<'a> MedleyContributionDominance<'a> {
         }
     }
 
-    pub(in crate::medley) fn with_best_any_team_scores(
+    pub(crate) fn with_best_any_team_scores(
         cards: &'a [PreparedCard],
         charts: &'a [Chart],
         profiles: &'a [MedleyCardPruneProfile],
@@ -1798,12 +1804,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::medley::prune::hard::medley_card_prune_profiles;
     use crate::medley::team::adjusted_card_stats;
     use crate::medley::test_support::{medley_charts, prepared_card, selected_cool_items};
     use crate::model::chart::{ChartNode, ChartNodeType, TeamCardSkill};
     use crate::model::preparation::{AreaItemPercent, ScoreUp, StatValue};
     use crate::model::schema::Attribute;
+    use crate::team_prune::hard::medley_card_prune_profiles;
 
     #[test]
     fn same_shape_prefilter_uses_contribution_tradeoff_only_within_shape() {
@@ -1854,6 +1860,7 @@ mod tests {
             &profiles,
             MedleyPruneSignature::Mixed,
             1,
+            None,
         );
 
         assert!(active.contains(&0));
@@ -2029,6 +2036,7 @@ mod tests {
             &profiles,
             MedleyPruneSignature::Mixed,
             1,
+            None,
         );
 
         assert!(!comparison.replaces);

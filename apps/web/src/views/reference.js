@@ -99,11 +99,12 @@ export function createReferenceView({
       characterLabel,
       `characters:${server}`,
     );
+    const eventRecords = filteredEventRecords(supportedEventRecords());
     renderOptionsCached(
       elements.eventOptions,
-      supportedEventRecords(),
+      eventRecords.records,
       eventLabel,
-      `events:${server}:${getPlayer()?.calculationMode ?? 'maximize'}:all`,
+      `events:${server}:${getPlayer()?.calculationMode ?? 'maximize'}:${eventRecords.cacheKey}`,
       {
         descending: true,
       },
@@ -158,6 +159,52 @@ export function createReferenceView({
       ], (option) => ownershipIcon(option.value)),
       filterRow('服务器', 'releaseServers', SERVER_FILTERS, (option) => serverIcon(option)),
     );
+  }
+
+  function filteredEventRecords(records) {
+    if (!records) {
+      elements.toggleEventTypeFilters.disabled = true;
+      elements.toggleEventTypeFilters.classList.remove('is-active');
+      elements.toggleEventTypeFilters.setAttribute('aria-pressed', 'false');
+      return { records, cacheKey: 'loading' };
+    }
+    const availableTypes = new Set(
+      Object.values(records).map((event) => String(event?.eventType ?? '')),
+    );
+    const selectedTypes = new Set();
+    let availableTypeCount = 0;
+    for (const input of elements.eventTypeFilters) {
+      const available = availableTypes.has(input.value);
+      input.disabled = !available;
+      const label = input.closest('label');
+      if (label) {
+        label.hidden = !available;
+      }
+      if (available && input.checked) {
+        selectedTypes.add(input.value);
+      }
+      if (available) {
+        availableTypeCount += 1;
+      }
+    }
+    const allSelected =
+      availableTypeCount > 0 && selectedTypes.size === availableTypeCount;
+    elements.toggleEventTypeFilters.disabled = availableTypeCount === 0;
+    elements.toggleEventTypeFilters.classList.toggle('is-active', allSelected);
+    elements.toggleEventTypeFilters.setAttribute(
+      'aria-pressed',
+      allSelected ? 'true' : 'false',
+    );
+    const filtered = {};
+    for (const [eventId, event] of Object.entries(records)) {
+      if (selectedTypes.has(String(event?.eventType ?? ''))) {
+        filtered[eventId] = event;
+      }
+    }
+    return {
+      records: filtered,
+      cacheKey: [...selectedTypes].sort().join(',') || 'none',
+    };
   }
 
   function filterRow(label, key, options, iconFn) {

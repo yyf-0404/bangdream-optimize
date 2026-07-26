@@ -1,12 +1,18 @@
 use crate::model::{
-    chart::{Chart, TeamCardSkill},
+    chart::Chart,
     dp::{DpModelError, SongMode},
     preparation::{AreaItemPercent, PreparedCard},
     schema::SelectedAreaItems,
 };
 use thiserror::Error;
 
+pub(crate) mod candidate;
+mod dominance;
 mod exact;
+mod mode;
+pub(crate) mod profile;
+
+pub use mode::mode_candidates;
 
 #[derive(Debug, Error)]
 pub enum SingleSongError {
@@ -38,19 +44,15 @@ pub fn calculate_single_song(
     selected_items: &SelectedAreaItems,
     mode: SongMode,
 ) -> Result<SingleSongResult, SingleSongError> {
-    let active_indices = crate::medley::single_team_pruned_card_indices(
-        cards,
-        chart,
-        area_item_percent,
-        selected_items,
-        mode,
-    )?;
-    let cards = numeric_card_sources_for_indices(
+    let active_indices =
+        candidate::pruned_card_indices(cards, chart, area_item_percent, selected_items, mode)?;
+    let cards = candidate::resolve_card_indices(
         cards,
         &active_indices,
         area_item_percent,
         selected_items,
         mode,
+        candidate::SingleCardRole::FullSkill,
     )?;
     exact::solve(&cards, chart)
 }
@@ -61,58 +63,20 @@ fn numeric_card_sources(
     area_item_percent: &AreaItemPercent,
     selected_items: &SelectedAreaItems,
     mode: SongMode,
-) -> Result<Vec<NumericCardSource>, SingleSongError> {
-    cards
+) -> Result<Vec<candidate::ResolvedSingleCard>, SingleSongError> {
+    let indices = cards
         .iter()
-        .filter(|card| mode.allows(card))
-        .map(|card| {
-            Ok(NumericCardSource {
-                card_id: card.card_id,
-                character_id: card.character_id,
-                stat: card.add_up_stat(
-                    area_item_percent,
-                    &selected_items.band,
-                    &selected_items.attribute,
-                    selected_items.magazine.as_str(),
-                ),
-                skill: mode.resolve_skill(card)?,
-            })
-        })
-        .collect()
-}
-
-fn numeric_card_sources_for_indices(
-    cards: &[PreparedCard],
-    indices: &[usize],
-    area_item_percent: &AreaItemPercent,
-    selected_items: &SelectedAreaItems,
-    mode: SongMode,
-) -> Result<Vec<NumericCardSource>, SingleSongError> {
-    indices
-        .iter()
-        .map(|&idx| {
-            let card = &cards[idx];
-            Ok(NumericCardSource {
-                card_id: card.card_id,
-                character_id: card.character_id,
-                stat: card.add_up_stat(
-                    area_item_percent,
-                    &selected_items.band,
-                    &selected_items.attribute,
-                    selected_items.magazine.as_str(),
-                ),
-                skill: mode.resolve_skill(card)?,
-            })
-        })
-        .collect()
-}
-
-#[derive(Debug, Clone)]
-struct NumericCardSource {
-    card_id: u32,
-    character_id: u32,
-    stat: f64,
-    skill: TeamCardSkill,
+        .enumerate()
+        .filter_map(|(index, card)| mode.allows(card).then_some(index))
+        .collect::<Vec<_>>();
+    Ok(candidate::resolve_card_indices(
+        cards,
+        &indices,
+        area_item_percent,
+        selected_items,
+        mode,
+        candidate::SingleCardRole::FullSkill,
+    )?)
 }
 
 #[cfg(test)]
@@ -122,6 +86,7 @@ mod tests {
         chart::{ChartNode, ChartNodeType},
         preparation::{ScoreUp, StatValue},
         schema::{Attribute, Magazine},
+        TeamCardSkill,
     };
 
     const TEAM_SIZE: usize = 5;
@@ -272,7 +237,10 @@ mod tests {
         assert_eq!(exact.stat, brute.stat);
     }
 
-    fn brute_force_single_song(cards: &[NumericCardSource], chart: &Chart) -> SingleSongResult {
+    fn brute_force_single_song(
+        cards: &[candidate::ResolvedSingleCard],
+        chart: &Chart,
+    ) -> SingleSongResult {
         let mut best: Option<SingleSongResult> = None;
         let mut selected = Vec::new();
 
@@ -312,7 +280,7 @@ mod tests {
     }
 
     fn enumerate_card_sets(
-        cards: &[NumericCardSource],
+        cards: &[candidate::ResolvedSingleCard],
         start: usize,
         selected: &mut Vec<usize>,
         callback: &mut impl FnMut(&[usize]),

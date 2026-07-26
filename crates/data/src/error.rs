@@ -64,6 +64,9 @@ pub enum DataError {
     #[error("score-range error: {0}")]
     ScoreRange(#[from] bangdream_optimize_core::ScoreRangeError),
 
+    #[error("PT-maximize error: {0}")]
+    PtMaximize(#[from] bangdream_optimize_core::PtMaximizeError),
+
     #[error("data preparation is not implemented yet")]
     NotImplemented,
 }

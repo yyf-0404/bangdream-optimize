@@ -1,6 +1,7 @@
 use crate::{
-    avx2_available, MedleySolverError, MedleySolverImplementation, MedleySolverInput,
-    MedleySolverPlan, MedleySolverQuality, Score, TeamMask, WideMedleySolverInput,
+    avx2_available, BandScore, MedleyBandInput, MedleyBandMetrics, MedleyBandVisit,
+    MedleySolverError, MedleySolverImplementation, MedleySolverInput, MedleySolverPlan,
+    MedleySolverQuality, Score, TeamMask, WideMedleyBandInput, WideMedleySolverInput,
 };
 
 #[cfg(target_arch = "x86")]
@@ -521,6 +522,380 @@ unsafe fn solve_wide_avx2_x86(
     outcome(best_score, best_indices, implementation, meter.used)
 }
 
+pub(crate) fn enumerate_band(
+    input: &MedleyBandInput,
+    visit: impl FnMut([usize; 3], BandScore) -> MedleyBandVisit,
+) -> Result<MedleyBandMetrics, MedleySolverError> {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    {
+        if avx2_available() {
+            // SAFETY: runtime AVX2 support is checked above.
+            return Ok(unsafe { enumerate_band_avx2_x86(input, visit) });
+        }
+    }
+
+    Ok(enumerate_band_scalar(input, visit))
+}
+
+pub(crate) fn enumerate_band_wide(
+    input: &WideMedleyBandInput,
+    visit: impl FnMut([usize; 3], BandScore) -> MedleyBandVisit,
+) -> Result<MedleyBandMetrics, MedleySolverError> {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    {
+        if avx2_available() {
+            // SAFETY: runtime AVX2 support is checked above and validation
+            // guarantees a common word count for all masks.
+            return Ok(unsafe { enumerate_band_wide_avx2_x86(input, visit) });
+        }
+    }
+
+    Ok(enumerate_band_wide_scalar(input, visit))
+}
+
+fn enumerate_band_scalar(
+    input: &MedleyBandInput,
+    mut visit: impl FnMut([usize; 3], BandScore) -> MedleyBandVisit,
+) -> MedleyBandMetrics {
+    let implementation = MedleySolverImplementation::Scalar;
+    let Some(search) = prepare_band_search(&input.scores, input.floor) else {
+        return empty_band_metrics(input.floor, implementation);
+    };
+    let [song0, song1, song2] = search.song_order;
+    let mut metrics = empty_band_metrics(input.floor, implementation);
+
+    for &i in &search.orders[song0] {
+        let score_i = input.scores[i][song0];
+        if sum3(score_i, search.max_scores[song1], search.max_scores[song2]) < metrics.final_floor {
+            break;
+        }
+
+        for &j in &search.orders[song1] {
+            let score_ij = score_i.saturating_add(input.scores[j][song1]);
+            if score_ij.saturating_add(search.max_scores[song2]) < metrics.final_floor {
+                break;
+            }
+            metrics.pair_checks = metrics.pair_checks.saturating_add(1);
+            if input.team_masks[i] & input.team_masks[j] != 0 {
+                continue;
+            }
+
+            let used = input.team_masks[i] | input.team_masks[j];
+            for &k in &search.orders[song2] {
+                let score = score_ij.saturating_add(input.scores[k][song2]);
+                if score < metrics.final_floor {
+                    break;
+                }
+                metrics.third_checks = metrics.third_checks.saturating_add(1);
+                if used & input.team_masks[k] != 0 {
+                    continue;
+                }
+
+                metrics.compatible_triples = metrics.compatible_triples.saturating_add(1);
+                if apply_band_visit(
+                    &mut metrics,
+                    visit(indices_by_song(song0, i, song1, j, song2, k), score),
+                ) {
+                    return metrics;
+                }
+            }
+        }
+    }
+    metrics
+}
+
+fn enumerate_band_wide_scalar(
+    input: &WideMedleyBandInput,
+    mut visit: impl FnMut([usize; 3], BandScore) -> MedleyBandVisit,
+) -> MedleyBandMetrics {
+    let implementation = MedleySolverImplementation::ScalarWide;
+    let Some(search) = prepare_band_search(&input.scores, input.floor) else {
+        return empty_band_metrics(input.floor, implementation);
+    };
+    let [song0, song1, song2] = search.song_order;
+    let mut metrics = empty_band_metrics(input.floor, implementation);
+
+    for &i in &search.orders[song0] {
+        let score_i = input.scores[i][song0];
+        if sum3(score_i, search.max_scores[song1], search.max_scores[song2]) < metrics.final_floor {
+            break;
+        }
+
+        for &j in &search.orders[song1] {
+            let score_ij = score_i.saturating_add(input.scores[j][song1]);
+            if score_ij.saturating_add(search.max_scores[song2]) < metrics.final_floor {
+                break;
+            }
+            metrics.pair_checks = metrics.pair_checks.saturating_add(1);
+            if wide_masks_overlap(&input.team_masks[i], &input.team_masks[j]) {
+                continue;
+            }
+
+            for &k in &search.orders[song2] {
+                let score = score_ij.saturating_add(input.scores[k][song2]);
+                if score < metrics.final_floor {
+                    break;
+                }
+                metrics.third_checks = metrics.third_checks.saturating_add(1);
+                if wide_mask_overlaps_pair(
+                    &input.team_masks[i],
+                    &input.team_masks[j],
+                    &input.team_masks[k],
+                ) {
+                    continue;
+                }
+
+                metrics.compatible_triples = metrics.compatible_triples.saturating_add(1);
+                if apply_band_visit(
+                    &mut metrics,
+                    visit(indices_by_song(song0, i, song1, j, song2, k), score),
+                ) {
+                    return metrics;
+                }
+            }
+        }
+    }
+    metrics
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx2")]
+unsafe fn enumerate_band_avx2_x86(
+    input: &MedleyBandInput,
+    mut visit: impl FnMut([usize; 3], BandScore) -> MedleyBandVisit,
+) -> MedleyBandMetrics {
+    let implementation = MedleySolverImplementation::Avx2;
+    let Some(search) = prepare_band_search(&input.scores, input.floor) else {
+        return empty_band_metrics(input.floor, implementation);
+    };
+    let [song0, song1, song2] = search.song_order;
+    let song2_masks: Vec<TeamMask> = search.orders[song2]
+        .iter()
+        .map(|&idx| input.team_masks[idx])
+        .collect();
+    let song2_scores: Vec<BandScore> = search.orders[song2]
+        .iter()
+        .map(|&idx| input.scores[idx][song2])
+        .collect();
+    let mut metrics = empty_band_metrics(input.floor, implementation);
+    let zero = _mm256_setzero_si256();
+
+    for &i in &search.orders[song0] {
+        let score_i = input.scores[i][song0];
+        if sum3(score_i, search.max_scores[song1], search.max_scores[song2]) < metrics.final_floor {
+            break;
+        }
+
+        for &j in &search.orders[song1] {
+            let score_ij = score_i.saturating_add(input.scores[j][song1]);
+            if score_ij.saturating_add(search.max_scores[song2]) < metrics.final_floor {
+                break;
+            }
+            metrics.pair_checks = metrics.pair_checks.saturating_add(1);
+            if input.team_masks[i] & input.team_masks[j] != 0 {
+                continue;
+            }
+
+            let used = input.team_masks[i] | input.team_masks[j];
+            let used_vec = _mm256_set1_epi64x(used as i64);
+            let mut k_pos = 0usize;
+            'third: while k_pos + 4 <= song2_scores.len() {
+                if score_ij.saturating_add(song2_scores[k_pos]) < metrics.final_floor {
+                    break;
+                }
+                let mask_vec =
+                    _mm256_loadu_si256(song2_masks.as_ptr().add(k_pos) as *const __m256i);
+                let overlap = _mm256_and_si256(used_vec, mask_vec);
+                let disjoint = _mm256_cmpeq_epi64(overlap, zero);
+                let lanes = _mm256_movemask_pd(_mm256_castsi256_pd(disjoint)) as u32;
+
+                for lane in 0..4 {
+                    let score = score_ij.saturating_add(song2_scores[k_pos + lane]);
+                    if score < metrics.final_floor {
+                        k_pos = song2_scores.len();
+                        break 'third;
+                    }
+                    metrics.third_checks = metrics.third_checks.saturating_add(1);
+                    if lanes & (1 << lane) == 0 {
+                        continue;
+                    }
+                    metrics.compatible_triples = metrics.compatible_triples.saturating_add(1);
+                    let k = search.orders[song2][k_pos + lane];
+                    if apply_band_visit(
+                        &mut metrics,
+                        visit(indices_by_song(song0, i, song1, j, song2, k), score),
+                    ) {
+                        return metrics;
+                    }
+                }
+                k_pos += 4;
+            }
+
+            while k_pos < song2_scores.len() {
+                let score = score_ij.saturating_add(song2_scores[k_pos]);
+                if score < metrics.final_floor {
+                    break;
+                }
+                metrics.third_checks = metrics.third_checks.saturating_add(1);
+                if used & song2_masks[k_pos] == 0 {
+                    metrics.compatible_triples = metrics.compatible_triples.saturating_add(1);
+                    let k = search.orders[song2][k_pos];
+                    if apply_band_visit(
+                        &mut metrics,
+                        visit(indices_by_song(song0, i, song1, j, song2, k), score),
+                    ) {
+                        return metrics;
+                    }
+                }
+                k_pos += 1;
+            }
+        }
+    }
+    metrics
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx2")]
+unsafe fn enumerate_band_wide_avx2_x86(
+    input: &WideMedleyBandInput,
+    mut visit: impl FnMut([usize; 3], BandScore) -> MedleyBandVisit,
+) -> MedleyBandMetrics {
+    let implementation = MedleySolverImplementation::Avx2Wide;
+    let Some(search) = prepare_band_search(&input.scores, input.floor) else {
+        return empty_band_metrics(input.floor, implementation);
+    };
+    let [song0, song1, song2] = search.song_order;
+    let word_count = input.team_masks.first().map(Vec::len).unwrap_or_default();
+    let song2_masks_by_word: Vec<Vec<u64>> = (0..word_count)
+        .map(|word_idx| {
+            search.orders[song2]
+                .iter()
+                .map(|&idx| input.team_masks[idx][word_idx])
+                .collect()
+        })
+        .collect();
+    let song2_scores: Vec<BandScore> = search.orders[song2]
+        .iter()
+        .map(|&idx| input.scores[idx][song2])
+        .collect();
+    let mut used_words = vec![0u64; word_count];
+    let mut metrics = empty_band_metrics(input.floor, implementation);
+    let zero = _mm256_setzero_si256();
+
+    for &i in &search.orders[song0] {
+        let score_i = input.scores[i][song0];
+        if sum3(score_i, search.max_scores[song1], search.max_scores[song2]) < metrics.final_floor {
+            break;
+        }
+
+        for &j in &search.orders[song1] {
+            let score_ij = score_i.saturating_add(input.scores[j][song1]);
+            if score_ij.saturating_add(search.max_scores[song2]) < metrics.final_floor {
+                break;
+            }
+            metrics.pair_checks = metrics.pair_checks.saturating_add(1);
+            if wide_masks_overlap(&input.team_masks[i], &input.team_masks[j]) {
+                continue;
+            }
+            for (word_idx, used_word) in used_words.iter_mut().enumerate() {
+                *used_word = input.team_masks[i][word_idx] | input.team_masks[j][word_idx];
+            }
+
+            let mut k_pos = 0usize;
+            'third: while k_pos + 4 <= song2_scores.len() {
+                if score_ij.saturating_add(song2_scores[k_pos]) < metrics.final_floor {
+                    break;
+                }
+                let mut overlap_any = zero;
+                for (word_idx, &used_word) in used_words.iter().enumerate() {
+                    if used_word == 0 {
+                        continue;
+                    }
+                    let used_vec = _mm256_set1_epi64x(used_word as i64);
+                    let mask_vec = _mm256_loadu_si256(
+                        song2_masks_by_word[word_idx].as_ptr().add(k_pos) as *const __m256i,
+                    );
+                    overlap_any =
+                        _mm256_or_si256(overlap_any, _mm256_and_si256(used_vec, mask_vec));
+                }
+                let disjoint = _mm256_cmpeq_epi64(overlap_any, zero);
+                let lanes = _mm256_movemask_pd(_mm256_castsi256_pd(disjoint)) as u32;
+
+                for lane in 0..4 {
+                    let score = score_ij.saturating_add(song2_scores[k_pos + lane]);
+                    if score < metrics.final_floor {
+                        k_pos = song2_scores.len();
+                        break 'third;
+                    }
+                    metrics.third_checks = metrics.third_checks.saturating_add(1);
+                    if lanes & (1 << lane) == 0 {
+                        continue;
+                    }
+                    metrics.compatible_triples = metrics.compatible_triples.saturating_add(1);
+                    let k = search.orders[song2][k_pos + lane];
+                    if apply_band_visit(
+                        &mut metrics,
+                        visit(indices_by_song(song0, i, song1, j, song2, k), score),
+                    ) {
+                        return metrics;
+                    }
+                }
+                k_pos += 4;
+            }
+
+            while k_pos < song2_scores.len() {
+                let score = score_ij.saturating_add(song2_scores[k_pos]);
+                if score < metrics.final_floor {
+                    break;
+                }
+                metrics.third_checks = metrics.third_checks.saturating_add(1);
+                if !wide_mask_overlaps_words(
+                    &used_words,
+                    &input.team_masks[search.orders[song2][k_pos]],
+                ) {
+                    metrics.compatible_triples = metrics.compatible_triples.saturating_add(1);
+                    let k = search.orders[song2][k_pos];
+                    if apply_band_visit(
+                        &mut metrics,
+                        visit(indices_by_song(song0, i, song1, j, song2, k), score),
+                    ) {
+                        return metrics;
+                    }
+                }
+                k_pos += 1;
+            }
+        }
+    }
+    metrics
+}
+
+fn apply_band_visit(metrics: &mut MedleyBandMetrics, visit: MedleyBandVisit) -> bool {
+    match visit {
+        MedleyBandVisit::Continue { floor } => {
+            metrics.final_floor = metrics.final_floor.max(floor);
+            false
+        }
+        MedleyBandVisit::Break => {
+            metrics.stopped_early = true;
+            true
+        }
+    }
+}
+
+fn empty_band_metrics(
+    floor: BandScore,
+    implementation: MedleySolverImplementation,
+) -> MedleyBandMetrics {
+    MedleyBandMetrics {
+        final_floor: floor,
+        pair_checks: 0,
+        third_checks: 0,
+        compatible_triples: 0,
+        implementation,
+        stopped_early: false,
+    }
+}
+
 fn wide_masks_overlap(left: &[u64], right: &[u64]) -> bool {
     left.iter()
         .zip(right)
@@ -539,6 +914,113 @@ fn wide_mask_overlaps_words(used_words: &[u64], target: &[u64]) -> bool {
         .iter()
         .zip(target)
         .any(|(used, target)| used & target != 0)
+}
+
+struct BandSearchPreparation {
+    orders: [Vec<usize>; 3],
+    max_scores: [BandScore; 3],
+    song_order: [usize; 3],
+}
+
+fn prepare_band_search(
+    scores: &[[BandScore; 3]],
+    floor: BandScore,
+) -> Option<BandSearchPreparation> {
+    if scores.is_empty() {
+        return None;
+    }
+
+    let mut orders: [Vec<usize>; 3] = std::array::from_fn(|song_idx| {
+        let mut indices: Vec<usize> = (0..scores.len()).collect();
+        indices.sort_unstable_by_key(|&idx| std::cmp::Reverse(scores[idx][song_idx]));
+        indices
+    });
+    let max_scores = std::array::from_fn(|song_idx| scores[orders[song_idx][0]][song_idx]);
+    if sum3(max_scores[0], max_scores[1], max_scores[2]) < floor {
+        return None;
+    }
+
+    for song_idx in 0..3 {
+        let [other0, other1] = match song_idx {
+            0 => [1, 2],
+            1 => [0, 2],
+            _ => [0, 1],
+        };
+        orders[song_idx].retain(|&idx| {
+            sum3(
+                scores[idx][song_idx],
+                max_scores[other0],
+                max_scores[other1],
+            ) >= floor
+        });
+        if orders[song_idx].is_empty() {
+            return None;
+        }
+    }
+
+    const PERMUTATIONS: [[usize; 3]; 6] = [
+        [0, 1, 2],
+        [1, 0, 2],
+        [0, 2, 1],
+        [2, 0, 1],
+        [1, 2, 0],
+        [2, 1, 0],
+    ];
+    let song_order = *PERMUTATIONS
+        .iter()
+        .min_by_key(|&&[first, second, query]| {
+            (
+                viable_band_pair_upper_bound(
+                    scores,
+                    &orders[first],
+                    first,
+                    &orders[second],
+                    second,
+                    max_scores[query],
+                    floor,
+                ),
+                orders[query].len(),
+                [first, second, query],
+            )
+        })
+        .expect("the six song permutations are non-empty");
+
+    Some(BandSearchPreparation {
+        orders,
+        max_scores,
+        song_order,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn viable_band_pair_upper_bound(
+    scores: &[[BandScore; 3]],
+    first_order: &[usize],
+    first_song: usize,
+    second_order: &[usize],
+    second_song: usize,
+    query_max: BandScore,
+    floor: BandScore,
+) -> u64 {
+    let mut viable_second = second_order.len();
+    let mut count = 0u64;
+    for &first_idx in first_order {
+        while viable_second > 0
+            && sum3(
+                scores[first_idx][first_song],
+                scores[second_order[viable_second - 1]][second_song],
+                query_max,
+            ) < floor
+        {
+            viable_second -= 1;
+        }
+        count = count.saturating_add(viable_second as u64);
+    }
+    count
+}
+
+fn sum3(first: BandScore, second: BandScore, third: BandScore) -> BandScore {
+    first.saturating_add(second).saturating_add(third)
 }
 
 struct SearchPreparation {

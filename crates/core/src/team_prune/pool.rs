@@ -18,13 +18,13 @@ const TEAM_SIZE: usize = 5;
 const MEDLEY_TEAM_COUNT: usize = 3;
 
 #[derive(Debug, Clone)]
-pub(in crate::medley) struct SignatureCandidatePool {
-    pub(in crate::medley) signature: MedleyPruneSignature,
-    pub(in crate::medley) active_card_indices: Vec<usize>,
-    pub(in crate::medley) estimated_candidates: usize,
+pub(crate) struct SignatureCandidatePool {
+    pub(crate) signature: MedleyPruneSignature,
+    pub(crate) active_card_indices: Vec<usize>,
+    pub(crate) estimated_candidates: usize,
 }
 
-pub(in crate::medley) fn signature_candidate_pools(
+pub(crate) fn signature_candidate_pools(
     cards: &[PreparedCard],
     charts: &[Chart],
     profiles: &[MedleyCardPruneProfile],
@@ -75,6 +75,7 @@ pub(in crate::medley) fn signature_candidate_pools(
             &best_any_team_scores,
             &chart_eligibility_masks,
             MEDLEY_TEAM_COUNT,
+            None,
         );
         let active_ms = elapsed_ms(active_start);
         trace.active_indices_ms += active_ms;
@@ -119,6 +120,7 @@ fn signature_active_card_indices(
     best_any_team_scores: &[f64],
     chart_eligibility_masks: &[u8],
     team_count: usize,
+    replacement_values: Option<&[u64]>,
 ) -> (Vec<usize>, SignaturePoolStats) {
     let mut stats = SignaturePoolStats {
         signature: Some(signature),
@@ -132,7 +134,12 @@ fn signature_active_card_indices(
     stats.allowed_count = allowed_indices.len();
 
     let same_shape_indices = super::contribution::same_shape_contribution_active_indices(
-        cards, charts, profiles, signature, team_count,
+        cards,
+        charts,
+        profiles,
+        signature,
+        team_count,
+        replacement_values,
     );
     stats.score_contribution_same_pruned += allowed_indices
         .len()
@@ -172,6 +179,7 @@ fn signature_active_card_indices(
             &active,
             best_any_team_scores,
             chart_eligibility_masks,
+            replacement_values,
         );
         stats.trace.hard_graph_ms += same_stage.hard_graph_ms;
         stats.trace.contribution_context_ms += same_stage.contribution_context_ms;
@@ -216,6 +224,7 @@ fn signature_active_card_indices(
             &same_survivors,
             best_any_team_scores,
             chart_eligibility_masks,
+            replacement_values,
         );
         stats.trace.hard_graph_ms += cross_stage.hard_graph_ms;
         stats.trace.contribution_context_ms += cross_stage.contribution_context_ms;
@@ -287,6 +296,7 @@ fn staged_dominance_graphs(
     indices: &[usize],
     best_any_team_scores: &[f64],
     chart_eligibility_masks: &[u8],
+    replacement_values: Option<&[u64]>,
 ) -> StagedDominanceGraphs {
     let stage_cards = indices
         .iter()
@@ -300,10 +310,14 @@ fn staged_dominance_graphs(
         .iter()
         .map(|&idx| chart_eligibility_masks[idx])
         .collect::<Vec<_>>();
+    let stage_replacement_values =
+        replacement_values.map(|values| indices.iter().map(|&idx| values[idx]).collect::<Vec<_>>());
     let local_indices = (0..stage_cards.len()).collect::<Vec<_>>();
     let hard_start = Timer::start();
-    let hard_graph =
-        hard_dominance_graph_for_indices(&stage_cards, &stage_profiles, signature, &local_indices);
+    let hard_graph = filter_replacement_value_edges(
+        hard_dominance_graph_for_indices(&stage_cards, &stage_profiles, signature, &local_indices),
+        stage_replacement_values.as_deref(),
+    );
     let hard_graph_ms = elapsed_ms(hard_start);
     let context_start = Timer::start();
     let mut contribution = MedleyContributionDominance::with_best_any_team_scores(
@@ -315,11 +329,14 @@ fn staged_dominance_graphs(
     );
     let contribution_context_ms = elapsed_ms(context_start);
     let contribution_start = Timer::start();
-    let contribution_graph = contribution_dominance_graph_for_signature(
-        &stage_cards,
-        signature,
-        &hard_graph,
-        &mut contribution,
+    let contribution_graph = filter_replacement_value_edges(
+        contribution_dominance_graph_for_signature(
+            &stage_cards,
+            signature,
+            &hard_graph,
+            &mut contribution,
+        ),
+        stage_replacement_values.as_deref(),
     );
     let contribution_graph_ms = elapsed_ms(contribution_start);
     StagedDominanceGraphs {
@@ -333,11 +350,12 @@ fn staged_dominance_graphs(
     }
 }
 
-pub(in crate::medley) fn single_team_active_card_indices(
+pub(crate) fn single_team_active_card_indices(
     cards: &[PreparedCard],
     chart: &Chart,
     profiles: &[MedleyCardPruneProfile],
     signature: MedleyPruneSignature,
+    replacement_values: Option<&[u64]>,
 ) -> Vec<usize> {
     let charts = std::slice::from_ref(chart);
     let mut upper_bounds = MedleyPruneUpperBounds::new(cards, charts, profiles);
@@ -353,8 +371,27 @@ pub(in crate::medley) fn single_team_active_card_indices(
         &contribution_score_upper_bounds,
         &chart_eligibility_masks,
         1,
+        replacement_values,
     )
     .0
+}
+
+fn filter_replacement_value_edges(
+    graph: DominanceGraph,
+    replacement_values: Option<&[u64]>,
+) -> DominanceGraph {
+    let Some(values) = replacement_values else {
+        return graph;
+    };
+    let mut filtered = DominanceGraph::new(values.len());
+    for target_idx in 0..values.len() {
+        for &dominator_idx in graph.incoming(target_idx) {
+            if values[dominator_idx] >= values[target_idx] {
+                filtered.add_edge(dominator_idx, target_idx);
+            }
+        }
+    }
+    filtered
 }
 
 fn elapsed_ms(start: Timer) -> f64 {
@@ -449,6 +486,7 @@ mod tests {
             &contribution_score_upper_bounds,
             &chart_eligibility_masks,
             MEDLEY_TEAM_COUNT,
+            None,
         )
         .0
     }
@@ -462,7 +500,7 @@ mod tests {
             adjusted_card_stats(cards, &AreaItemPercent::empty(), &selected_cool_items());
         let profiles =
             medley_card_prune_profiles(cards, std::slice::from_ref(&chart), &card_stats).unwrap();
-        single_team_active_card_indices(cards, &chart, &profiles, signature)
+        single_team_active_card_indices(cards, &chart, &profiles, signature, None)
     }
 
     fn strong_card(card_id: u32, character_id: u32, attribute: Attribute) -> PreparedCard {
@@ -685,6 +723,7 @@ mod tests {
             &contribution_score_upper_bounds,
             &chart_eligibility_masks,
             MEDLEY_TEAM_COUNT,
+            None,
         )
         .0;
 

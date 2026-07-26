@@ -1,7 +1,8 @@
 use crate::DataError;
 use async_trait::async_trait;
 use bangdream_optimize_core::{
-    BuildResult, MaximizeOptions, PlayerConfig, ScoreRangeRequest, ScoreRangeResult, Server,
+    BuildResult, MaximizeOptions, PlayerConfig, PtMaximizeRequest, PtMaximizeResult,
+    ScoreRangeRequest, ScoreRangeResult, Server,
 };
 
 #[async_trait]
@@ -50,4 +51,15 @@ pub trait ScoreRangeInputBuilder: Send + Sync {
         event_id: Option<u32>,
         request: ScoreRangeRequest,
     ) -> Result<Vec<ScoreRangeResult>, DataError>;
+}
+
+#[async_trait]
+pub trait PtMaximizeInputBuilder: Send + Sync {
+    async fn pt_maximize(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        request: PtMaximizeRequest,
+    ) -> Result<PtMaximizeResult, DataError>;
 }

@@ -7,6 +7,11 @@ import {
   positiveIntegerOrUndefined,
 } from '../utils.js?v=3';
 import { CUSTOM_EVENT_ID } from './event.js?v=3';
+import {
+  PLAYER_CONFIG_SCHEMA_VERSION,
+  normalizePtMaximizeConfig,
+  normalizeScoreRangeConfig,
+} from './player-settings.js?v=3';
 
 const SERVER_INDEX = {
   jp: 0,
@@ -29,12 +34,14 @@ export function createPlayerModel({
     const calculationMode = normalizedCalculationMode(player.calculationMode);
     const server = normalizedServer(player.server);
     return {
+      playerConfigVersion: PLAYER_CONFIG_SCHEMA_VERSION,
       playerId: integerOrZero(player.playerId),
       server,
       currentEvent: player.currentEvent,
       calculationMode,
       activityMode: normalizedActivityMode(player.activityMode),
-      scoreRange: normalizedScoreRange(player.scoreRange, server),
+      scoreRange: normalizeScoreRangeConfig(player.scoreRange, server),
+      ptMaximize: normalizePtMaximizeConfig(player.ptMaximize),
       eventSongs: player.eventSongs ?? {},
       eventPresets: normalizedEventPresets(player.eventPresets),
       eventOverrides: normalizedEventOverrides(player.eventOverrides, calculationMode),
@@ -112,19 +119,6 @@ export function createPlayerModel({
     };
   }
 
-  function normalizedScoreRange(value = {}, server = 'cn') {
-    const autoBaseMultiplier = Number(value.autoBaseMultiplier);
-    return {
-      currentPt: nonNegativeIntegerOrDefault(value.currentPt, 0),
-      targetTotalPt: nonNegativeIntegerOrDefault(value.targetTotalPt, 0),
-      autoBaseMultiplier: [0.5, 0.75].includes(autoBaseMultiplier)
-        ? autoBaseMultiplier
-        : server === 'jp' ? 0.75 : 0.5,
-      missionSupportPtBonus: nonNegativeIntegerOrUndefined(value.missionSupportPtBonus),
-      maxResults: 1,
-    };
-  }
-
   function normalizedCards(cards = {}) {
     const normalized = {};
     for (const [cardId, config] of Object.entries(cards ?? {})) {
@@ -162,16 +156,6 @@ export function createPlayerModel({
     normalizedServer,
     normalizedStatRate,
   };
-}
-
-function nonNegativeIntegerOrDefault(value, fallback) {
-  const number = Number(value);
-  return Number.isSafeInteger(number) && number >= 0 ? number : fallback;
-}
-
-function nonNegativeIntegerOrUndefined(value) {
-  const number = Number(value);
-  return Number.isSafeInteger(number) && number >= 0 ? number : undefined;
 }
 
 export function normalizedServer(value) {

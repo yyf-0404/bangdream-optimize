@@ -2,7 +2,7 @@ use crate::model::chart::{Chart, ChartNode, ChartNodeType, TeamCardSkill};
 use crate::model::preparation::{PreparedCard, ScoreUp, StatValue};
 use crate::model::schema::{Attribute, Magazine, SelectedAreaItems};
 
-pub(in crate::medley) fn chart() -> Chart {
+pub(crate) fn chart() -> Chart {
     let mut nodes = Vec::new();
     for idx in 0..6 {
         nodes.push(ChartNode {
@@ -19,11 +19,11 @@ pub(in crate::medley) fn chart() -> Chart {
     chart
 }
 
-pub(in crate::medley) fn medley_charts() -> Vec<Chart> {
+pub(crate) fn medley_charts() -> Vec<Chart> {
     vec![chart(), chart(), chart()]
 }
 
-pub(in crate::medley) fn selected_cool_items() -> SelectedAreaItems {
+pub(crate) fn selected_cool_items() -> SelectedAreaItems {
     SelectedAreaItems {
         band: "1".to_owned(),
         attribute: "cool".to_owned(),
@@ -31,7 +31,7 @@ pub(in crate::medley) fn selected_cool_items() -> SelectedAreaItems {
     }
 }
 
-pub(in crate::medley) fn prepared_card(
+pub(crate) fn prepared_card(
     card_id: u32,
     character_id: u32,
     band_id: u32,

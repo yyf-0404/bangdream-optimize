@@ -51,3 +51,4 @@
 - `docs/server-api.md`
 - `docs/internal-testing.md`
 - `docs/web-static.md`
+- `docs/persistence.md`（网页/桌面用户配置、结果缓存和游戏数据缓存边界）

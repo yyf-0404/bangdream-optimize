@@ -1,11 +1,11 @@
-use super::{mode_candidates, CalculationError};
+use super::CalculationError;
 use crate::model::chart::Chart;
 use crate::model::preparation::{AreaItemPercent, PreparedCard};
 use crate::model::schema::{
     BuildResult, CalculationMetrics, EventType, SelectedAreaItems, SingleCalculationMetrics,
     SongBuildResult, SongSelection,
 };
-use crate::single::{calculate_single_song, SingleSongError, SingleSongResult};
+use crate::single::{calculate_single_song, mode_candidates, SingleSongError, SingleSongResult};
 use crate::timing::Timer;
 
 pub(super) fn calculate_single_result_for_items(

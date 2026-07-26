@@ -255,7 +255,7 @@ POST /v1/maximize
     },
     "solver": "avx2",
     "metrics": {
-      "coreVersion": "0.2.2",
+      "coreVersion": "0.3.0",
       "cardCount": 1950,
       "songCount": 3,
       "itemCombinationsBefore": 120,

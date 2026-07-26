@@ -3,6 +3,7 @@ import { iconButton } from '../ui/icons.js?v=3';
 import {
   ATTRIBUTE_VALUES,
   compactJoin,
+  eventTypeLabel,
   formatNumberInput,
 } from '../utils.js?v=3';
 
@@ -13,7 +14,6 @@ export function createEventView({
   editableEventSnapshot,
   isSupportedEventType,
   eventLabel,
-  eventSongsFromPreset,
   eventDateRange,
   normalizedEventAttributeAndCharacterBonus,
   normalizedEventCharacterParameterBonus,
@@ -49,17 +49,17 @@ export function createEventView({
       elements.eventSummary.textContent = compactJoin([
         eventLabel(eventId, player),
         `ID ${eventId}`,
-        `不支持的活动类型 ${event.eventType}`,
+        `活动类型：${eventTypeLabel(event.eventType)}`,
+        '当前计算目标不支持该活动类型',
       ]);
       return;
     }
 
-    const songCount = eventSongsFromPreset(event).length;
     elements.eventSummary.textContent = compactJoin([
       eventLabel(eventId, player),
       eventParametersEditable(player) ? '自定义' : '预设',
       `ID ${eventId}`,
-      songCount > 0 ? `${songCount} 首歌` : '无歌曲预设',
+      `活动类型：${eventTypeLabel(event.eventType)}`,
       eventDateRange(event),
     ]);
   }

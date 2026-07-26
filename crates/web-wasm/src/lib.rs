@@ -1,10 +1,12 @@
 use bangdream_optimize_core::{
     AreaItemDefinition, BuildResult, CardDefinition, EventType, ItemSearchOptions, PlayerConfig,
-    PreferredItemTarget, ScoreRangeChartMetaFile, ScoreRangeRequest, ScoreRangeResult, Server,
+    PreferredItemTarget, PtMaximizeRequest, PtMaximizeResult, ScoreRangeChartMetaFile,
+    ScoreRangeRequest, ScoreRangeResult, Server,
 };
 use bangdream_optimize_data::{
     chart_from_bestdori, event_bonus, published_score_range_song_selections, BestdoriData,
-    DataError, GameDataSnapshot, SnapshotMaximizeInputBuilder, SnapshotScoreRangeInputBuilder,
+    DataError, GameDataSnapshot, SnapshotMaximizeInputBuilder, SnapshotPtMaximizeInputBuilder,
+    SnapshotScoreRangeInputBuilder,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -67,6 +69,29 @@ pub struct WebScoreRangePayload {
     pub now_millis: u64,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebPtMaximizePayload {
+    pub cards: Value,
+    pub characters: Value,
+    pub skills: Value,
+    pub area_items: Value,
+    #[serde(default)]
+    pub cards_fix: Option<Value>,
+    #[serde(default)]
+    pub skills_fix: Option<Value>,
+    #[serde(default)]
+    pub area_items_fix: Option<Value>,
+    pub event: Value,
+    pub songs: BTreeMap<String, Value>,
+    pub charts: Vec<WebChartInput>,
+    pub player: PlayerConfig,
+    pub server: Server,
+    #[serde(default)]
+    pub event_id: Option<u32>,
+    pub request: PtMaximizeRequest,
+}
+
 #[wasm_bindgen(js_name = calculateFromStaticData)]
 pub fn calculate_from_static_data(payload_json: &str) -> Result<String, JsValue> {
     let payload: WebCalculationPayload =
@@ -85,6 +110,19 @@ pub fn score_range_from_static_data(payload_json: &str) -> Result<String, JsValu
     let payload: WebScoreRangePayload =
         serde_json::from_str(payload_json).map_err(|err| JsValue::from_str(&err.to_string()))?;
     score_range_payload(payload)
+        .and_then(|result| {
+            serde_json::to_string(&result).map_err(|err| DataError::JsonString {
+                message: err.to_string(),
+            })
+        })
+        .map_err(|err| JsValue::from_str(&err.to_string()))
+}
+
+#[wasm_bindgen(js_name = ptMaximizeFromStaticData)]
+pub fn pt_maximize_from_static_data(payload_json: &str) -> Result<String, JsValue> {
+    let payload: WebPtMaximizePayload =
+        serde_json::from_str(payload_json).map_err(|err| JsValue::from_str(&err.to_string()))?;
+    pt_maximize_payload(payload)
         .and_then(|result| {
             serde_json::to_string(&result).map_err(|err| DataError::JsonString {
                 message: err.to_string(),
@@ -208,6 +246,55 @@ pub fn score_range_payload(
     }
 
     SnapshotScoreRangeInputBuilder::new(snapshot).score_range_sync(
+        payload.player,
+        payload.server,
+        Some(event_id),
+        payload.request,
+    )
+}
+
+pub fn pt_maximize_payload(payload: WebPtMaximizePayload) -> Result<PtMaximizeResult, DataError> {
+    let event_id = payload
+        .event_id
+        .or(payload.player.current_event)
+        .ok_or(DataError::MissingCurrentEvent)?;
+    let event_type = event_type(&payload.event)?;
+    let mut game_data = BestdoriData::from_values(
+        payload.cards,
+        payload.characters,
+        payload.skills,
+        payload.area_items,
+    )?;
+    game_data.apply_repairs(
+        payload.cards_fix,
+        payload.skills_fix,
+        payload.area_items_fix,
+    )?;
+
+    let card_definitions = card_definitions(&payload.player, &game_data)?;
+    let area_item_definitions = area_item_definitions(&payload.player, payload.server, &game_data)?;
+    let mut snapshot = GameDataSnapshot::new(
+        card_definitions,
+        area_item_definitions,
+        BTreeMap::from([(
+            event_id,
+            bangdream_optimize_data::EventData {
+                event_type,
+                event_bonus: event_bonus(&payload.event)?,
+                preferred: preferred_item_target(&payload.event),
+            },
+        )]),
+    );
+    for chart in payload.charts {
+        let level = song_level(&payload.songs, chart.song_id, chart.difficulty)?;
+        snapshot.insert_chart(
+            chart.song_id,
+            chart.difficulty,
+            chart_from_bestdori(level, &chart.data)?,
+        );
+    }
+
+    SnapshotPtMaximizeInputBuilder::new(snapshot).pt_maximize_sync(
         payload.player,
         payload.server,
         Some(event_id),

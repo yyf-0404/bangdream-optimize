@@ -31,6 +31,7 @@ import {
   CUSTOM_EVENT_ID,
   isHiddenEventId,
   normalizedCalculationMode,
+  recentUnfinishedEvent,
 } from './models/event.js?v=3';
 import { createEventActions } from './actions/event.js?v=3';
 import { createEventContext } from './app/event.js?v=3';
@@ -330,6 +331,7 @@ const {
   peekPlayer,
   readPlayer,
   refreshPlayerProfiles,
+  initializePlayerDefaults,
   safeReadPlayer,
   savePlayerNow,
   writePlayer,
@@ -340,6 +342,7 @@ const {
   cacheEventPresetFromCore,
   activityModeForEvent,
   ensureSongListForMode,
+  recentUnfinishedEvent,
   renderPlayerProfileControls,
   onError: status.setError,
 });
@@ -466,6 +469,7 @@ const calculationActions = createCalculationActions({
   savePlayerNow,
   readOptionalInteger,
   applyEventInputToPlayer,
+  editableEventSnapshot,
   normalizeCurrentActivityForMode,
   ensureOwnedCardCharacterBonuses: configActions.ensureOwnedCardCharacterBonuses,
   ensureCore: deferred.ensureCore,
@@ -491,6 +495,7 @@ const resourceActions = createResourceActions({
   readPlayer,
   writePlayer,
   refreshPlayerProfiles,
+  initializePlayerDefaults,
   renderConfigForms: deferred.renderConfigForms,
   renderReferenceOptions,
   renderResultSummary: deferred.renderResultSummary,
@@ -629,7 +634,6 @@ const eventView = createEventView({
     readPlayer().calculationMode,
   ),
   eventLabel,
-  eventSongsFromPreset,
   eventDateRange,
   normalizedEventAttributeAndCharacterBonus,
   normalizedEventCharacterParameterBonus,
@@ -713,6 +717,7 @@ const { bootstrap } = createAppLifecycle({
   installRecoveringDatalistInput,
   ensureCore,
   ensurePlayerProfiles,
+  initializePlayerDefaults,
   readPlayer,
   writePlayer,
   renderConfigForms: pageController.renderConfigForms,
@@ -720,6 +725,7 @@ const { bootstrap } = createAppLifecycle({
   activatePage: pageController.activatePage,
   preloadReferenceData,
   warmupCardSearchIndex,
+  renderReferenceOptions,
   handlers: {
     ...activityActions,
     ...calculationActions,

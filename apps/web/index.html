@@ -222,7 +222,11 @@
                     <section class="config-section activity-grid">
                     <fieldset id="calculation-mode" class="calculation-mode-field">
                       <legend>计算目标</legend>
-                      <div class="segmented-control">
+                      <div class="segmented-control calculation-mode-control">
+                        <label>
+                          <input type="radio" name="calculation-mode" value="ptMaximize" />
+                          <span>最大PT（平均）</span>
+                        </label>
                         <label>
                           <input type="radio" name="calculation-mode" value="maximize" checked />
                           <span>最高得分</span>
@@ -234,7 +238,7 @@
                       </div>
                     </fieldset>
 
-                    <label>
+                    <label class="event-search-field">
                       <span>活动</span>
                       <input id="event-search" list="event-options" placeholder="输入活动名或 ID" />
                     </label>
@@ -244,6 +248,19 @@
                     <div class="activity-actions">
                       <button type="button" id="custom-event">使用自定义</button>
                     </div>
+
+                    <fieldset class="event-type-filter-field">
+                      <legend>活动类型</legend>
+                      <div class="event-type-filter-list">
+                        <label><input type="checkbox" name="event-type-filter" value="mission_live" checked /><span>协力</span></label>
+                        <label><input type="checkbox" name="event-type-filter" value="live_try" checked /><span>EX</span></label>
+                        <label><input type="checkbox" name="event-type-filter" value="versus" checked /><span>对邦</span></label>
+                        <label><input type="checkbox" name="event-type-filter" value="medley" checked /><span>组曲</span></label>
+                        <label><input type="checkbox" name="event-type-filter" value="festival" checked /><span>5v5</span></label>
+                        <label><input type="checkbox" name="event-type-filter" value="challenge" checked /><span>CP</span></label>
+                        <button type="button" id="toggle-event-type-filters" class="event-type-filter-toggle">全选</button>
+                      </div>
+                    </fieldset>
                   </section>
 
                     <p id="calculation-mode-hint" class="calculation-mode-hint" aria-live="polite">当前模式仅支持巡回演出、挑战 Live 和竞演 Live。</p>
@@ -270,6 +287,140 @@
                         <input id="score-range-mission-support-pt" type="number" min="0" step="1" inputmode="numeric" />
                         <small class="score-range-field-hint">请先使用配置较低的队伍完成一次自由演出并记录支援 PT 加成，然后在卡牌列表中删除对应成员，再将记录值填入上方输入框。</small>
                       </label>
+                    </section>
+
+                    <section class="pt-maximize-controls" id="pt-maximize-controls" hidden>
+                      <fieldset class="pt-choice-field pt-live-variant-field">
+                        <legend>演出模式</legend>
+                        <div id="pt-maximize-live-variant" class="segmented-control"></div>
+                      </fieldset>
+
+                      <div id="pt-maximize-parameter-grid" class="pt-maximize-parameter-grid">
+                        <section class="pt-parameter-pane pt-other-parameter-pane">
+                          <label id="pt-maximize-minimum-stat-field" hidden>
+                            <span>自己的最低综合力</span>
+                            <input id="pt-maximize-minimum-stat" type="number" min="0" step="1" inputmode="numeric" value="290000" />
+                          </label>
+                          <label id="pt-maximize-mission-support-field" hidden>
+                            <span>支援乐队 PT 加成</span>
+                            <input id="pt-maximize-mission-support-pt" type="number" min="0" step="1" inputmode="numeric" value="100" />
+                          </label>
+                          <fieldset id="pt-maximize-versus-rank-field" class="pt-choice-field" hidden>
+                            <legend>排名</legend>
+                            <div id="pt-maximize-versus-rank" class="segmented-control">
+                              <label><input type="radio" name="pt-maximize-versus-rank" value="0" checked /><span>1</span></label>
+                              <label><input type="radio" name="pt-maximize-versus-rank" value="1" /><span>2</span></label>
+                              <label><input type="radio" name="pt-maximize-versus-rank" value="2" /><span>3</span></label>
+                              <label><input type="radio" name="pt-maximize-versus-rank" value="3" /><span>4</span></label>
+                              <label><input type="radio" name="pt-maximize-versus-rank" value="4" /><span>5</span></label>
+                            </div>
+                          </fieldset>
+                          <div id="pt-maximize-festival-other-fields" class="pt-festival-other-fields" hidden>
+                            <fieldset class="pt-choice-field">
+                              <legend>队内排名</legend>
+                              <div id="pt-maximize-festival-rank" class="segmented-control">
+                                <label><input type="radio" name="pt-maximize-festival-rank" value="0" checked /><span>1</span></label>
+                                <label><input type="radio" name="pt-maximize-festival-rank" value="1" /><span>2</span></label>
+                                <label><input type="radio" name="pt-maximize-festival-rank" value="2" /><span>3</span></label>
+                                <label><input type="radio" name="pt-maximize-festival-rank" value="3" /><span>4</span></label>
+                                <label><input type="radio" name="pt-maximize-festival-rank" value="4" /><span>5</span></label>
+                              </div>
+                            </fieldset>
+                            <fieldset class="pt-choice-field">
+                              <legend>队伍结果</legend>
+                              <div id="pt-maximize-festival-won" class="segmented-control">
+                                <label><input type="radio" name="pt-maximize-festival-won" value="false" /><span>未获胜</span></label>
+                                <label><input type="radio" name="pt-maximize-festival-won" value="true" checked /><span>队伍获胜</span></label>
+                              </div>
+                            </fieldset>
+                          </div>
+                        </section>
+
+                        <section id="pt-maximize-teammate-pane" class="pt-parameter-pane pt-teammate-parameter-pane" hidden>
+                          <div id="pt-maximize-cooperative-fields" class="pt-teammate-parameter-fields" hidden>
+                            <fieldset class="pt-choice-field">
+                              <legend class="pt-parameter-subheading">队长选择</legend>
+                              <div id="pt-maximize-cooperative-leader-mode" class="segmented-control">
+                                <label><input type="radio" name="pt-maximize-cooperative-leader-mode" value="max_stat" checked /><span>最大综合力</span></label>
+                                <label><input type="radio" name="pt-maximize-cooperative-leader-mode" value="specified" /><span>指定</span></label>
+                                <label><input type="radio" name="pt-maximize-cooperative-leader-mode" value="random" /><span>随机</span></label>
+                              </div>
+                              <div id="pt-maximize-specified-leader-field" class="pt-specified-leader-field" hidden>
+                                <div id="pt-maximize-specified-leader" class="segmented-control pt-specified-leader-control">
+                                  <label><input type="radio" name="pt-maximize-specified-leader" value="0" checked /><span>自己</span></label>
+                                  <label><input type="radio" name="pt-maximize-specified-leader" value="1" /><span>队友 1</span></label>
+                                  <label><input type="radio" name="pt-maximize-specified-leader" value="2" /><span>队友 2</span></label>
+                                  <label><input type="radio" name="pt-maximize-specified-leader" value="3" /><span>队友 3</span></label>
+                                  <label><input type="radio" name="pt-maximize-specified-leader" value="4" /><span>队友 4</span></label>
+                                </div>
+                              </div>
+                              <small id="pt-maximize-cooperative-leader-hint" class="score-range-field-hint">选择综合力最高的玩家；综合力相同时，队长随机选择。</small>
+                            </fieldset>
+                            <h3 class="pt-parameter-subheading">队友参数</h3>
+                            <fieldset class="pt-choice-field" aria-label="设置方式">
+                              <div id="pt-maximize-teammate-mode" class="segmented-control">
+                                <label><input type="radio" name="pt-maximize-teammate-mode" value="uniform" checked /><span>四人统一</span></label>
+                                <label><input type="radio" name="pt-maximize-teammate-mode" value="individual" /><span>分别设置</span></label>
+                              </div>
+                            </fieldset>
+                            <div class="pt-teammate-table-wrap">
+                              <table class="pt-teammate-table">
+                                <thead>
+                                  <tr><th>队友</th><th>综合力</th><th>技能时长</th><th>技能加成</th></tr>
+                                </thead>
+                                <tbody>
+                                  <tr data-repeated-row>
+                                    <th class="pt-cooperative-teammate-label" scope="row">队友 1</th>
+                                    <td><input class="pt-teammate-stat" type="number" min="0" step="1" value="290000" aria-label="队友 1 综合力" /></td>
+                                    <td><span class="input-with-unit"><input class="pt-teammate-duration" type="number" min="0" step="0.01" value="7.0" aria-label="队友 1 技能时长" /><span>s</span></span></td>
+                                    <td><span class="input-with-unit"><input class="pt-teammate-score-up" type="number" min="0" step="0.01" value="130" aria-label="队友 1 技能加成" /><span>%</span></span></td>
+                                  </tr>
+                                  <tr data-repeated-row>
+                                    <th class="pt-cooperative-teammate-label" scope="row">队友 2</th>
+                                    <td><input class="pt-teammate-stat" type="number" min="0" step="1" value="290000" aria-label="队友 2 综合力" /></td>
+                                    <td><span class="input-with-unit"><input class="pt-teammate-duration" type="number" min="0" step="0.01" value="7.0" aria-label="队友 2 技能时长" /><span>s</span></span></td>
+                                    <td><span class="input-with-unit"><input class="pt-teammate-score-up" type="number" min="0" step="0.01" value="130" aria-label="队友 2 技能加成" /><span>%</span></span></td>
+                                  </tr>
+                                  <tr data-repeated-row>
+                                    <th class="pt-cooperative-teammate-label" scope="row">队友 3</th>
+                                    <td><input class="pt-teammate-stat" type="number" min="0" step="1" value="290000" aria-label="队友 3 综合力" /></td>
+                                    <td><span class="input-with-unit"><input class="pt-teammate-duration" type="number" min="0" step="0.01" value="7.0" aria-label="队友 3 技能时长" /><span>s</span></span></td>
+                                    <td><span class="input-with-unit"><input class="pt-teammate-score-up" type="number" min="0" step="0.01" value="130" aria-label="队友 3 技能加成" /><span>%</span></span></td>
+                                  </tr>
+                                  <tr data-repeated-row>
+                                    <th class="pt-cooperative-teammate-label" scope="row">队友 4</th>
+                                    <td><input class="pt-teammate-stat" type="number" min="0" step="1" value="290000" aria-label="队友 4 综合力" /></td>
+                                    <td><span class="input-with-unit"><input class="pt-teammate-duration" type="number" min="0" step="0.01" value="7.0" aria-label="队友 4 技能时长" /><span>s</span></span></td>
+                                    <td><span class="input-with-unit"><input class="pt-teammate-score-up" type="number" min="0" step="0.01" value="130" aria-label="队友 4 技能加成" /><span>%</span></span></td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                          <div id="pt-maximize-festival-teammate-fields" class="pt-teammate-parameter-fields" hidden>
+                            <h3 class="pt-parameter-subheading">队友参数</h3>
+                            <fieldset class="pt-choice-field" aria-label="预计分数设置">
+                              <div id="pt-maximize-festival-teammate-mode" class="segmented-control">
+                                <label><input type="radio" name="pt-maximize-festival-teammate-mode" value="uniform" checked /><span>四人统一</span></label>
+                                <label><input type="radio" name="pt-maximize-festival-teammate-mode" value="individual" /><span>分别设置</span></label>
+                              </div>
+                            </fieldset>
+                            <div class="pt-teammate-table-wrap">
+                              <table class="pt-teammate-table pt-festival-teammate-table">
+                                <thead>
+                                  <tr><th>队友</th><th>预计分数</th></tr>
+                                </thead>
+                                <tbody>
+                                  <tr data-repeated-row><th class="pt-festival-teammate-label" scope="row">队友 1</th><td><input class="pt-festival-teammate-score" type="number" min="0" step="1" value="4000000" aria-label="队友 1 预计分数" /></td></tr>
+                                  <tr data-repeated-row><th class="pt-festival-teammate-label" scope="row">队友 2</th><td><input class="pt-festival-teammate-score" type="number" min="0" step="1" value="4000000" aria-label="队友 2 预计分数" /></td></tr>
+                                  <tr data-repeated-row><th class="pt-festival-teammate-label" scope="row">队友 3</th><td><input class="pt-festival-teammate-score" type="number" min="0" step="1" value="4000000" aria-label="队友 3 预计分数" /></td></tr>
+                                  <tr data-repeated-row><th class="pt-festival-teammate-label" scope="row">队友 4</th><td><input class="pt-festival-teammate-score" type="number" min="0" step="1" value="4000000" aria-label="队友 4 预计分数" /></td></tr>
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </section>
+                      </div>
                     </section>
 
                     <div class="event-summary" id="event-summary"></div>

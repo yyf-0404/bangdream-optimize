@@ -19,6 +19,24 @@ import { emptyMessage } from '../ui/dom.js?v=3';
 import { renderDifficultyList } from './song.js?v=3';
 
 const POINT_BONUS_EVENT_TYPES = new Set(['challenge', 'live_try', 'mission_live']);
+const FIRE_PT_MULTIPLIERS = Object.freeze([
+  { resource: 0, multiplier: 1 },
+  { resource: 1, multiplier: 5 },
+  { resource: 2, multiplier: 10 },
+  { resource: 3, multiplier: 15 },
+]);
+const CHALLENGE_CP_MULTIPLIERS = Object.freeze([
+  { resource: 200, multiplier: 1 },
+  { resource: 400, multiplier: 2 },
+  { resource: 800, multiplier: 4 },
+  { resource: 1600, multiplier: 8 },
+]);
+
+export function ptResultMultiplierOptions(liveVariant) {
+  return liveVariant === 'challenge_cp'
+    ? CHALLENGE_CP_MULTIPLIERS
+    : FIRE_PT_MULTIPLIERS;
+}
 
 export function renderMetrics(metricsElement, metrics) {
   metricsElement.textContent = '';
@@ -27,17 +45,11 @@ export function renderMetrics(metricsElement, metrics) {
     return;
   }
 
-  const rows = [
-    ['总耗时', formatMs(metrics.totalElapsedMs)],
-  ];
-
-  for (const [label, value] of rows) {
-    const term = document.createElement('dt');
-    term.textContent = label;
-    const detail = document.createElement('dd');
-    detail.textContent = String(value ?? '-');
-    metricsElement.append(term, detail);
-  }
+  const term = document.createElement('dt');
+  term.textContent = '总耗时';
+  const detail = document.createElement('dd');
+  detail.textContent = formatMs(metrics.totalElapsedMs);
+  metricsElement.append(term, detail);
 }
 
 export function renderResultSummary(resultElement, result, deps, { diagnostic } = {}) {
@@ -54,6 +66,14 @@ export function renderResultSummary(resultElement, result, deps, { diagnostic } 
 
   if (Array.isArray(result)) {
     renderScoreRangeSummary(resultElement, result, deps);
+    return;
+  }
+  if (result.team?.evaluation?.averagePt) {
+    renderPtMaximizeSummary(resultElement, result, deps);
+    return;
+  }
+  if (result.medley?.averagePt) {
+    renderPtMaximizeMedleySummary(resultElement, result, deps);
     return;
   }
 
@@ -90,6 +110,221 @@ export function renderResultSummary(resultElement, result, deps, { diagnostic } 
   }
   songSection.append(title, list);
   resultElement.append(songSection);
+}
+
+function renderPtMaximizeSummary(resultElement, result, deps) {
+  const team = result.team;
+  const evaluation = team.evaluation;
+  const average = evaluation.averagePt;
+  const overview = document.createElement('section');
+  overview.className = 'result-overview';
+  const averagePtStat = resultStat('平均活动 PT', '-', 'strong');
+  overview.append(
+    averagePtStat,
+    resultStat('平均分数', formatScoreDistributionAverage(evaluation.scoreDistribution)),
+    resultStat('综合力', formatInteger(team.totalStat)),
+  );
+  let averageCpGainStat;
+  if (evaluation.averageCpGain) {
+    averageCpGainStat = resultStat('平均 CP 获取', '-');
+    overview.append(averageCpGainStat);
+  }
+  let challengeCpCostStat;
+  if (evaluation.challengeCpCost != null) {
+    challengeCpCostStat = resultStat('CP 消耗', '-');
+    overview.append(challengeCpCostStat);
+  }
+  const multiplierSelector = renderPtMultiplierSelector(result.liveVariant, ({ resource, multiplier }) => {
+    setResultStatValue(averagePtStat, formatScaledAverageInteger(
+      average.ptSum,
+      average.sampleCount,
+      multiplier,
+    ));
+    if (averageCpGainStat) {
+      setResultStatValue(averageCpGainStat, formatScaledAverageFixed(
+        evaluation.averageCpGain.ptSum,
+        evaluation.averageCpGain.sampleCount,
+        multiplier,
+        4,
+      ));
+    }
+    if (challengeCpCostStat) {
+      setResultStatValue(challengeCpCostStat, `${formatInteger(resource)} CP`);
+    }
+  });
+  resultElement.append(
+    renderPtScenario(result),
+    multiplierSelector,
+    overview,
+  );
+  if (team.items) {
+    resultElement.append(renderSelectedItems(team.items, deps));
+  }
+  resultElement.append(renderPtMaximizeSongSection(
+    result.songs,
+    [team],
+    deps,
+  ));
+}
+
+function renderPtMaximizeMedleySummary(resultElement, result, deps) {
+  const medley = result.medley;
+  const average = medley.averagePt;
+  const overview = document.createElement('section');
+  overview.className = 'result-overview';
+  const averagePtStat = resultStat('平均活动 PT', '-', 'strong');
+  overview.append(
+    averagePtStat,
+    resultStat('平均分数', formatAverageInteger(
+      medley.totalScoreSum,
+      medley.sampleCount,
+    )),
+  );
+  const multiplierSelector = renderPtMultiplierSelector(result.liveVariant, ({ multiplier }) => {
+    setResultStatValue(averagePtStat, formatScaledAverageInteger(
+      average.ptSum,
+      average.sampleCount,
+      multiplier,
+    ));
+  });
+  resultElement.append(
+    renderPtScenario(result),
+    multiplierSelector,
+    overview,
+  );
+
+  const teams = Array.isArray(medley.teams) ? medley.teams : [];
+  if (teams[0]?.items) {
+    resultElement.append(renderSelectedItems(teams[0].items, deps));
+  }
+  resultElement.append(renderPtMaximizeSongSection(result.songs, teams, deps));
+}
+
+function renderPtMultiplierSelector(liveVariant, onChange) {
+  const challenge = liveVariant === 'challenge_cp';
+  const section = document.createElement('section');
+  section.className = 'result-section result-multiplier-section';
+  const title = document.createElement('h3');
+  title.textContent = '倍率选择';
+  const control = document.createElement('div');
+  control.className = 'segmented-control result-multiplier-control';
+  control.setAttribute('role', 'radiogroup');
+  control.setAttribute('aria-label', challenge ? '挑战演出 CP 倍率' : '演出火倍率');
+  const options = ptResultMultiplierOptions(liveVariant);
+  const radioName = `pt-result-multiplier-${challenge ? 'cp' : 'fire'}`;
+  for (const [index, option] of options.entries()) {
+    const label = document.createElement('label');
+    const input = document.createElement('input');
+    input.type = 'radio';
+    input.name = radioName;
+    input.value = String(option.multiplier);
+    input.checked = index === 0;
+    const text = document.createElement('span');
+    text.textContent = challenge
+      ? `${option.resource} CP / ${option.multiplier} 倍`
+      : `${option.resource} 火 / ${option.multiplier} 倍`;
+    label.append(input, text);
+    control.append(label);
+  }
+  const update = () => {
+    const checked = control.querySelector('input:checked');
+    const selected = options.find(
+      (option) => option.multiplier === Number(checked?.value),
+    ) ?? options[0];
+    onChange(selected);
+  };
+  control.addEventListener('change', update);
+  section.append(title, control);
+  update();
+  return section;
+}
+
+function setResultStatValue(stat, value) {
+  const output = stat.querySelector('strong');
+  if (output) {
+    output.textContent = String(value ?? '-');
+  }
+}
+
+function renderPtScenario(result) {
+  const scenario = result.scenario ?? {};
+  const section = document.createElement('section');
+  section.className = 'result-section result-diagnostic result-scenario';
+  const title = document.createElement('h3');
+  title.textContent = '计算场景';
+  const details = document.createElement('dl');
+  details.className = 'result-diagnostic-grid result-scenario-grid';
+  details.append(diagnosticItem('演出模式', ptLiveVariantLabel(result.liveVariant)));
+  if (scenario.versus) {
+    details.append(diagnosticItem(
+      '排名',
+      `第 ${Number(scenario.versus.teamRank) + 1} 名`,
+    ));
+  }
+  if (scenario.festival) {
+    details.append(
+      diagnosticItem(
+        '队内排名',
+        `第 ${Number(scenario.festival.teamRank) + 1} 名`,
+      ),
+      diagnosticItem('队伍结果', scenario.festival.won ? '获胜' : '失败'),
+    );
+  }
+  section.append(title, details);
+  return section;
+}
+
+function ptLiveVariantLabel(value) {
+  return {
+    solo: '自由演出',
+    cooperative: '协力演出',
+    versus: '竞演演出',
+    medley: '巡回演出',
+    festival: '团队演出',
+    challenge_cp: '挑战演出',
+  }[value] ?? String(value ?? '-');
+}
+
+function renderPtMaximizeSongSection(songs, teams, deps) {
+  const section = document.createElement('section');
+  section.className = 'result-section';
+  const title = document.createElement('h3');
+  title.textContent = '歌曲与队伍';
+  section.append(title);
+  const list = document.createElement('div');
+  list.className = 'result-song-list';
+  const songResults = teams.flatMap((team, index) => {
+    const song = songs?.[index];
+    if (!song) {
+      return [];
+    }
+    const scoreDistribution = team.scoreDistribution ?? team.evaluation?.scoreDistribution;
+    return [{
+      ...song,
+      score: roundedAverage(
+        scoreDistribution?.scoreSum,
+        scoreDistribution?.sampleCount,
+      ),
+      stat: team.totalStat,
+      teamCardIds: team.teamCardIds,
+      captainCardId: team.captainCardId,
+    }];
+  });
+  const maxScore = songResults.reduce(
+    (max, song) => Math.max(max, Number(song.score) || 0),
+    0,
+  );
+  for (const [index, song] of songResults.entries()) {
+    list.append(renderSongResult(song, index, maxScore, deps, {
+      skillTitle: '队伍',
+      showSkillOrder: false,
+    }));
+  }
+  if (songResults.length === 0) {
+    list.append(emptyMessage('没有歌曲结果', 'result-empty'));
+  }
+  section.append(list);
+  return section;
 }
 
 function renderSkillQueueRisk(songs, deps) {
@@ -301,8 +536,12 @@ function resultStat(label, value, tone) {
 function renderSelectedItems(items, deps) {
   const bandId = deps.selectedBandId(items.band);
   const section = document.createElement('section');
-  section.className = 'result-items';
-  section.append(
+  section.className = 'result-section result-items-section';
+  const title = document.createElement('h3');
+  title.textContent = '道具选择';
+  const itemsGrid = document.createElement('div');
+  itemsGrid.className = 'result-items';
+  itemsGrid.append(
     resultItem('乐队道具', bandId == null ? selectedBandLabel(items.band) : bandLabel(bandId), {
       imageUrls: bandIconUrls(bandId),
     }),
@@ -311,6 +550,7 @@ function renderSelectedItems(items, deps) {
     }),
     resultItem('杂志道具', magazineLabel(items.magazine)),
   );
+  section.append(title, itemsGrid);
   return section;
 }
 
@@ -329,7 +569,10 @@ function resultItem(label, value, { imageUrls } = {}) {
   return item;
 }
 
-function renderSongResult(song, index, maxScore, deps) {
+function renderSongResult(song, index, maxScore, deps, {
+  skillTitle = '最优技能顺序',
+  showSkillOrder = true,
+} = {}) {
   const card = document.createElement('article');
   card.className = 'result-song';
 
@@ -376,17 +619,23 @@ function renderSongResult(song, index, maxScore, deps) {
     resultItem('综合力', formatInteger(song.stat)),
   );
 
-  card.append(header, bar, details, renderSkillOrder(song, deps));
+  card.append(header, bar, details, renderSkillOrder(song, deps, {
+    sectionTitle: skillTitle,
+    showOrder: showSkillOrder,
+  }));
   return card;
 }
 
-function renderSkillOrder(song, deps) {
+function renderSkillOrder(song, deps, {
+  sectionTitle = '最优技能顺序',
+  showOrder = true,
+} = {}) {
   const section = document.createElement('section');
   section.className = 'result-skill-order';
   const title = document.createElement('div');
   title.className = 'result-item result-skill-order-title';
   const titleText = document.createElement('span');
-  titleText.textContent = '最优技能顺序';
+  titleText.textContent = sectionTitle;
   title.append(titleText);
   const preview = document.createElement('div');
   preview.className = 'result-skill-preview';
@@ -397,7 +646,7 @@ function renderSkillOrder(song, deps) {
     for (const [index, cardId] of cardIds.entries()) {
       preview.append(resultSkillCard(cardId, {
         isCaptain: cardId === song.captainCardId,
-        orderIndex: index,
+        orderIndex: showOrder ? index : undefined,
       }, deps));
     }
   }
@@ -412,9 +661,12 @@ function skillOrderCardIds(song) {
 }
 
 function resultSkillCard(cardId, { isCaptain, orderIndex }, deps) {
-  const orderBadge = document.createElement('span');
-  orderBadge.className = 'result-skill-order-badge';
-  orderBadge.textContent = String(orderIndex + 1);
+  let orderBadge;
+  if (Number.isInteger(orderIndex)) {
+    orderBadge = document.createElement('span');
+    orderBadge.className = 'result-skill-order-badge';
+    orderBadge.textContent = String(orderIndex + 1);
+  }
   const playerCard = deps.cardConfig(cardId);
   const nameText = deps.cardName?.(cardId) ?? deps.cardLabel(cardId);
   return cardPreviewItem({
@@ -427,4 +679,40 @@ function resultSkillCard(cardId, { isCaptain, orderIndex }, deps) {
     title: deps.cardLabel(cardId),
     leading: orderBadge,
   });
+}
+
+function formatScoreDistributionAverage(distribution) {
+  return formatAverageInteger(distribution?.scoreSum, distribution?.sampleCount);
+}
+
+function formatAverageInteger(sum, count) {
+  const average = roundedAverage(sum, count);
+  return average == null ? '-' : formatInteger(average);
+}
+
+export function formatScaledAverageInteger(sum, count, multiplier) {
+  const average = roundedAverage(Number(sum) * Number(multiplier), count);
+  return average == null ? '-' : formatInteger(average);
+}
+
+export function formatScaledAverageFixed(sum, count, multiplier, digits) {
+  const numerator = Number(sum) * Number(multiplier);
+  const denominator = Number(count);
+  if (
+    !Number.isFinite(numerator)
+    || !Number.isFinite(denominator)
+    || denominator <= 0
+  ) {
+    return '-';
+  }
+  return (numerator / denominator).toFixed(digits);
+}
+
+function roundedAverage(sum, count) {
+  const numerator = Number(sum);
+  const denominator = Number(count);
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) {
+    return undefined;
+  }
+  return Math.round(numerator / denominator);
 }

@@ -1,7 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use bangdream_optimize_core::{
-    BuildResult, ItemSearchOptions, PlayerConfig, ScoreRangeRequest, ScoreRangeResult, Server,
+    BuildResult, ItemSearchOptions, PlayerConfig, PtMaximizeRequest, PtMaximizeResult,
+    ScoreRangeRequest, ScoreRangeResult, Server,
 };
 use bangdream_optimize_desktop::{
     DesktopConfig, DesktopGameDataSource, DesktopOptimizer, DesktopReferenceData,
@@ -32,16 +33,16 @@ struct UserConfigList {
 }
 
 #[tauri::command]
-fn load_player_config(state: State<'_, AppState>) -> Result<Option<PlayerConfig>, String> {
+fn load_player_config(state: State<'_, AppState>) -> Result<Option<Value>, String> {
     optimizer(&state)?
-        .load_active_user_config()
+        .load_active_user_config_value()
         .map_err(command_error)
 }
 
 #[tauri::command]
-fn save_player_config(state: State<'_, AppState>, player: PlayerConfig) -> Result<(), String> {
+fn save_player_config(state: State<'_, AppState>, player: Value) -> Result<(), String> {
     optimizer(&state)?
-        .save_active_user_config(player)
+        .save_active_user_config_value(player)
         .map_err(command_error)
 }
 
@@ -54,7 +55,7 @@ fn list_player_configs(state: State<'_, AppState>) -> Result<UserConfigList, Str
         .is_empty()
     {
         optimizer
-            .create_user_config("默认配置", default_player_config())
+            .create_user_config_value("默认配置", default_user_config())
             .map_err(command_error)?;
     }
     Ok(UserConfigList {
@@ -69,13 +70,13 @@ fn list_player_configs(state: State<'_, AppState>) -> Result<UserConfigList, Str
 fn select_player_config(
     state: State<'_, AppState>,
     config_id: String,
-) -> Result<Option<PlayerConfig>, String> {
+) -> Result<Option<Value>, String> {
     let optimizer = optimizer(&state)?;
     optimizer
         .set_active_user_config_id(&config_id)
         .map_err(command_error)?;
     optimizer
-        .load_user_config(&config_id)
+        .load_user_config_value(&config_id)
         .map_err(command_error)
 }
 
@@ -83,10 +84,10 @@ fn select_player_config(
 fn create_player_config(
     state: State<'_, AppState>,
     name: String,
-    player: PlayerConfig,
+    player: Value,
 ) -> Result<UserConfigProfile, String> {
     optimizer(&state)?
-        .create_user_config(name, player)
+        .create_user_config_value(name, player)
         .map_err(command_error)
 }
 
@@ -94,10 +95,10 @@ fn create_player_config(
 fn duplicate_player_config(
     state: State<'_, AppState>,
     name: String,
-    player: PlayerConfig,
+    player: Value,
 ) -> Result<UserConfigProfile, String> {
     optimizer(&state)?
-        .create_user_config(name, player)
+        .create_user_config_value(name, player)
         .map_err(command_error)
 }
 
@@ -116,12 +117,14 @@ fn rename_player_config(
 fn delete_player_config(
     state: State<'_, AppState>,
     config_id: String,
-) -> Result<Option<PlayerConfig>, String> {
+) -> Result<Option<Value>, String> {
     let optimizer = optimizer(&state)?;
     optimizer
         .delete_user_config(&config_id)
         .map_err(command_error)?;
-    optimizer.load_active_user_config().map_err(command_error)
+    optimizer
+        .load_active_user_config_value()
+        .map_err(command_error)
 }
 
 #[tauri::command]
@@ -206,6 +209,20 @@ async fn score_range_for_config(
 }
 
 #[tauri::command]
+async fn pt_maximize_for_config(
+    state: State<'_, AppState>,
+    player: PlayerConfig,
+    server: Server,
+    event_id: Option<u32>,
+    request: PtMaximizeRequest,
+) -> Result<PtMaximizeResult, String> {
+    run_optimizer_task(state, move |optimizer| {
+        optimizer.pt_maximize_for_config(player, server, event_id, request)
+    })
+    .await
+}
+
+#[tauri::command]
 async fn save_json_file(file_name: String, text: String) -> Result<bool, String> {
     run_blocking_task(move || {
         let Some(path) = rfd::FileDialog::new()
@@ -279,6 +296,7 @@ fn main() {
             runtime_info,
             calculate_for_config,
             score_range_for_config,
+            pt_maximize_for_config,
             save_json_file,
         ])
         .run(tauri::generate_context!())
@@ -335,7 +353,7 @@ fn default_player_config() -> PlayerConfig {
     PlayerConfig {
         mongo_id: None,
         player_id: 0,
-        current_event: Some(287),
+        current_event: None,
         event_songs: BTreeMap::new(),
         event_presets: BTreeMap::new(),
         event_overrides: BTreeMap::new(),
@@ -343,6 +361,10 @@ fn default_player_config() -> PlayerConfig {
         area_item: BTreeMap::new(),
         character_bouns: BTreeMap::new(),
     }
+}
+
+fn default_user_config() -> Value {
+    serde_json::to_value(default_player_config()).expect("default player config is serializable")
 }
 
 fn command_error(err: impl std::fmt::Display) -> String {

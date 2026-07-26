@@ -1,15 +1,15 @@
 use crate::{
     chart_from_bestdori, event_bonus, published_score_range_song_selections,
     utils::into_object_map, BestdoriData, DataError, EventData, GameDataSnapshot,
-    MaximizeInputBuilder, ScoreRangeInputBuilder, SnapshotMaximizeInputBuilder,
-    SnapshotScoreRangeInputBuilder,
+    MaximizeInputBuilder, PtMaximizeInputBuilder, ScoreRangeInputBuilder,
+    SnapshotMaximizeInputBuilder, SnapshotPtMaximizeInputBuilder, SnapshotScoreRangeInputBuilder,
 };
 use async_trait::async_trait;
 use bangdream_optimize_core::{
     AreaItemDefinition, BuildResult, CardDefinition, EventType, ItemSearchOptions,
-    PlayerCardConfig, PlayerConfig, PreferredItemTarget, ScoreRangeChartMeta,
-    ScoreRangeChartMetaFile, ScoreRangeRequest, ScoreRangeResult, Server, SongSelection,
-    SCORE_RANGE_CHART_META_PATH,
+    PlayerCardConfig, PlayerConfig, PreferredItemTarget, PtMaximizeRequest, PtMaximizeResult,
+    ScoreRangeChartMeta, ScoreRangeChartMetaFile, ScoreRangeRequest, ScoreRangeResult, Server,
+    SongSelection, SCORE_RANGE_CHART_META_PATH,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
@@ -278,6 +278,25 @@ impl BestdoriFilesystemCalculationInputBuilder {
         let song_list = self.published_score_range_songs(server)?;
         let snapshot = self.snapshot_for_score_range(&player, event_id, &song_list, server)?;
         SnapshotScoreRangeInputBuilder::new(snapshot).score_range_sync(
+            player,
+            server,
+            Some(event_id),
+            request,
+        )
+    }
+
+    pub fn pt_maximize_sync(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        request: PtMaximizeRequest,
+    ) -> Result<PtMaximizeResult, DataError> {
+        let event_id = event_id
+            .or(player.current_event)
+            .ok_or(DataError::MissingCurrentEvent)?;
+        let snapshot = self.snapshot_for(&player, event_id, &request.songs, server)?;
+        SnapshotPtMaximizeInputBuilder::new(snapshot).pt_maximize_sync(
             player,
             server,
             Some(event_id),
@@ -560,6 +579,19 @@ impl ScoreRangeInputBuilder for BestdoriFilesystemCalculationInputBuilder {
         request: ScoreRangeRequest,
     ) -> Result<Vec<ScoreRangeResult>, DataError> {
         self.score_range_sync(player, server, event_id, request)
+    }
+}
+
+#[async_trait]
+impl PtMaximizeInputBuilder for BestdoriFilesystemCalculationInputBuilder {
+    async fn pt_maximize(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        request: PtMaximizeRequest,
+    ) -> Result<PtMaximizeResult, DataError> {
+        self.pt_maximize_sync(player, server, event_id, request)
     }
 }
 
@@ -1271,6 +1303,118 @@ mod tests {
             metrics.item_combinations_after,
             expected_metrics.item_combinations_after
         );
+    }
+
+    #[test]
+    #[ignore = "slow; benchmarks strict three-song average-PT search with the full diagnostic fixture"]
+    fn benchmarks_pt_maximize_medley_with_full_diagnostic_fixture() {
+        let diagnostic = full_diagnostic_fixture();
+        let event_id = diagnostic
+            .event_id
+            .or(diagnostic.player.current_event)
+            .unwrap_or(diagnostic.result.event_id);
+        let root = std::env::var("BANGDREAM_OPTIMIZE_GAME_DATA_ROOT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../var/game-data")
+            });
+        let builder = BestdoriFilesystemCalculationInputBuilder::load(
+            BestdoriFilesystemConfig::from_bestdori_api_root(&root),
+        )
+        .unwrap();
+        let songs = diagnostic
+            .result
+            .songs
+            .iter()
+            .map(|song| SongSelection {
+                song_id: song.song_id,
+                difficulty: song.difficulty,
+            })
+            .collect::<Vec<_>>();
+        let started_at = std::time::Instant::now();
+        let result = builder
+            .pt_maximize_sync(
+                diagnostic.player,
+                diagnostic.server,
+                Some(event_id),
+                bangdream_optimize_core::PtMaximizeRequest {
+                    event_type: EventType::Medley,
+                    live_variant: bangdream_optimize_core::LiveVariant::Medley,
+                    songs,
+                    minimum_personal_stat: None,
+                    mission_support_pt_bonus: None,
+                    cooperative: None,
+                    versus: None,
+                    festival: None,
+                },
+            )
+            .unwrap();
+        eprintln!(
+            "full PT-maximize medley fixture: average_pt={:.6} min_pt={} max_pt={} elapsed_ms={:.3} teams={:?}",
+            result.medley.as_ref().unwrap().average_pt.as_f64(),
+            result.medley.as_ref().unwrap().min_pt,
+            result.medley.as_ref().unwrap().max_pt,
+            started_at.elapsed().as_secs_f64() * 1000.0,
+            result.medley.as_ref().unwrap().teams,
+        );
+        assert_eq!(
+            result.live_variant,
+            bangdream_optimize_core::LiveVariant::Medley
+        );
+        assert_eq!(result.medley.unwrap().teams.len(), 3);
+    }
+
+    #[test]
+    #[ignore = "slow; benchmarks strict single-song average-PT search with the full diagnostic fixture"]
+    fn benchmarks_pt_maximize_single_with_full_diagnostic_fixture() {
+        let diagnostic = full_diagnostic_fixture();
+        let event_id = 306;
+        let root = std::env::var("BANGDREAM_OPTIMIZE_GAME_DATA_ROOT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../var/game-data")
+            });
+        let builder = BestdoriFilesystemCalculationInputBuilder::load(
+            BestdoriFilesystemConfig::from_bestdori_api_root(&root),
+        )
+        .unwrap();
+        let started_at = std::time::Instant::now();
+        let result = builder
+            .pt_maximize_sync(
+                diagnostic.player,
+                diagnostic.server,
+                Some(event_id),
+                bangdream_optimize_core::PtMaximizeRequest {
+                    event_type: EventType::Challenge,
+                    live_variant: bangdream_optimize_core::LiveVariant::Solo,
+                    songs: vec![SongSelection {
+                        song_id: 306,
+                        difficulty: 3,
+                    }],
+                    minimum_personal_stat: None,
+                    mission_support_pt_bonus: None,
+                    cooperative: None,
+                    versus: None,
+                    festival: None,
+                },
+            )
+            .unwrap();
+        let team = result.team.as_ref().unwrap();
+        eprintln!(
+            "full PT-maximize single fixture: average_pt={:.6} min_pt={} max_pt={} elapsed_ms={:.3} stat={} cards={:?} items={:?}",
+            team.evaluation.average_pt.as_f64(),
+            team.evaluation.min_pt,
+            team.evaluation.max_pt,
+            started_at.elapsed().as_secs_f64() * 1000.0,
+            team.total_stat,
+            team.team_card_ids,
+            team.items,
+        );
+        assert_eq!(
+            result.live_variant,
+            bangdream_optimize_core::LiveVariant::Solo
+        );
+        assert_eq!(result.songs.len(), 1);
     }
 
     #[test]

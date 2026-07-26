@@ -7,6 +7,7 @@ pub mod event;
 pub mod filesystem;
 pub mod maximize;
 pub mod preparation;
+pub mod pt_maximize;
 pub mod score_range;
 pub mod snapshot;
 pub mod traits;
@@ -27,6 +28,7 @@ pub use maximize::{SnapshotCalculationInputBuilder, SnapshotMaximizeInputBuilder
 pub use preparation::{
     event_songs, initialized_charts, prepare_event_context, PreparedEventContext,
 };
+pub use pt_maximize::SnapshotPtMaximizeInputBuilder;
 pub use score_range::{
     is_score_range_song_available, prepare_score_range_input,
     published_score_range_song_selections, PreparedScoreRangeInput, SnapshotScoreRangeInputBuilder,
@@ -34,7 +36,7 @@ pub use score_range::{
 pub use snapshot::{CalculationDataSnapshot, EventCalculationData, EventData, GameDataSnapshot};
 pub use traits::{
     CalculationInputBuilder, MaximizeInputBuilder, PlayerConfigRepository, PlayerConfigStore,
-    ScoreRangeInputBuilder,
+    PtMaximizeInputBuilder, ScoreRangeInputBuilder,
 };
 
 pub type BestdoriFilesystemCalculator = BestdoriFilesystemCalculationInputBuilder;

@@ -1,4 +1,5 @@
-use super::{NumericCardSource, SingleSongError, SingleSongResult};
+use super::{candidate::ResolvedSingleCard, SingleSongError, SingleSongResult};
+use crate::single::profile::skill_meta_profile;
 use crate::timing::{optional_elapsed_ms, Timer};
 use crate::{
     floor_team_stat, model::chart::CompiledSixSkillScore, Chart, DpChartModel, TeamCardSkill,
@@ -96,7 +97,7 @@ struct SearchContext<'a> {
 }
 
 pub(super) fn solve(
-    cards: &[NumericCardSource],
+    cards: &[ResolvedSingleCard],
     chart: &Chart,
 ) -> Result<SingleSongResult, SingleSongError> {
     let trace = exact_profile_enabled();
@@ -168,7 +169,7 @@ fn exact_profile_enabled() -> bool {
 }
 
 fn prepare_cards(
-    cards: &[NumericCardSource],
+    cards: &[ResolvedSingleCard],
     chart: &Chart,
 ) -> Result<(Vec<TeamCardSkill>, Vec<Vec<ExactCard>>, usize, usize), SingleSongError> {
     let model = DpChartModel::from_chart(chart);
@@ -192,21 +193,7 @@ fn prepare_cards(
             skills.push(card.skill);
             id
         });
-        let (normal_meta, captain_meta) = if chart.warning.is_empty() {
-            let mut normal_meta = [0.0; TEAM_SIZE];
-            for (position, value) in normal_meta.iter_mut().enumerate() {
-                *value = model.skill_term(chart, position, card.skill)?.sb;
-            }
-            (
-                normal_meta,
-                model.skill_term(chart, TEAM_SIZE, card.skill)?.sb,
-            )
-        } else {
-            let upper = chart
-                .optimistic_skill_meta_any_window(card.skill)
-                .map_err(crate::DpModelError::from)?;
-            ([upper; TEAM_SIZE], upper)
-        };
+        let meta = skill_meta_profile(chart, &model, card.skill)?;
         groups
             .entry(card.character_id)
             .or_default()
@@ -219,9 +206,9 @@ fn prepare_cards(
                     rateup: card.skill.rateup,
                 },
                 score_up: card.skill.score_up,
-                normal_meta,
-                captain_meta,
-                position_order: normal_position_order(normal_meta),
+                normal_meta: meta.normal,
+                captain_meta: meta.captain,
+                position_order: normal_position_order(meta.normal),
             });
     }
 

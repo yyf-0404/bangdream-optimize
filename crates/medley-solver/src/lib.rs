@@ -10,6 +10,7 @@ mod threshold_benchmark;
 
 pub type TeamMask = u64;
 pub type Score = i32;
+pub type BandScore = i64;
 pub type WideTeamMask = Vec<u64>;
 
 pub const AUTO_EXACT_CANDIDATE_THRESHOLD: usize = 196_608;
@@ -30,6 +31,36 @@ pub struct WideMedleySolverInput {
     pub current_best: Score,
     pub team_masks: Vec<WideTeamMask>,
     pub scores: Vec<[Score; 3]>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MedleyBandInput {
+    pub floor: BandScore,
+    pub team_masks: Vec<TeamMask>,
+    pub scores: Vec<[BandScore; 3]>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WideMedleyBandInput {
+    pub floor: BandScore,
+    pub team_masks: Vec<WideTeamMask>,
+    pub scores: Vec<[BandScore; 3]>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MedleyBandVisit {
+    Continue { floor: BandScore },
+    Break,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MedleyBandMetrics {
+    pub final_floor: BandScore,
+    pub pair_checks: u64,
+    pub third_checks: u64,
+    pub compatible_triples: u64,
+    pub implementation: MedleySolverImplementation,
+    pub stopped_early: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -168,6 +199,50 @@ pub fn solve_medley_wide_with(
     }
 }
 
+/// Enumerates every mutually-disjoint three-team plan whose additive score is
+/// at least the current floor. The visitor may monotonically raise the floor
+/// after an exact downstream evaluation, or stop the traversal.
+pub fn enumerate_medley_band(
+    input: &MedleyBandInput,
+    visit: impl FnMut([usize; 3], BandScore) -> MedleyBandVisit,
+) -> Result<MedleyBandMetrics, MedleySolverError> {
+    validate_band(input)?;
+    exact::enumerate_band(input, visit)
+}
+
+/// Wide-mask counterpart of [`enumerate_medley_band`].
+pub fn enumerate_medley_band_wide(
+    input: &WideMedleyBandInput,
+    visit: impl FnMut([usize; 3], BandScore) -> MedleyBandVisit,
+) -> Result<MedleyBandMetrics, MedleySolverError> {
+    validate_band_wide(input)?;
+    exact::enumerate_band_wide(input, visit)
+}
+
+/// Produces a fast valid incumbent for a later strict search. The returned
+/// plan is approximate and must not be used as a proof of optimality.
+pub fn solve_medley_seed_with_rounds(
+    input: &MedleySolverInput,
+    rounds: usize,
+) -> Result<MedleySolverPlan, MedleySolverError> {
+    validate(input)?;
+    random_bucket::solve_random_bucket_narrow_with_rounds(
+        input.current_best,
+        &input.team_masks,
+        &input.scores,
+        rounds,
+    )
+}
+
+/// Wide-mask counterpart of [`solve_medley_seed_with_rounds`].
+pub fn solve_medley_wide_seed_with_rounds(
+    input: &WideMedleySolverInput,
+    rounds: usize,
+) -> Result<MedleySolverPlan, MedleySolverError> {
+    validate_wide(input)?;
+    random_bucket::solve_random_bucket_wide_with_rounds(input, rounds)
+}
+
 fn solve_medley_auto(input: &MedleySolverInput) -> Result<MedleySolverPlan, MedleySolverError> {
     let route = select_auto_route(input.scores.len());
     match route {
@@ -261,8 +336,41 @@ fn validate_wide(input: &WideMedleySolverInput) -> Result<(), MedleySolverError>
     Ok(())
 }
 
+fn validate_band(input: &MedleyBandInput) -> Result<(), MedleySolverError> {
+    if input.team_masks.len() != input.scores.len() {
+        return Err(MedleySolverError::LengthMismatch {
+            team_masks: input.team_masks.len(),
+            scores: input.scores.len(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_band_wide(input: &WideMedleyBandInput) -> Result<(), MedleySolverError> {
+    if input.team_masks.len() != input.scores.len() {
+        return Err(MedleySolverError::LengthMismatch {
+            team_masks: input.team_masks.len(),
+            scores: input.scores.len(),
+        });
+    }
+
+    let expected = input.team_masks.first().map(Vec::len).unwrap_or_default();
+    for (index, mask) in input.team_masks.iter().enumerate() {
+        if mask.len() != expected {
+            return Err(MedleySolverError::WideMaskWordCountMismatch {
+                index,
+                expected,
+                actual: mask.len(),
+            });
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::*;
 
     #[test]
@@ -502,6 +610,144 @@ mod tests {
                 plan.implementation,
                 MedleySolverImplementation::RandomBucket
             );
+        }
+    }
+
+    #[test]
+    fn band_enumerator_visits_every_compatible_triple_at_or_above_floor() {
+        let input = MedleyBandInput {
+            floor: 20,
+            team_masks: vec![1, 2, 4, 8],
+            scores: vec![[10, 1, 1], [1, 10, 1], [1, 1, 10], [8, 8, 8]],
+        };
+        let mut actual = BTreeSet::new();
+        let metrics = enumerate_medley_band(&input, |indices, score| {
+            actual.insert((indices, score));
+            MedleyBandVisit::Continue { floor: input.floor }
+        })
+        .unwrap();
+
+        let mut expected = BTreeSet::new();
+        for first in 0..input.scores.len() {
+            for second in 0..input.scores.len() {
+                if input.team_masks[first] & input.team_masks[second] != 0 {
+                    continue;
+                }
+                for third in 0..input.scores.len() {
+                    if (input.team_masks[first] | input.team_masks[second])
+                        & input.team_masks[third]
+                        != 0
+                    {
+                        continue;
+                    }
+                    let score =
+                        input.scores[first][0] + input.scores[second][1] + input.scores[third][2];
+                    if score >= input.floor {
+                        expected.insert(([first, second, third], score));
+                    }
+                }
+            }
+        }
+
+        assert_eq!(actual, expected);
+        assert_eq!(metrics.compatible_triples, expected.len() as u64);
+        assert!(!metrics.stopped_early);
+    }
+
+    #[test]
+    fn wide_band_enumerator_matches_narrow_and_can_raise_floor() {
+        let input = MedleyBandInput {
+            floor: 0,
+            team_masks: vec![1, 2, 4, 8],
+            scores: vec![[10, 1, 1], [1, 10, 1], [1, 1, 10], [8, 8, 8]],
+        };
+        let wide = WideMedleyBandInput {
+            floor: input.floor,
+            team_masks: input.team_masks.iter().map(|&mask| vec![mask, 0]).collect(),
+            scores: input.scores.clone(),
+        };
+        let mut narrow_first = None;
+        let narrow_metrics = enumerate_medley_band(&input, |indices, score| {
+            narrow_first = Some((indices, score));
+            MedleyBandVisit::Continue { floor: i64::MAX }
+        })
+        .unwrap();
+        let mut wide_first = None;
+        let wide_metrics = enumerate_medley_band_wide(&wide, |indices, score| {
+            wide_first = Some((indices, score));
+            MedleyBandVisit::Continue { floor: i64::MAX }
+        })
+        .unwrap();
+
+        assert_eq!(wide_first, narrow_first);
+        assert_eq!(narrow_metrics.compatible_triples, 1);
+        assert_eq!(wide_metrics.compatible_triples, 1);
+        assert_eq!(narrow_metrics.final_floor, i64::MAX);
+        assert_eq!(wide_metrics.final_floor, i64::MAX);
+    }
+
+    #[test]
+    fn band_enumerator_matches_bruteforce_across_song_permutations() {
+        let mut state = 0x517c_c1b7_2722_0a95u64;
+        let mut next = || {
+            state ^= state << 7;
+            state ^= state >> 9;
+            state
+        };
+
+        for _ in 0..64 {
+            let mut team_masks = Vec::new();
+            let mut scores = Vec::new();
+            for _ in 0..9 {
+                let first = (next() % 18) as u32;
+                let mut second = (next() % 18) as u32;
+                if second == first {
+                    second = (second + 1) % 18;
+                }
+                team_masks.push((1u64 << first) | (1u64 << second));
+                scores.push([
+                    (next() % 1_000) as BandScore,
+                    (next() % 1_000) as BandScore,
+                    (next() % 1_000) as BandScore,
+                ]);
+            }
+            let floor = (next() % 2_400) as BandScore;
+            let input = MedleyBandInput {
+                floor,
+                team_masks,
+                scores,
+            };
+
+            let mut actual = BTreeSet::new();
+            enumerate_medley_band(&input, |indices, score| {
+                actual.insert((indices, score));
+                MedleyBandVisit::Continue { floor }
+            })
+            .unwrap();
+
+            let mut expected = BTreeSet::new();
+            for first in 0..input.scores.len() {
+                for second in 0..input.scores.len() {
+                    if input.team_masks[first] & input.team_masks[second] != 0 {
+                        continue;
+                    }
+                    for third in 0..input.scores.len() {
+                        if (input.team_masks[first] | input.team_masks[second])
+                            & input.team_masks[third]
+                            != 0
+                        {
+                            continue;
+                        }
+                        let score = input.scores[first][0]
+                            + input.scores[second][1]
+                            + input.scores[third][2];
+                        if score >= floor {
+                            expected.insert(([first, second, third], score));
+                        }
+                    }
+                }
+            }
+            assert_eq!(actual, expected);
         }
     }
 }

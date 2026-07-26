@@ -25,51 +25,19 @@ pub(crate) fn seed_medley_result_for_items(
     selected_items: &SelectedAreaItems,
     options: TeamGenerationOptions,
 ) -> Result<Option<BuildResult>, TeamBuildError> {
-    if song_list.len() != MEDLEY_TEAM_COUNT || charts.len() != MEDLEY_TEAM_COUNT {
+    if song_list.len() != MEDLEY_TEAM_COUNT {
         return Ok(None);
     }
-    if cards.len() < MEDLEY_TOTAL_CARD_COUNT {
-        return Ok(None);
-    }
-
-    let card_stats = adjusted_card_stats(cards, area_item_percent, selected_items);
-    let mut skill_meta_cache = SkillMetaCache::new(charts.len());
-    let mut exact_score_scratch = ExactScoreScratch::default();
-    let mut song_candidates = Vec::with_capacity(MEDLEY_TEAM_COUNT);
-    for song_idx in 0..MEDLEY_TEAM_COUNT {
-        let candidates = seed_team_candidates_for_song(
-            cards,
-            charts,
-            &card_stats,
-            options,
-            song_idx,
-            &mut skill_meta_cache,
-            &mut exact_score_scratch,
-        )?;
-        if candidates.is_empty() {
-            return Ok(None);
-        }
-        song_candidates.push(candidates);
-    }
-
-    let Some(indices) = best_seed_candidate_indices(&song_candidates) else {
-        return Ok(None);
-    };
-
-    let mut chosen = [
-        song_candidates[0][indices[0]].clone(),
-        song_candidates[1][indices[1]].clone(),
-        song_candidates[2][indices[2]].clone(),
-    ];
-    improve_seed_partition(
-        &mut chosen,
+    let Some(chosen) = seed_medley_candidates_for_items(
         cards,
         charts,
-        &card_stats,
+        area_item_percent,
+        selected_items,
         options,
-        &mut skill_meta_cache,
-        &mut exact_score_scratch,
-    )?;
+    )?
+    else {
+        return Ok(None);
+    };
     let chosen_candidates = [
         &chosen[0].candidate,
         &chosen[1].candidate,
@@ -509,4 +477,72 @@ fn seed_song_result(
             .unwrap_or_default(),
         skill_queue_risk: false,
     }
+}
+
+pub(crate) fn seed_medley_raw_team_indices_for_items(
+    cards: &[PreparedCard],
+    charts: &[Chart],
+    area_item_percent: &AreaItemPercent,
+    selected_items: &SelectedAreaItems,
+    options: TeamGenerationOptions,
+) -> Result<Option<[[usize; TEAM_SIZE]; MEDLEY_TEAM_COUNT]>, TeamBuildError> {
+    Ok(
+        seed_medley_candidates_for_items(
+            cards,
+            charts,
+            area_item_percent,
+            selected_items,
+            options,
+        )?
+        .map(|chosen| chosen.map(|candidate| candidate.raw_indices)),
+    )
+}
+
+fn seed_medley_candidates_for_items(
+    cards: &[PreparedCard],
+    charts: &[Chart],
+    area_item_percent: &AreaItemPercent,
+    selected_items: &SelectedAreaItems,
+    options: TeamGenerationOptions,
+) -> Result<Option<[SeedTeamCandidate; MEDLEY_TEAM_COUNT]>, TeamBuildError> {
+    if charts.len() != MEDLEY_TEAM_COUNT || cards.len() < MEDLEY_TOTAL_CARD_COUNT {
+        return Ok(None);
+    }
+    let card_stats = adjusted_card_stats(cards, area_item_percent, selected_items);
+    let mut skill_meta_cache = SkillMetaCache::new(charts.len());
+    let mut exact_score_scratch = ExactScoreScratch::default();
+    let mut song_candidates = Vec::with_capacity(MEDLEY_TEAM_COUNT);
+    for song_idx in 0..MEDLEY_TEAM_COUNT {
+        let candidates = seed_team_candidates_for_song(
+            cards,
+            charts,
+            &card_stats,
+            options,
+            song_idx,
+            &mut skill_meta_cache,
+            &mut exact_score_scratch,
+        )?;
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+        song_candidates.push(candidates);
+    }
+    let Some(indices) = best_seed_candidate_indices(&song_candidates) else {
+        return Ok(None);
+    };
+    let mut chosen = [
+        song_candidates[0][indices[0]].clone(),
+        song_candidates[1][indices[1]].clone(),
+        song_candidates[2][indices[2]].clone(),
+    ];
+    improve_seed_partition(
+        &mut chosen,
+        cards,
+        charts,
+        &card_stats,
+        options,
+        &mut skill_meta_cache,
+        &mut exact_score_scratch,
+    )?;
+    Ok(Some(chosen))
 }

@@ -25,6 +25,23 @@ pub fn chart_from_bestdori(level: i32, chart_data: &Value) -> Result<Chart, Data
     bpm_points.sort_by(|a, b| a.beat.total_cmp(&b.beat));
     compute_bpm_times(&mut bpm_points)?;
 
+    let fever_start_beat = notes
+        .iter()
+        .flat_map(|note| {
+            note.get("connections")
+                .and_then(Value::as_array)
+                .map_or_else(|| vec![note], |connections| connections.iter().collect())
+        })
+        .filter(|note| {
+            !note.get("hidden").and_then(Value::as_bool).unwrap_or(false)
+                && note.get("charge").and_then(Value::as_bool).unwrap_or(false)
+        })
+        .filter_map(|note| note.get("beat").and_then(Value::as_f64))
+        .max_by(f64::total_cmp);
+    let fever_start = fever_start_beat
+        .map(|beat| time_for_beat(&bpm_points, beat))
+        .transpose()?;
+
     let mut nodes = Vec::new();
     for note in notes {
         match note.get("type").and_then(Value::as_str) {
@@ -53,7 +70,7 @@ pub fn chart_from_bestdori(level: i32, chart_data: &Value) -> Result<Chart, Data
         }
     }
 
-    Ok(Chart::new(level, nodes))
+    Ok(Chart::new_with_fever_start(level, nodes, fever_start))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -120,6 +137,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(chart.level, 25);
+        assert!(!chart.has_fever_section());
         assert_eq!(chart.count, 4);
         assert_eq!(chart.nodes[0].node_type, ChartNodeType::Skill);
         assert!((chart.nodes[0].time - 0.5).abs() < 1e-9);
@@ -130,6 +148,33 @@ mod tests {
                 .filter(|node| node.node_type == ChartNodeType::Skill)
                 .count(),
             2
+        );
+    }
+
+    #[test]
+    fn maps_last_visible_charge_note_to_fever_boundary() {
+        let chart = chart_from_bestdori(
+            25,
+            &json!([
+                {"type": "BPM", "beat": 0, "bpm": 120},
+                {"type": "Single", "beat": 4, "charge": true},
+                {"type": "Long", "connections": [
+                    {"beat": 5, "charge": true, "hidden": true},
+                    {"beat": 6, "charge": true}
+                ]},
+                {"type": "Single", "beat": 7}
+            ]),
+        )
+        .unwrap();
+
+        assert!(chart.has_fever_section());
+        let mut normal = chart.clone();
+        normal.init(0, false).unwrap();
+        let mut fever = chart;
+        fever.init_with_fever(0, false).unwrap();
+        assert!(
+            fever.no_skill_score_at_stat(100_000).unwrap()
+                > normal.no_skill_score_at_stat(100_000).unwrap()
         );
     }
 }

@@ -1,8 +1,8 @@
 use crate::{DataError, GameDataSnapshot};
 use bangdream_optimize_core::{
     calculate_area_item_percent, event_point_bonus_percent, prepare_cards, AreaItemPercent,
-    CardDefinition, Chart, EventBonus, EventType, PlayerConfig, PreferredItemTarget, PreparedCard,
-    SongSelection,
+    CardDefinition, Chart, EventBonus, EventBonusApplication, EventType, PlayerConfig,
+    PreferredItemTarget, PreparedCard, SongSelection,
 };
 use std::collections::BTreeMap;
 
@@ -13,6 +13,7 @@ pub struct PreparedEventContext {
     pub cards_with_stat_bonus: Vec<PreparedCard>,
     pub cards_without_event_bonus: Vec<PreparedCard>,
     pub point_bonus_micros: BTreeMap<u32, u64>,
+    pub all_point_bonus_micros: BTreeMap<u32, u64>,
     pub area_item_percent: AreaItemPercent,
     pub preferred: Option<PreferredItemTarget>,
 }
@@ -31,12 +32,29 @@ impl PreparedEventContext {
             &self.cards_with_stat_bonus
         }
     }
+
+    pub fn pt_maximize_cards(&self, application: EventBonusApplication) -> &[PreparedCard] {
+        match application {
+            EventBonusApplication::TeamStat => &self.cards_with_stat_bonus,
+            EventBonusApplication::PointMultiplier => &self.cards_without_event_bonus,
+        }
+    }
+
+    pub fn pt_maximize_point_bonus_micros(
+        &self,
+        application: EventBonusApplication,
+    ) -> &BTreeMap<u32, u64> {
+        match application {
+            EventBonusApplication::TeamStat => &self.point_bonus_micros,
+            EventBonusApplication::PointMultiplier => &self.all_point_bonus_micros,
+        }
+    }
 }
 
 fn event_uses_point_bonus(event_type: EventType) -> bool {
     matches!(
         event_type,
-        EventType::LiveTry | EventType::Challenge | EventType::MissionLive
+        EventType::LiveTry | EventType::Challenge | EventType::Festival | EventType::MissionLive
     )
 }
 
@@ -60,27 +78,24 @@ pub fn prepare_event_context(
         &event.event_bonus,
     )?;
     let uses_point_bonus = event_uses_point_bonus(event.event_type);
-    let cards_without_event_bonus = if uses_point_bonus {
-        prepare_cards(
-            &card_definitions,
-            &player.card_list,
-            &player.character_bouns,
-            &EventBonus::default(),
-        )?
-    } else {
-        cards.clone()
-    };
+    let cards_without_event_bonus = prepare_cards(
+        &card_definitions,
+        &player.card_list,
+        &player.character_bouns,
+        &EventBonus::default(),
+    )?;
+    let all_point_bonus_micros = cards_without_event_bonus
+        .iter()
+        .map(|card| {
+            (
+                card.card_id,
+                (event_point_bonus_percent(card, &event.event_bonus).max(0.0) * 1_000_000.0).round()
+                    as u64,
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
     let point_bonus_micros = if uses_point_bonus {
-        cards_without_event_bonus
-            .iter()
-            .map(|card| {
-                (
-                    card.card_id,
-                    (event_point_bonus_percent(card, &event.event_bonus).max(0.0) * 1_000_000.0)
-                        .round() as u64,
-                )
-            })
-            .collect()
+        all_point_bonus_micros.clone()
     } else {
         BTreeMap::new()
     };
@@ -93,6 +108,7 @@ pub fn prepare_event_context(
         cards_with_stat_bonus: cards,
         cards_without_event_bonus,
         point_bonus_micros,
+        all_point_bonus_micros,
         area_item_percent,
         preferred: event.preferred.clone(),
     })
@@ -154,4 +170,17 @@ pub(crate) fn player_card_definitions(
                 })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn point_multiplier_events_include_festival_solo() {
+        assert!(event_uses_point_bonus(EventType::Festival));
+        assert!(event_uses_point_bonus(EventType::Challenge));
+        assert!(!event_uses_point_bonus(EventType::Versus));
+        assert!(!event_uses_point_bonus(EventType::Medley));
+    }
 }

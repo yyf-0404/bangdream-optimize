@@ -16,15 +16,15 @@ const TEAM_SIZE: usize = 5;
 const MEDLEY_TEAM_COUNT: usize = 3;
 
 #[derive(Debug, Clone)]
-pub(in crate::medley) struct MedleyCardPruneProfile {
-    pub(in crate::medley) stat: f64,
+pub(crate) struct MedleyCardPruneProfile {
+    pub(crate) stat: f64,
     skill_meta_variants: Vec<SkillMetaVariant>,
-    pub(in crate::medley) skill_meta_bounds: Vec<SkillMetaBounds>,
-    pub(in crate::medley) best_skill_meta_by_chart: Vec<f64>,
+    pub(crate) skill_meta_bounds: Vec<SkillMetaBounds>,
+    pub(crate) best_skill_meta_by_chart: Vec<f64>,
 }
 
 impl MedleyCardPruneProfile {
-    pub(in crate::medley) fn skill_meta_for_score_up(&self, score_up: f64) -> Option<&[f64]> {
+    pub(crate) fn skill_meta_for_score_up(&self, score_up: f64) -> Option<&[f64]> {
         let score_up_bits = score_up.to_bits();
         self.skill_meta_variants
             .iter()
@@ -40,9 +40,9 @@ struct SkillMetaVariant {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(in crate::medley) struct SkillMetaBounds {
-    pub(in crate::medley) low: f64,
-    pub(in crate::medley) high: f64,
+pub(crate) struct SkillMetaBounds {
+    pub(crate) low: f64,
+    pub(crate) high: f64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -53,15 +53,15 @@ struct SignatureHardDominanceModel<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub(in crate::medley) struct MedleyPruneContext {
-    pub(in crate::medley) unified_bands: Vec<u32>,
-    pub(in crate::medley) unified_attributes: Vec<Attribute>,
-    pub(in crate::medley) unified_band_attributes: Vec<(u32, Attribute)>,
-    pub(in crate::medley) obligations: Vec<Vec<MedleyPruneSignature>>,
+pub(crate) struct MedleyPruneContext {
+    pub(crate) unified_bands: Vec<u32>,
+    pub(crate) unified_attributes: Vec<Attribute>,
+    pub(crate) unified_band_attributes: Vec<(u32, Attribute)>,
+    pub(crate) obligations: Vec<Vec<MedleyPruneSignature>>,
 }
 
 impl MedleyPruneContext {
-    pub(in crate::medley) fn new(
+    pub(crate) fn new(
         cards: &[PreparedCard],
         charts: &[Chart],
         profiles: &[MedleyCardPruneProfile],
@@ -106,7 +106,7 @@ impl MedleyPruneContext {
     }
 }
 
-pub(in crate::medley) struct MedleyPruneUpperBounds<'a> {
+pub(crate) struct MedleyPruneUpperBounds<'a> {
     cards: &'a [PreparedCard],
     charts: &'a [Chart],
     profiles: &'a [MedleyCardPruneProfile],
@@ -124,7 +124,7 @@ struct TeammateUpperBoundCacheEntry {
 }
 
 impl<'a> MedleyPruneUpperBounds<'a> {
-    pub(in crate::medley) fn new(
+    pub(crate) fn new(
         cards: &'a [PreparedCard],
         charts: &'a [Chart],
         profiles: &'a [MedleyCardPruneProfile],
@@ -142,7 +142,7 @@ impl<'a> MedleyPruneUpperBounds<'a> {
         }
     }
 
-    pub(in crate::medley) fn with_best_any_team_scores(
+    pub(crate) fn with_best_any_team_scores(
         cards: &'a [PreparedCard],
         charts: &'a [Chart],
         profiles: &'a [MedleyCardPruneProfile],
@@ -158,7 +158,7 @@ impl<'a> MedleyPruneUpperBounds<'a> {
         }
     }
 
-    pub(in crate::medley) fn signature_can_beat_incumbent(
+    pub(crate) fn signature_can_beat_incumbent(
         &mut self,
         card_idx: usize,
         signature: MedleyPruneSignature,
@@ -181,7 +181,7 @@ impl<'a> MedleyPruneUpperBounds<'a> {
         false
     }
 
-    pub(in crate::medley) fn card_chart_eligibility_masks(
+    pub(crate) fn card_chart_eligibility_masks(
         &mut self,
         signatures: &[MedleyPruneSignature],
         current_best: i32,
@@ -311,7 +311,7 @@ impl<'a> MedleyPruneUpperBounds<'a> {
     }
 }
 
-pub(in crate::medley) fn rejection_counts(
+pub(crate) fn rejection_counts(
     cards: &[PreparedCard],
     profiles: &[MedleyCardPruneProfile],
     context: &MedleyPruneContext,
@@ -343,7 +343,7 @@ pub(in crate::medley) fn rejection_counts(
     counts
 }
 
-pub(in crate::medley) fn best_any_team_score_upper_bound(
+pub(crate) fn best_any_team_score_upper_bound(
     cards: &[PreparedCard],
     charts: &[Chart],
     profiles: &[MedleyCardPruneProfile],
@@ -360,7 +360,7 @@ pub(in crate::medley) fn best_any_team_score_upper_bound(
     (stat * (charts[chart_idx].meta.no_skill + skill_meta)).ceil()
 }
 
-pub(in crate::medley) fn signature_skill_meta_for_chart(
+pub(crate) fn signature_skill_meta_for_chart(
     card: &PreparedCard,
     profile: &MedleyCardPruneProfile,
     signature: MedleyPruneSignature,
@@ -381,7 +381,7 @@ pub(in crate::medley) fn signature_skill_meta_for_chart(
         .unwrap_or_default()
 }
 
-pub(in crate::medley) fn top_character_values_sum<const N: usize, F>(
+pub(crate) fn top_character_values_sum<const N: usize, F>(
     cards: &[PreparedCard],
     mut value: F,
 ) -> f64
@@ -410,7 +410,7 @@ where
     top.sum()
 }
 
-pub(in crate::medley) fn medley_card_prune_profiles(
+pub(crate) fn medley_card_prune_profiles(
     cards: &[PreparedCard],
     charts: &[Chart],
     card_stats: &[f64],
@@ -433,7 +433,7 @@ pub(in crate::medley) fn medley_card_prune_profiles(
         .collect()
 }
 
-pub(in crate::medley) fn medley_card_dominates_for_signature(
+pub(crate) fn medley_card_dominates_for_signature(
     left: &PreparedCard,
     left_profile: &MedleyCardPruneProfile,
     right: &PreparedCard,
@@ -444,7 +444,7 @@ pub(in crate::medley) fn medley_card_dominates_for_signature(
         == DominanceCheck::Dominates
 }
 
-pub(in crate::medley) fn medley_card_dominates_ignoring_unification(
+pub(crate) fn medley_card_dominates_ignoring_unification(
     left: &PreparedCard,
     left_profile: &MedleyCardPruneProfile,
     right: &PreparedCard,
@@ -472,7 +472,7 @@ pub(in crate::medley) fn medley_card_dominates_ignoring_unification(
     strictly_better || left.card_id < right.card_id
 }
 
-pub(in crate::medley) fn same_character_cover(
+pub(crate) fn same_character_cover(
     graph: &DominanceGraph,
     target_idx: usize,
     cards: &[PreparedCard],
@@ -487,7 +487,7 @@ pub(in crate::medley) fn same_character_cover(
     )
 }
 
-pub(in crate::medley) fn cross_cover(
+pub(crate) fn cross_cover(
     graph: &DominanceGraph,
     target_idx: usize,
     cards: &[PreparedCard],
@@ -752,7 +752,7 @@ fn other_team_occupancy_options(
     options
 }
 
-pub(in crate::medley) fn hard_dominance_graph_for_indices(
+pub(crate) fn hard_dominance_graph_for_indices(
     cards: &[PreparedCard],
     profiles: &[MedleyCardPruneProfile],
     signature: MedleyPruneSignature,
@@ -802,7 +802,7 @@ fn signature_hard_model_dominates(
     strictly_better || left.card_id < right.card_id
 }
 
-pub(in crate::medley) fn same_character_dominator_cover(
+pub(crate) fn same_character_dominator_cover(
     idx: usize,
     card: &PreparedCard,
     cards: &[PreparedCard],
@@ -818,7 +818,7 @@ pub(in crate::medley) fn same_character_dominator_cover(
         .unwrap_or_default()
 }
 
-pub(in crate::medley) fn full_medley_dominator_cover(
+pub(crate) fn full_medley_dominator_cover(
     idx: usize,
     card: &PreparedCard,
     cards: &[PreparedCard],
@@ -834,7 +834,7 @@ pub(in crate::medley) fn full_medley_dominator_cover(
         .unwrap_or_default()
 }
 
-pub(in crate::medley) fn full_medley_dominator_cover_ignoring_unification(
+pub(crate) fn full_medley_dominator_cover_ignoring_unification(
     idx: usize,
     card: &PreparedCard,
     cards: &[PreparedCard],

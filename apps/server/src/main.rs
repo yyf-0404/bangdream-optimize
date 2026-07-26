@@ -11,14 +11,14 @@ use bangdream_optimize_bangdream_account::{
 };
 use bangdream_optimize_core::{
     calculate_from_candidates, BuildResult, CalculationMetrics, CandidateBuildRequest, EventType,
-    ItemSearchOptions, PlayerConfig, ScoreRangeRequest, Server,
+    ItemSearchOptions, PlayerConfig, PtMaximizeRequest, ScoreRangeRequest, Server,
 };
 use bangdream_optimize_data::{
     BestdoriCachedFilesystemCalculator, BestdoriFilesystemCalculator, BestdoriFilesystemConfig,
     BestdoriStaticMirrorConfig, DataError, MaximizeInputBuilder, PlayerConfigStore,
-    ScoreRangeInputBuilder,
+    PtMaximizeInputBuilder, ScoreRangeInputBuilder,
 };
-use bangdream_optimize_service::{MaximizeService, ScoreRangeService};
+use bangdream_optimize_service::{MaximizeService, PtMaximizeService, ScoreRangeService};
 use bangdream_optimize_storage_mongodb::MongoPlayerConfigStore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -48,6 +48,8 @@ struct AppState {
     maximize_service: Option<MaximizeService>,
     score_range_service: Option<ScoreRangeService>,
     score_range_searcher: Option<Arc<dyn ScoreRangeInputBuilder>>,
+    pt_maximize_service: Option<PtMaximizeService>,
+    pt_maximize_searcher: Option<Arc<dyn PtMaximizeInputBuilder>>,
     bangdream_importer: Option<BangDreamAccountImporter>,
     telemetry: TelemetryLogger,
 }
@@ -76,9 +78,16 @@ impl AppState {
             _ => None,
         };
         let score_range_searcher = score_range_searcher_from_env()?;
-        let score_range_service = match (player_store, score_range_searcher.clone()) {
+        let score_range_service = match (player_store.clone(), score_range_searcher.clone()) {
             (Some(player_store), Some(searcher)) => {
                 Some(ScoreRangeService::new(player_store, searcher))
+            }
+            _ => None,
+        };
+        let pt_maximize_searcher = pt_maximize_searcher_from_env()?;
+        let pt_maximize_service = match (player_store, pt_maximize_searcher.clone()) {
+            (Some(player_store), Some(searcher)) => {
+                Some(PtMaximizeService::new(player_store, searcher))
             }
             _ => None,
         };
@@ -94,6 +103,8 @@ impl AppState {
             maximize_service,
             score_range_service,
             score_range_searcher,
+            pt_maximize_service,
+            pt_maximize_searcher,
             bangdream_importer,
             telemetry: TelemetryLogger::from_env(),
         })
@@ -335,6 +346,21 @@ fn score_range_searcher_from_env() -> Result<Option<Arc<dyn ScoreRangeInputBuild
         Some(config) => Ok(Some(Arc::new(
             BestdoriFilesystemCalculator::load(config).map_err(|err| err.to_string())?,
         ) as Arc<dyn ScoreRangeInputBuilder>)),
+        None => Ok(None),
+    }
+}
+
+fn pt_maximize_searcher_from_env() -> Result<Option<Arc<dyn PtMaximizeInputBuilder>>, String> {
+    if let Some(config) = bestdori_static_mirror_config_from_env() {
+        return Ok(Some(Arc::new(
+            BestdoriCachedFilesystemCalculator::new(config).map_err(|err| err.to_string())?,
+        ) as Arc<dyn PtMaximizeInputBuilder>));
+    }
+
+    match bestdori_config_from_env() {
+        Some(config) => Ok(Some(Arc::new(
+            BestdoriFilesystemCalculator::load(config).map_err(|err| err.to_string())?,
+        ) as Arc<dyn PtMaximizeInputBuilder>)),
         None => Ok(None),
     }
 }
@@ -1171,6 +1197,26 @@ struct ScoreRangeFromConfigApiRequest {
     max_results: usize,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PtMaximizeApiRequest {
+    player_id: i64,
+    server: Server,
+    #[serde(default)]
+    event_id: Option<u32>,
+    request: PtMaximizeRequest,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PtMaximizeFromConfigApiRequest {
+    player: PlayerConfig,
+    server: Server,
+    #[serde(default)]
+    event_id: Option<u32>,
+    request: PtMaximizeRequest,
+}
+
 fn default_score_range_max_results() -> usize {
     20
 }
@@ -1266,6 +1312,8 @@ fn build_app(
             .route("/v1/maximize", post(maximize_result))
             .route("/v1/score-range", post(score_range_result))
             .route("/v1/score-range/from-config", post(score_range_from_config))
+            .route("/v1/pt-maximize", post(pt_maximize_result))
+            .route("/v1/pt-maximize/from-config", post(pt_maximize_from_config))
             .route("/v1/calc-result", post(maximize_result))
             .route(
                 "/v1/maximize/from-candidates",
@@ -1535,6 +1583,48 @@ async fn score_range_from_config(
     }
 }
 
+async fn pt_maximize_result(
+    State(state): State<AppState>,
+    Json(request): Json<PtMaximizeApiRequest>,
+) -> impl IntoResponse {
+    let Some(service) = state.pt_maximize_service.as_ref() else {
+        return service_unavailable("PT-maximize service is not configured");
+    };
+    match service
+        .pt_maximize_for_player(
+            request.player_id,
+            request.server,
+            request.event_id,
+            request.request,
+        )
+        .await
+    {
+        Ok(result) => ok_response(result),
+        Err(err) => data_error_response(err),
+    }
+}
+
+async fn pt_maximize_from_config(
+    State(state): State<AppState>,
+    Json(request): Json<PtMaximizeFromConfigApiRequest>,
+) -> impl IntoResponse {
+    let Some(searcher) = state.pt_maximize_searcher.as_ref() else {
+        return service_unavailable("PT-maximize searcher is not configured");
+    };
+    match searcher
+        .pt_maximize(
+            request.player,
+            request.server,
+            request.event_id,
+            request.request,
+        )
+        .await
+    {
+        Ok(result) => ok_response(result),
+        Err(err) => data_error_response(err),
+    }
+}
+
 async fn maximize_from_candidates(
     State(state): State<AppState>,
     Json(request): Json<CandidateBuildRequest>,
@@ -1597,7 +1687,8 @@ fn data_error_response(err: DataError) -> axum::response::Response {
         DataError::Chart(_)
         | DataError::Preparation(_)
         | DataError::Maximize(_)
-        | DataError::ScoreRange(_) => StatusCode::BAD_REQUEST,
+        | DataError::ScoreRange(_)
+        | DataError::PtMaximize(_) => StatusCode::BAD_REQUEST,
     };
 
     (

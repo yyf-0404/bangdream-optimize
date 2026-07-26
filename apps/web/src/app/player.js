@@ -5,6 +5,7 @@ export function createPlayerStore({
   cacheEventPresetFromCore,
   activityModeForEvent,
   ensureSongListForMode,
+  recentUnfinishedEvent,
   renderPlayerProfileControls,
   onError,
 }) {
@@ -69,6 +70,7 @@ export function createPlayerStore({
   function cancelPendingSave() {
     clearTimeout(state.playerSaveTimer);
     state.playerSaveSequence += 1;
+    return state.playerSaveQueue.catch(() => {});
   }
 
   async function ensurePlayerProfiles(player) {
@@ -119,6 +121,27 @@ export function createPlayerStore({
     return normalized;
   }
 
+  function initializePlayerDefaults(player) {
+    const normalized = normalizePlayer(player);
+    if (normalized.currentEvent != null) {
+      return { player: normalized, changed: false };
+    }
+    const recent = recentUnfinishedEvent(state.core?.events, {
+      serverIndex: 3,
+      calculationMode: 'ptMaximize',
+    });
+    if (!recent) {
+      return { player: normalized, changed: false };
+    }
+    normalized.server = 'cn';
+    normalized.calculationMode = 'ptMaximize';
+    normalized.currentEvent = recent.id;
+    normalized.activityMode = activityModeForEvent(recent.event);
+    cacheEventPresetFromCore(normalized, recent.id);
+    ensureSongListForMode(normalized, recent.id, recent.event);
+    return { player: normalized, changed: true };
+  }
+
   function currentEventForPlayer(player) {
     const eventId = player.currentEvent;
     if (eventId == null) {
@@ -148,6 +171,7 @@ export function createPlayerStore({
   return {
     cancelPendingSave,
     ensurePlayerProfiles,
+    initializePlayerDefaults,
     peekPlayer: safeReadPlayer,
     readPlayer,
     refreshPlayerProfiles,
