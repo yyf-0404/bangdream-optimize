@@ -3,13 +3,23 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-bash -n scripts/build-web-wasm.sh
+bash -n scripts/build-web-assets.sh
 bash -n scripts/server-smoke.sh
 bash -n scripts/sync-game-data.sh
 bash -n scripts/run-server.sh
 bash -n scripts/run-web.sh
 bash -n scripts/internal-check.sh
-python3 -m py_compile scripts/serve-web.py
+if python3 --version >/dev/null 2>&1; then
+  PYTHON=(python3)
+elif py -3 --version >/dev/null 2>&1; then
+  PYTHON=(py -3)
+elif python --version >/dev/null 2>&1; then
+  PYTHON=(python)
+else
+  echo "python 3 is required" >&2
+  exit 1
+fi
+"${PYTHON[@]}" -m py_compile scripts/serve-web.py
 
 node --check apps/web/src/main.js
 node --check apps/web/src/actions/feedback.js

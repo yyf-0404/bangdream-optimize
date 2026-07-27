@@ -286,11 +286,24 @@ pub struct CompressedAutoScore {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CompiledSixSkillScore {
     multipliers: Vec<f64>,
+    fever_multipliers: Option<Vec<f64>>,
 }
 
 impl CompiledSixSkillScore {
     fn score(&self, score_factors: &[f64], stat: i32) -> i32 {
         debug_assert_eq!(score_factors.len(), self.multipliers.len());
+        if let Some(fever_multipliers) = &self.fever_multipliers {
+            debug_assert_eq!(score_factors.len(), fever_multipliers.len());
+            return score_factors
+                .iter()
+                .zip(&self.multipliers)
+                .zip(fever_multipliers)
+                .map(|((&factor, &skill_multiplier), &fever_multiplier)| {
+                    let no_skill = (stat as f64 * factor * fever_multiplier).floor();
+                    (no_skill * skill_multiplier).floor() as i32
+                })
+                .sum();
+        }
         if avx2_available() {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {
@@ -629,6 +642,7 @@ pub struct Chart {
     pub warning: Vec<SkillWarning>,
     pub meta: ChartMeta,
     fever_start: Option<f64>,
+    fever_end: Option<f64>,
     fever_enabled: bool,
     score_rule: ScoreRule,
     score_factors: Vec<f64>,
@@ -660,13 +674,14 @@ impl Chart {
     }
 
     pub fn new(level: i32, nodes: Vec<ChartNode>) -> Self {
-        Self::new_with_fever_start(level, nodes, None)
+        Self::new_with_fever_section(level, nodes, None, None)
     }
 
-    pub fn new_with_fever_start(
+    pub fn new_with_fever_section(
         level: i32,
         mut nodes: Vec<ChartNode>,
         fever_start: Option<f64>,
+        fever_end: Option<f64>,
     ) -> Self {
         nodes.sort_by(|a, b| {
             let time_order = sgn(a.time - b.time);
@@ -690,6 +705,7 @@ impl Chart {
             warning: Vec::new(),
             meta: ChartMeta::default(),
             fever_start,
+            fever_end,
             fever_enabled: false,
             score_rule: ScoreRule::STANDARD,
             score_factors: Vec::new(),
@@ -706,7 +722,7 @@ impl Chart {
     }
 
     pub fn has_fever_section(&self) -> bool {
-        self.fever_start.is_some()
+        self.fever_start.is_some() && self.fever_end.is_some()
     }
 
     pub fn init_auto(&mut self) -> Result<(), ChartError> {
@@ -1178,8 +1194,8 @@ impl Chart {
 
         for node_idx in window.range_start..window.range_end {
             let combo = self.combo + node_idx as i32 + 1;
-            let no_skill = (self.exact_base_score_at_node(node_idx, stat, combo, is_medley, base)
-                * self.fever_multiplier_at_node(node_idx)) as i32;
+            let no_skill =
+                self.exact_base_score_at_node(node_idx, stat, combo, is_medley, base) as i32;
             let skill_mod = if window.rateup {
                 if sgn(rateup_mod - 2.5) < 0 {
                     rateup_mod += 0.005;
@@ -1223,7 +1239,7 @@ impl Chart {
                     self.combo + node_idx as i32 + 1,
                     is_medley,
                     base,
-                ) * self.fever_multiplier_at_node(node_idx)) as i32
+                )) as i32
             })
             .sum())
     }
@@ -1254,8 +1270,7 @@ impl Chart {
         let mut total = 0i32;
         for (node_idx, score) in output.iter_mut().enumerate() {
             let combo = self.combo + node_idx as i32 + 1;
-            *score = (self.exact_base_score_at_node(node_idx, stat, combo, is_medley, base)
-                * self.fever_multiplier_at_node(node_idx)) as i32;
+            *score = self.exact_base_score_at_node(node_idx, stat, combo, is_medley, base) as i32;
             total += *score;
         }
         Ok(total)
@@ -1923,8 +1938,7 @@ impl Chart {
 
             let no_skill =
                 self.exact_base_score_at_node(node_idx, stat, combo, is_medley, base) as f64;
-            result +=
-                (no_skill * skill_mod * self.fever_multiplier_at_node(node_idx)).floor() as i32;
+            result += (no_skill * skill_mod).floor() as i32;
 
             if node.node_type != ChartNodeType::Skill {
                 continue;
@@ -1995,7 +2009,15 @@ impl Chart {
         }
         let mut multipliers = Vec::with_capacity(self.nodes.len());
         self.for_each_multiplier_for_six_skills(skill_order, |value| multipliers.push(value))?;
-        Ok(CompiledSixSkillScore { multipliers })
+        let fever_multipliers = self.fever_enabled.then(|| {
+            (0..self.nodes.len())
+                .map(|node_idx| self.fever_multiplier_at_node(node_idx))
+                .collect()
+        });
+        Ok(CompiledSixSkillScore {
+            multipliers,
+            fever_multipliers,
+        })
     }
 
     pub(crate) fn score_compiled_six_skills(
@@ -2021,7 +2043,7 @@ impl Chart {
         let mut events: VecDeque<SkillEvent> = VecDeque::new();
         let mut scheduler = SkillScheduler::new(self.uses_ideal_60fps_timing());
 
-        for (node_idx, node) in self.nodes.iter().enumerate() {
+        for node in &self.nodes {
             while events
                 .front()
                 .map(|event| scheduler.event_is_due(node.time, event.time))
@@ -2035,7 +2057,7 @@ impl Chart {
             if rateup && sgn(skill_mod - 2.5) < 0 {
                 skill_mod += 0.005;
             }
-            visit(skill_mod * self.fever_multiplier_at_node(node_idx));
+            visit(skill_mod);
 
             if node.node_type != ChartNodeType::Skill {
                 continue;
@@ -2220,8 +2242,7 @@ impl Chart {
 
             let no_skill =
                 self.exact_base_score_at_node(node_idx, stat, combo, is_medley, base) as f64;
-            result +=
-                (no_skill * skill_mod * self.fever_multiplier_at_node(node_idx)).floor() as i32;
+            result += (no_skill * skill_mod).floor() as i32;
 
             if node.node_type != ChartNodeType::Skill {
                 continue;
@@ -2439,21 +2460,28 @@ impl Chart {
         is_medley: bool,
         base: f64,
     ) -> f64 {
-        if self.score_as_medley == is_medley {
+        let unrounded = if self.score_as_medley == is_medley {
             if let Some(&factor) = self.score_factors.get(node_idx) {
-                return (stat as f64 * factor).floor();
+                stat as f64 * factor
+            } else {
+                base * combo_mod(combo, is_medley, self.score_rule.combo_mode)
+                    * self.score_rule.base_multiplier
             }
-        }
-
-        base_score(base, combo, is_medley, self.score_rule)
+        } else {
+            base * combo_mod(combo, is_medley, self.score_rule.combo_mode)
+                * self.score_rule.base_multiplier
+        };
+        (unrounded * self.fever_multiplier_at_node(node_idx)).floor()
     }
 
     #[inline]
     fn fever_multiplier_at_node(&self, node_idx: usize) -> f64 {
+        let time = self.nodes[node_idx].time;
         if self.fever_enabled
             && self
                 .fever_start
-                .is_some_and(|start| self.nodes[node_idx].time > start)
+                .zip(self.fever_end)
+                .is_some_and(|(start, end)| sgn(time - start) >= 0 && sgn(time - end) <= 0)
         {
             2.0
         } else {
@@ -2869,10 +2897,6 @@ fn combo_mod(combo: i32, is_medley: bool, combo_mode: ComboMode) -> f64 {
     }
 }
 
-fn base_score(base: f64, combo: i32, is_medley: bool, score_rule: ScoreRule) -> f64 {
-    (base * combo_mod(combo, is_medley, score_rule.combo_mode) * score_rule.base_multiplier).floor()
-}
-
 fn div_ceil(value: i32, divisor: i32) -> i32 {
     value.div_euclid(divisor) + i32::from(value.rem_euclid(divisor) != 0)
 }
@@ -2990,6 +3014,37 @@ mod tests {
             chart.skill_delta_at_stat(0, skill(1, 1.0), 1000).unwrap(),
             1650.0
         );
+    }
+
+    #[test]
+    fn fever_is_applied_before_inner_floor_and_skill_multiplier() {
+        let mut chart = Chart::new_with_fever_section(
+            5,
+            vec![
+                ChartNode {
+                    node_type: ChartNodeType::Skill,
+                    time: 0.0,
+                },
+                ChartNode {
+                    node_type: ChartNodeType::Node,
+                    time: 1.0,
+                },
+            ],
+            Some(0.0),
+            Some(1.0),
+        );
+        chart.init_with_fever(0, false).unwrap();
+        let skill = skill(1, 0.5);
+        let skills = [skill; 6];
+
+        assert_eq!(chart.no_skill_score_at_stat(1).unwrap(), 6.0);
+        assert_eq!(chart.get_score(&skills, 1, false).unwrap(), 7);
+        assert_eq!(
+            chart.get_score_for_six_skills(&skills, 1, false).unwrap(),
+            7
+        );
+        let compiled = chart.compile_six_skill_score(&skills, false).unwrap();
+        assert_eq!(chart.score_compiled_six_skills(&compiled, 1), 7);
     }
 
     #[test]

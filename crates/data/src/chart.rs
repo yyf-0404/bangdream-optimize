@@ -25,22 +25,37 @@ pub fn chart_from_bestdori(level: i32, chart_data: &Value) -> Result<Chart, Data
     bpm_points.sort_by(|a, b| a.beat.total_cmp(&b.beat));
     compute_bpm_times(&mut bpm_points)?;
 
-    let fever_start_beat = notes
-        .iter()
-        .flat_map(|note| {
-            note.get("connections")
-                .and_then(Value::as_array)
-                .map_or_else(|| vec![note], |connections| connections.iter().collect())
-        })
-        .filter(|note| {
-            !note.get("hidden").and_then(Value::as_bool).unwrap_or(false)
-                && note.get("charge").and_then(Value::as_bool).unwrap_or(false)
-        })
-        .filter_map(|note| note.get("beat").and_then(Value::as_f64))
-        .max_by(f64::total_cmp);
-    let fever_start = fever_start_beat
-        .map(|beat| time_for_beat(&bpm_points, beat))
-        .transpose()?;
+    let system_beat = |data: &str| {
+        notes
+            .iter()
+            .find(|note| {
+                note.get("type").and_then(Value::as_str) == Some("System")
+                    && note.get("data").and_then(Value::as_str) == Some(data)
+            })
+            .map(|note| get_f64(note, "beat"))
+            .transpose()
+    };
+    let fever_start_beat = system_beat("cmd_fever_start.wav")?;
+    let fever_end_beat = system_beat("cmd_fever_end.wav")?;
+    let (fever_start, fever_end) = match (fever_start_beat, fever_end_beat) {
+        (None, None) => (None, None),
+        (Some(start), Some(end)) if start <= end => (
+            Some(time_for_beat(&bpm_points, start)?),
+            Some(time_for_beat(&bpm_points, end)?),
+        ),
+        (Some(start), Some(end)) => {
+            return Err(DataError::InvalidField {
+                field: "fever",
+                value: format!("end beat {end} precedes start beat {start}"),
+            });
+        }
+        _ => {
+            return Err(DataError::InvalidField {
+                field: "fever",
+                value: "start and end markers must both be present".to_owned(),
+            });
+        }
+    };
 
     let mut nodes = Vec::new();
     for note in notes {
@@ -70,7 +85,12 @@ pub fn chart_from_bestdori(level: i32, chart_data: &Value) -> Result<Chart, Data
         }
     }
 
-    Ok(Chart::new_with_fever_start(level, nodes, fever_start))
+    Ok(Chart::new_with_fever_section(
+        level,
+        nodes,
+        fever_start,
+        fever_end,
+    ))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -152,17 +172,18 @@ mod tests {
     }
 
     #[test]
-    fn maps_last_visible_charge_note_to_fever_boundary() {
+    fn maps_system_markers_to_inclusive_fever_section() {
         let chart = chart_from_bestdori(
-            25,
+            5,
             &json!([
                 {"type": "BPM", "beat": 0, "bpm": 120},
-                {"type": "Single", "beat": 4, "charge": true},
-                {"type": "Long", "connections": [
-                    {"beat": 5, "charge": true, "hidden": true},
-                    {"beat": 6, "charge": true}
-                ]},
-                {"type": "Single", "beat": 7}
+                {"type": "System", "beat": 2, "data": "cmd_fever_start.wav"},
+                {"type": "System", "beat": 4, "data": "cmd_fever_end.wav"},
+                {"type": "Single", "beat": 1},
+                {"type": "Single", "beat": 2},
+                {"type": "Single", "beat": 3},
+                {"type": "Single", "beat": 4},
+                {"type": "Single", "beat": 5}
             ]),
         )
         .unwrap();
@@ -172,9 +193,40 @@ mod tests {
         normal.init(0, false).unwrap();
         let mut fever = chart;
         fever.init_with_fever(0, false).unwrap();
-        assert!(
-            fever.no_skill_score_at_stat(100_000).unwrap()
-                > normal.no_skill_score_at_stat(100_000).unwrap()
-        );
+        assert_eq!(normal.no_skill_score_at_stat(100).unwrap(), 330.0);
+        assert_eq!(fever.no_skill_score_at_stat(100).unwrap(), 528.0);
+    }
+
+    #[test]
+    fn charge_notes_do_not_define_a_fever_section() {
+        let chart = chart_from_bestdori(
+            5,
+            &json!([
+                {"type": "BPM", "beat": 0, "bpm": 120},
+                {"type": "Single", "beat": 1, "charge": true},
+                {"type": "Single", "beat": 2}
+            ]),
+        )
+        .unwrap();
+
+        assert!(!chart.has_fever_section());
+    }
+
+    #[test]
+    fn rejects_incomplete_fever_markers() {
+        let error = chart_from_bestdori(
+            5,
+            &json!([
+                {"type": "BPM", "beat": 0, "bpm": 120},
+                {"type": "System", "beat": 2, "data": "cmd_fever_start.wav"},
+                {"type": "Single", "beat": 3}
+            ]),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            DataError::InvalidField { field: "fever", .. }
+        ));
     }
 }

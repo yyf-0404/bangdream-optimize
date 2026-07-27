@@ -1113,7 +1113,7 @@ mod tests {
                 time: start + 1.0,
             });
         }
-        let mut chart = Chart::new_with_fever_start(25, nodes, Some(35.0));
+        let mut chart = Chart::new_with_fever_section(25, nodes, Some(35.0), Some(55.0));
         chart.init(0, false).unwrap();
         let team = std::array::from_fn(|idx| TeamCardSkill {
             card_id: idx as u32 + 1,
@@ -1173,7 +1173,7 @@ mod tests {
                 ]
             })
             .collect();
-        let mut chart = Chart::new_with_fever_start(25, nodes, Some(35.0));
+        let mut chart = Chart::new_with_fever_section(25, nodes, Some(35.0), Some(55.0));
         chart.init(0, false).unwrap();
         let team = std::array::from_fn(|idx| TeamCardSkill {
             card_id: idx as u32 + 1,

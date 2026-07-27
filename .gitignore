@@ -13,10 +13,8 @@
 !/var/bangdream-account/
 !/var/bangdream-account/persist.example.json
 /dist/
+/tmp/
 *.pyc
 *.pyo
 *.log
 ~$*.xlsx
-bangdream-optimize-diagnostic-*.json
-/full_five_item_row_column_query.md
-/活动计算v2025.8-fix (2).xlsx

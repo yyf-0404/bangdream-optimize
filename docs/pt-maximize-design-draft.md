@@ -802,20 +802,18 @@ struct ScoreHistogram {
 竞演多人、所有单人模式、Challenge CP 挑战和组曲不使用 fever。多人 fever 固定成功，不把成功率、
 Fever Chance 充能情况或队友表现作为输入和随机因素。
 
-联网资料和已有实现均指向固定 `2.0` 倍：fever 是按键分数的独立乘数，与当时生效的技能倍率乘算。
+联网资料和 Bestdori 实现均指向固定 `2.0` 倍。Fever 与技能倍率相乘，但两者位于不同的取整层：
 
 ```text
-existing_note_score_term × skill_multiplier × fever_multiplier
+floor(floor(raw_note_score × fever_multiplier) × skill_multiplier)
 
 fever_multiplier = 2.0  // 按键位于 fever 区间
 fever_multiplier = 1.0  // 其他按键
 ```
 
-这里的 `existing_note_score_term` 表示当前精确计分内核已经算出的按键基础项；原有的中间取整和最终取整
-位置保持不变，fever 只在按键最终取整前加入一个乘数，不能为了套用上式合并或移动既有取整。
-
-因此技能生效且处于 fever 时使用 `skill_multiplier × 2.0`，不能把 fever 写成技能倍率的加法修正。
-Rate-up 仍先按该按键位置求出实际技能倍率，再与 `2.0` 相乘。
+`raw_note_score` 包含综合力、歌曲等级、按键数、Combo 和判定倍率。必须先乘 Fever 并执行内层
+`floor`，再乘当时生效的技能倍率并执行外层 `floor`；不能先对无 Fever 基础项取整后再统一乘
+`skill_multiplier × 2.0`。Rate-up 仍先按按键位置求出实际技能倍率，再用于外层计算。
 
 ### 13.1 谱面区间
 
@@ -835,7 +833,7 @@ fever_start_time <= note_time <= fever_end_time
 `cmd_fever_ready.wav` 和按键上的 `charge: true` 用于 Fever Chance/充能，不定义最终计分区间。由于本用例
 固定 fever 成功，初版只读取 start/end，忽略充能模拟。
 
-当前 `crates/data/src/chart.rs` 会忽略全部 `System` 节点。实现时应把区间解析为核心谱面模型的一部分：
+`crates/data/src/chart.rs` 读取这两个 `System` 节点并把区间保存到核心谱面模型：
 
 ```rust
 const FEVER_SCORE_MULTIPLIER: f64 = 2.0;

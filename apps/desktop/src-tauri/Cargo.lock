@@ -259,7 +259,7 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "bangdream-optimize-core"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "bangdream-optimize-medley-solver",
  "bangdream-optimize-team-prune",
@@ -271,7 +271,7 @@ dependencies = [
 
 [[package]]
 name = "bangdream-optimize-data"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "async-trait",
  "bangdream-optimize-core",
@@ -283,7 +283,7 @@ dependencies = [
 
 [[package]]
 name = "bangdream-optimize-desktop"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "async-trait",
  "bangdream-optimize-core",
@@ -296,7 +296,7 @@ dependencies = [
 
 [[package]]
 name = "bangdream-optimize-desktop-app"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "bangdream-optimize-core",
  "bangdream-optimize-desktop",
@@ -310,7 +310,7 @@ dependencies = [
 
 [[package]]
 name = "bangdream-optimize-medley-solver"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
@@ -318,7 +318,7 @@ dependencies = [
 
 [[package]]
 name = "bangdream-optimize-service"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "bangdream-optimize-core",
  "bangdream-optimize-data",
@@ -326,7 +326,7 @@ dependencies = [
 
 [[package]]
 name = "bangdream-optimize-storage-local"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "async-trait",
  "bangdream-optimize-core",
@@ -337,7 +337,7 @@ dependencies = [
 
 [[package]]
 name = "bangdream-optimize-team-prune"
-version = "0.3.1"
+version = "0.3.2"
 
 [[package]]
 name = "base64"
