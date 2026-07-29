@@ -32,7 +32,7 @@ export function createCalculationActions({
   persistResultCache,
   clearPersistedResultCache,
 }) {
-  const RESULT_CACHE_KEY_VERSION = 4;
+  const RESULT_CACHE_KEY_VERSION = 5;
   const calculateButton = elements.calculateButton;
   const calculateButtons = Array.from(elements.calculateButtons || []);
   const calculateButtonLabel = calculateButton?.querySelector('.button-label');
@@ -423,7 +423,7 @@ export function createCalculationActions({
     }
     const songs = player.eventSongs?.[String(eventId)] ?? [];
     const request = {
-      eventType: 'challenge',
+      eventType,
       liveVariant,
       songs,
       minimumPersonalStat: liveVariant === 'cooperative'

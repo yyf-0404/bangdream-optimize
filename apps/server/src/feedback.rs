@@ -460,7 +460,7 @@ mod tests {
             contact_email: Some("user@example.com".to_owned()),
             context: Some(FeedbackContext {
                 runtime: "browser".to_owned(),
-                app_version: "0.3.2".to_owned(),
+                app_version: "0.3.3".to_owned(),
                 page: "activity".to_owned(),
             }),
             website: String::new(),

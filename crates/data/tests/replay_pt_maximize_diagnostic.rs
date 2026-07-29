@@ -53,6 +53,11 @@ fn replays_pt_maximize_diagnostic() {
         )
         .unwrap();
     let team = result.team.as_ref().expect("single-song result has a team");
+    assert_eq!(
+        team.team_card_ids.get(team.evaluation.captain_index),
+        Some(&team.captain_card_id),
+        "captainIndex must address captainCardId in the serialized team order",
+    );
     eprintln!(
         "replayed PT maximize: outer={:?} evaluation={:?} average_score={} average_pt={:.6} stat={} cards={:?}",
         result.event_type,

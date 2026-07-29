@@ -49,13 +49,21 @@ test('result metrics only display total elapsed time', () => {
   assert.doesNotMatch(resultViewSource, /metrics\.medley\.solveMs/);
 });
 
-test('PT maximize result includes challenge CP and regular fire selectors', () => {
+test('PT maximize result includes challenge CP, regular fire, and per-song medley selectors', () => {
   assert.match(resultViewSource, /resource: 200, multiplier: 1/);
   assert.match(resultViewSource, /segmented-control result-multiplier-control/);
   assert.match(resultViewSource, /\$\{option\.resource\} CP \/ \$\{option\.multiplier\} 倍/);
   assert.match(resultViewSource, /0, multiplier: 1/);
   assert.match(resultViewSource, /3, multiplier: 15/);
+  assert.match(resultViewSource, /10, multiplier: 40/);
   assert.match(resultViewSource, /\$\{option\.resource\} 火 \/ \$\{option\.multiplier\} 倍/);
+  assert.match(resultViewSource, /perSongResource: 3, multiplier: 45/);
+  assert.match(resultViewSource, /每曲倍率选择/);
+  assert.match(resultViewSource, /result-multiplier-control-medley/);
+  assert.match(
+    resultViewSource,
+    /每曲 \$\{option\.perSongResource\} 火 \/ \$\{option\.multiplier\} 倍/,
+  );
   assert.match(resultViewSource, /formatScaledAverageInteger/);
   assert.match(resultViewSource, /formatScaledAverageFixed/);
 });
@@ -101,6 +109,18 @@ test('segmented controls use context-specific fixed widths and stay left aligned
   assert.match(stylesSource, /\.calculation-mode-control\s*\{\s*--segment-width: 132px;/);
   assert.match(stylesSource, /#pt-maximize-versus-rank,[\s\S]*--segment-width: 44px;/);
   assert.match(stylesSource, /\.result-multiplier-control\s*\{\s*--segment-width: 132px;/);
+  assert.match(
+    stylesSource,
+    /\.result-multiplier-control-medley\s*\{[\s\S]*grid-template-columns: repeat\(4, minmax\(0, 1fr\)\);[\s\S]*width: min\(100%, 696px\);[\s\S]*overflow: hidden;/,
+  );
+  assert.match(
+    stylesSource,
+    /\.result-multiplier-control-medley > label > span\s*\{[\s\S]*white-space: nowrap;/,
+  );
+  assert.match(
+    stylesSource,
+    /@container \(max-width: 580px\)\s*\{[\s\S]*\.result-multiplier-control-medley\s*\{[\s\S]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/,
+  );
 });
 
 test('result feedback uses the inverse action style', () => {

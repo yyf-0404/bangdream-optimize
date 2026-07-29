@@ -2220,7 +2220,7 @@ mod tests {
                             "subject":"测试反馈",
                             "content":"这里是反馈内容",
                             "contactEmail":"user@example.com",
-                            "context":{"runtime":"browser","appVersion":"0.3.2","page":"activity"}
+                            "context":{"runtime":"browser","appVersion":"0.3.3","page":"activity"}
                         }"#,
                         Some(("diagnostic.json", r#"{"ok":true}"#)),
                     )))

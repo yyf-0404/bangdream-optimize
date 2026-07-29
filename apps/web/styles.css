@@ -3668,12 +3668,48 @@ td select {
 }
 
 .result-multiplier-section {
+  container-type: inline-size;
   border-top: 1px dashed var(--line);
   padding-top: 12px;
 }
 
 .result-multiplier-control {
   --segment-width: 132px;
+}
+
+.result-multiplier-control-medley {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  width: min(100%, 696px);
+  overflow: hidden;
+}
+
+.result-multiplier-control-medley > label {
+  flex: none;
+  width: auto;
+  min-width: 0;
+  min-height: 44px;
+}
+
+.result-multiplier-control-medley > label > span {
+  padding: 0 14px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+@container (max-width: 580px) {
+  .result-multiplier-control-medley {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .result-multiplier-control-medley > label:nth-child(3) {
+    border-left: 0;
+  }
+
+  .result-multiplier-control-medley > label:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
+  }
 }
 
 .result-scenario:first-child {

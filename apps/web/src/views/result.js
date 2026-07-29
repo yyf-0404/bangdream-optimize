@@ -20,11 +20,18 @@ import { renderDifficultyList } from './song.js?v=3';
 import { scoreRangeEmptyExplanation } from '../data/calculation-errors.js?v=1';
 
 const POINT_BONUS_EVENT_TYPES = new Set(['challenge', 'live_try', 'mission_live']);
-const FIRE_PT_MULTIPLIERS = Object.freeze([
+const SINGLE_FIRE_PT_MULTIPLIERS = Object.freeze([
   { resource: 0, multiplier: 1 },
   { resource: 1, multiplier: 5 },
   { resource: 2, multiplier: 10 },
   { resource: 3, multiplier: 15 },
+  { resource: 10, multiplier: 40 },
+]);
+const MEDLEY_FIRE_PT_MULTIPLIERS = Object.freeze([
+  { resource: 0, perSongResource: 0, multiplier: 3 },
+  { resource: 3, perSongResource: 1, multiplier: 15 },
+  { resource: 6, perSongResource: 2, multiplier: 30 },
+  { resource: 9, perSongResource: 3, multiplier: 45 },
 ]);
 const CHALLENGE_CP_MULTIPLIERS = Object.freeze([
   { resource: 200, multiplier: 1 },
@@ -34,9 +41,12 @@ const CHALLENGE_CP_MULTIPLIERS = Object.freeze([
 ]);
 
 export function ptResultMultiplierOptions(liveVariant) {
-  return liveVariant === 'challenge_cp'
-    ? CHALLENGE_CP_MULTIPLIERS
-    : FIRE_PT_MULTIPLIERS;
+  if (liveVariant === 'challenge_cp') {
+    return CHALLENGE_CP_MULTIPLIERS;
+  }
+  return liveVariant === 'medley'
+    ? MEDLEY_FIRE_PT_MULTIPLIERS
+    : SINGLE_FIRE_PT_MULTIPLIERS;
 }
 
 export function renderMetrics(metricsElement, metrics) {
@@ -203,14 +213,21 @@ function renderPtMaximizeMedleySummary(resultElement, result, deps) {
 
 function renderPtMultiplierSelector(liveVariant, onChange) {
   const challenge = liveVariant === 'challenge_cp';
+  const medley = liveVariant === 'medley';
   const section = document.createElement('section');
   section.className = 'result-section result-multiplier-section';
   const title = document.createElement('h3');
-  title.textContent = '倍率选择';
+  title.textContent = medley ? '每曲倍率选择' : '倍率选择';
   const control = document.createElement('div');
   control.className = 'segmented-control result-multiplier-control';
+  if (medley) {
+    control.classList.add('result-multiplier-control-medley');
+  }
   control.setAttribute('role', 'radiogroup');
-  control.setAttribute('aria-label', challenge ? '挑战演出 CP 倍率' : '演出火倍率');
+  control.setAttribute(
+    'aria-label',
+    challenge ? '挑战演出 CP 倍率' : medley ? '组曲每曲火倍率' : '演出火倍率',
+  );
   const options = ptResultMultiplierOptions(liveVariant);
   const radioName = `pt-result-multiplier-${challenge ? 'cp' : 'fire'}`;
   for (const [index, option] of options.entries()) {
@@ -223,7 +240,9 @@ function renderPtMultiplierSelector(liveVariant, onChange) {
     const text = document.createElement('span');
     text.textContent = challenge
       ? `${option.resource} CP / ${option.multiplier} 倍`
-      : `${option.resource} 火 / ${option.multiplier} 倍`;
+      : medley
+        ? `每曲 ${option.perSongResource} 火 / ${option.multiplier} 倍`
+        : `${option.resource} 火 / ${option.multiplier} 倍`;
     label.append(input, text);
     control.append(label);
   }

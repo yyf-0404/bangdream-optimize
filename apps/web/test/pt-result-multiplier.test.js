@@ -16,12 +16,22 @@ test('challenge performance exposes CP costs and PT multipliers', () => {
   ]);
 });
 
-test('other performances expose fire costs and PT/CP multipliers', () => {
+test('non-medley performances expose fire costs and PT/CP multipliers', () => {
   assert.deepEqual(ptResultMultiplierOptions('cooperative'), [
     { resource: 0, multiplier: 1 },
     { resource: 1, multiplier: 5 },
     { resource: 2, multiplier: 10 },
     { resource: 3, multiplier: 15 },
+    { resource: 10, multiplier: 40 },
+  ]);
+});
+
+test('medley performance selects fire per song and reports the three-song total', () => {
+  assert.deepEqual(ptResultMultiplierOptions('medley'), [
+    { resource: 0, perSongResource: 0, multiplier: 3 },
+    { resource: 3, perSongResource: 1, multiplier: 15 },
+    { resource: 6, perSongResource: 2, multiplier: 30 },
+    { resource: 9, perSongResource: 3, multiplier: 45 },
   ]);
 });
 

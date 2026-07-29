@@ -168,7 +168,7 @@ Content-Type: multipart/form-data
 
 ```bash
 curl https://calc.example.com/api/feedback \
-  -F 'payload={"category":"problem","subject":"计算结果异常","content":"复现步骤与预期结果……","contactEmail":"user@example.com","context":{"runtime":"browser","appVersion":"0.3.2","page":"result"},"website":""};type=application/json' \
+  -F 'payload={"category":"problem","subject":"计算结果异常","content":"复现步骤与预期结果……","contactEmail":"user@example.com","context":{"runtime":"browser","appVersion":"0.3.3","page":"result"},"website":""};type=application/json' \
   -F 'attachment=@diagnostic.json;type=application/json' \
   -F 'attachment=@screenshot.png;type=image/png'
 ```
@@ -312,7 +312,7 @@ POST /v1/maximize
     },
     "solver": "avx2",
     "metrics": {
-      "coreVersion": "0.3.2",
+      "coreVersion": "0.3.3",
       "cardCount": 1950,
       "songCount": 3,
       "itemCombinationsBefore": 120,

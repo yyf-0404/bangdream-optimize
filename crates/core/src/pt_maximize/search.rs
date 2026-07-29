@@ -1352,7 +1352,7 @@ fn evaluate_cooperative_selection(
         }
     }
     let evaluation_start = trace.enabled.then(Timer::start);
-    let evaluation = evaluate_cooperative_captain_with_scratch(
+    let mut evaluation = evaluate_cooperative_captain_with_scratch(
         chart,
         selected[0].skill,
         0,
@@ -1362,8 +1362,11 @@ fn evaluate_cooperative_selection(
     )?;
     finish_exact_trace(trace, evaluation_start);
 
-    let mut team_card_ids = selected.iter().map(|card| card.card_id).collect::<Vec<_>>();
-    team_card_ids.sort_unstable();
+    let (team_card_ids, captain_index) = sorted_team_with_captain_index(
+        selected.iter().map(|card| card.card_id).collect(),
+        evaluation.captain_card_id,
+    );
+    evaluation.captain_index = captain_index;
     let candidate = PtMaximizeTeamResult {
         captain_card_id: evaluation.captain_card_id,
         team_card_ids,
@@ -1473,7 +1476,7 @@ fn evaluate_selected_team(
     let team = std::array::from_fn(|index| selected[index].skill);
     let evaluation_start = trace.enabled.then(Timer::start);
     let mut trace_finished = false;
-    let evaluation = match scenario {
+    let mut evaluation = match scenario {
         PtMaximizeSearchScenario::FullTeam { scenario } => {
             let cutoff = best.as_ref().map(|current| FullTeamPtCutoff {
                 average_pt: current.evaluation.average_pt,
@@ -1532,8 +1535,11 @@ fn evaluate_selected_team(
     if !trace_finished {
         finish_exact_trace(trace, evaluation_start);
     }
-    let mut team_card_ids = selected.iter().map(|card| card.card_id).collect::<Vec<_>>();
-    team_card_ids.sort_unstable();
+    let (team_card_ids, captain_index) = sorted_team_with_captain_index(
+        selected.iter().map(|card| card.card_id).collect(),
+        evaluation.captain_card_id,
+    );
+    evaluation.captain_index = captain_index;
     let candidate = PtMaximizeTeamResult {
         captain_card_id: evaluation.captain_card_id,
         team_card_ids,
@@ -1611,6 +1617,17 @@ fn better(candidate: &PtMaximizeTeamResult, current: &PtMaximizeTeamResult) -> b
             ) < (current.team_card_ids.as_slice(), current.captain_card_id))
 }
 
+fn sorted_team_with_captain_index(
+    mut team_card_ids: Vec<u32>,
+    captain_card_id: u32,
+) -> (Vec<u32>, usize) {
+    team_card_ids.sort_unstable();
+    let captain_index = team_card_ids
+        .binary_search(&captain_card_id)
+        .expect("the captain must belong to the selected team");
+    (team_card_ids, captain_index)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1619,6 +1636,14 @@ mod tests {
         CooperativeTeammate, FixedTeamPtEvaluation, FixedTeamPtScenario, Magazine, ScoreHistogram,
         ScoreUp, StatValue,
     };
+
+    #[test]
+    fn sorted_team_remaps_captain_index() {
+        let (team, captain_index) =
+            sorted_team_with_captain_index(vec![1958, 1768, 1988, 2178, 2276], 1958);
+        assert_eq!(team, vec![1768, 1958, 1988, 2178, 2276]);
+        assert_eq!(captain_index, 1);
+    }
 
     fn card(card_id: u32, character_id: u32, stat: f64, score_up: f64) -> PreparedCard {
         PreparedCard {
