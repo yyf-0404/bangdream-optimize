@@ -6,6 +6,9 @@ use bangdream_optimize_core::{
 };
 use std::collections::BTreeMap;
 
+const POINT_BONUS_MICROS_PER_PERCENT: f64 = 1_000_000.0;
+const POINT_BONUS_MICROS_PER_TENTH_PERCENT: u64 = 100_000;
+
 #[derive(Debug, Clone)]
 pub struct PreparedEventContext {
     pub event_id: u32,
@@ -58,6 +61,12 @@ fn event_uses_point_bonus(event_type: EventType) -> bool {
     )
 }
 
+fn point_bonus_percent_to_micros(percent: f64) -> u64 {
+    let micros = (percent.max(0.0) * POINT_BONUS_MICROS_PER_PERCENT).round() as u64;
+    debug_assert_eq!(micros % POINT_BONUS_MICROS_PER_TENTH_PERCENT, 0);
+    micros
+}
+
 pub fn prepare_event_context(
     data: &GameDataSnapshot,
     player: &PlayerConfig,
@@ -89,8 +98,7 @@ pub fn prepare_event_context(
         .map(|card| {
             (
                 card.card_id,
-                (event_point_bonus_percent(card, &event.event_bonus).max(0.0) * 1_000_000.0).round()
-                    as u64,
+                point_bonus_percent_to_micros(event_point_bonus_percent(card, &event.event_bonus)),
             )
         })
         .collect::<BTreeMap<_, _>>();
@@ -182,5 +190,12 @@ mod tests {
         assert!(event_uses_point_bonus(EventType::Challenge));
         assert!(!event_uses_point_bonus(EventType::Versus));
         assert!(!event_uses_point_bonus(EventType::Medley));
+    }
+
+    #[test]
+    fn point_bonus_float_artifacts_still_map_to_tenth_percent_units() {
+        assert_eq!(point_bonus_percent_to_micros(0.20000000298023224), 200_000);
+        assert_eq!(point_bonus_percent_to_micros(0.6000000238418579), 600_000);
+        assert_eq!(point_bonus_percent_to_micros(15.0), 15_000_000);
     }
 }

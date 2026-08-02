@@ -7,7 +7,8 @@ use crate::model::chart::{Chart, TeamCardSkill};
 use crate::model::preparation::{PreparedCard, ScoreUp};
 use crate::model::schema::Attribute;
 use bangdream_optimize_team_prune::{
-    cross_group_dominator_cover, dominance_graph_for_index_subset,
+    cross_group_dominator_cover, direct_dominance_graph_for_cross_subsets,
+    direct_dominance_graph_for_index_subset, dominance_graph_for_index_subset,
     dominator_cover_after_worst_teammate_groups, same_group_dominator_cover, DominanceGraph,
 };
 use std::collections::BTreeMap;
@@ -752,11 +753,12 @@ fn other_team_occupancy_options(
     options
 }
 
-pub(crate) fn hard_dominance_graph_for_indices(
+pub(crate) fn hard_dominance_graph_for_indices_with_closure(
     cards: &[PreparedCard],
     profiles: &[MedleyCardPruneProfile],
     signature: MedleyPruneSignature,
     allowed_indices: &[usize],
+    close_transitively: bool,
 ) -> DominanceGraph {
     let mut models = vec![None; cards.len()];
     for &idx in allowed_indices {
@@ -772,7 +774,7 @@ pub(crate) fn hard_dominance_graph_for_indices(
         }
     }
 
-    dominance_graph_for_index_subset(cards.len(), allowed_indices, |dominator_idx, target_idx| {
+    let dominates = |dominator_idx, target_idx| {
         let Some(left) = models[dominator_idx] else {
             return false;
         };
@@ -780,7 +782,48 @@ pub(crate) fn hard_dominance_graph_for_indices(
             return false;
         };
         signature_hard_model_dominates(left, right)
-    })
+    };
+    if close_transitively {
+        dominance_graph_for_index_subset(cards.len(), allowed_indices, dominates)
+    } else {
+        direct_dominance_graph_for_index_subset(cards.len(), allowed_indices, dominates)
+    }
+}
+
+pub(crate) fn hard_dominance_graph_for_cross_subsets(
+    cards: &[PreparedCard],
+    profiles: &[MedleyCardPruneProfile],
+    signature: MedleyPruneSignature,
+    left_indices: &[usize],
+    right_indices: &[usize],
+) -> DominanceGraph {
+    let mut models = vec![None; cards.len()];
+    for &idx in left_indices.iter().chain(right_indices) {
+        let score_up = cards[idx]
+            .score_up
+            .resolve(signature.team_band_id(), signature.team_attribute());
+        if let Some(meta) = profiles[idx].skill_meta_for_score_up(score_up) {
+            models[idx] = Some(SignatureHardDominanceModel {
+                stat: profiles[idx].stat,
+                card_id: cards[idx].card_id,
+                meta,
+            });
+        }
+    }
+    direct_dominance_graph_for_cross_subsets(
+        cards.len(),
+        left_indices,
+        right_indices,
+        |dominator_idx, target_idx| {
+            let Some(left) = models[dominator_idx] else {
+                return false;
+            };
+            let Some(right) = models[target_idx] else {
+                return false;
+            };
+            signature_hard_model_dominates(left, right)
+        },
+    )
 }
 
 fn signature_hard_model_dominates(

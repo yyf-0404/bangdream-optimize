@@ -220,6 +220,7 @@ pub struct CooperativePtScenario {
     pub teammates: [CooperativeTeammate; 4],
     pub leader_selection: CooperativeLeaderSelection,
     pub point_bonus_basis_points: u32,
+    pub mission_support_pt_bonus: u64,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -314,7 +315,11 @@ impl PtMaximizeRequest {
                 LiveVariant::Cooperative | LiveVariant::Festival
             ),
             minimum_personal_stat: self.minimum_personal_stat,
-            mission_support_pt_bonus: self.mission_support_pt_bonus,
+            mission_support_pt_bonus: if self.event_type == EventType::MissionLive {
+                self.mission_support_pt_bonus
+            } else {
+                None
+            },
             cooperative: self.cooperative.clone(),
             versus: self.versus,
             festival: self.festival.clone(),
@@ -383,9 +388,7 @@ impl PtMaximizeRequest {
                 live_variant: self.live_variant,
             });
         }
-        let mission_support_pt_bonus = if self.event_type == EventType::MissionLive
-            && self.live_variant == LiveVariant::Solo
-        {
+        let mission_support_pt_bonus = if self.event_type == EventType::MissionLive {
             self.mission_support_pt_bonus
                 .ok_or(PtMaximizeError::MissingMissionSupportPtBonus)?
         } else {
@@ -431,6 +434,7 @@ impl PtMaximizeRequest {
                         teammates: input.teammates.expand(),
                         leader_selection: input.leader_selection,
                         point_bonus_basis_points: 0,
+                        mission_support_pt_bonus,
                     },
                 }
             }
@@ -671,7 +675,7 @@ pub enum PtMaximizeError {
     #[error("no valid PT-maximizing team was found")]
     NoResult,
 
-    #[error("missionSupportPtBonus must be provided for mission_live solo")]
+    #[error("missionSupportPtBonus must be provided for mission_live PT maximize")]
     MissingMissionSupportPtBonus,
 
     #[error("minimumPersonalStat must be non-negative")]
@@ -785,7 +789,7 @@ mod tests {
     }
 
     #[test]
-    fn mission_live_support_bonus_is_required_only_for_solo() {
+    fn mission_live_support_bonus_is_required_for_solo_and_cooperative() {
         let solo = PtMaximizeRequest {
             event_type: EventType::MissionLive,
             live_variant: LiveVariant::Solo,
@@ -801,12 +805,12 @@ mod tests {
             Err(PtMaximizeError::MissingMissionSupportPtBonus)
         ));
 
-        let cooperative = PtMaximizeRequest {
+        let mut cooperative = PtMaximizeRequest {
             event_type: EventType::MissionLive,
             live_variant: LiveVariant::Cooperative,
             songs: vec![],
             minimum_personal_stat: Some(0),
-            mission_support_pt_bonus: Some(999),
+            mission_support_pt_bonus: None,
             cooperative: Some(CooperativeInput {
                 teammates: TeammateInput::Uniform(CooperativeTeammate {
                     expected_stat: 0,
@@ -819,14 +823,36 @@ mod tests {
             festival: None,
         };
         assert!(matches!(
+            cooperative.search_scenario(),
+            Err(PtMaximizeError::MissingMissionSupportPtBonus)
+        ));
+        cooperative.mission_support_pt_bonus = Some(999);
+        assert!(matches!(
             cooperative.search_scenario().unwrap(),
             PtMaximizeSearchScenario::Cooperative {
                 scenario: CooperativePtScenario {
                     event_type: EventType::MissionLive,
                     point_bonus_basis_points: 0,
+                    mission_support_pt_bonus: 999,
                     ..
                 }
             }
         ));
+    }
+
+    #[test]
+    fn scenario_summary_hides_mission_support_bonus_for_other_events() {
+        let request = PtMaximizeRequest {
+            event_type: EventType::LiveTry,
+            live_variant: LiveVariant::Solo,
+            songs: vec![],
+            minimum_personal_stat: None,
+            mission_support_pt_bonus: Some(100),
+            cooperative: None,
+            versus: None,
+            festival: None,
+        };
+
+        assert_eq!(request.scenario_summary().mission_support_pt_bonus, None);
     }
 }

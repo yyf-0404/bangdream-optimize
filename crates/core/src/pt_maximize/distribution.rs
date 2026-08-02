@@ -25,9 +25,8 @@ pub(crate) struct FullTeamScoreScratch {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct CooperativeEvaluationKey {
+struct CooperativeScoreKey {
     stat: i32,
-    point_bonus_basis_points: u32,
     duration_bits: u64,
     score_up_bits: u64,
     rateup: bool,
@@ -38,7 +37,15 @@ pub(crate) struct CooperativeScoreScratch {
     source_chart: usize,
     fever_chart: Option<Chart>,
     exact: ExactScoreScratch,
-    evaluations: HashMap<CooperativeEvaluationKey, FixedTeamPtEvaluation>,
+    score_histograms: HashMap<CooperativeScoreKey, BTreeMap<(i32, i64), u64>>,
+    score_cache_hits: u64,
+    score_cache_misses: u64,
+}
+
+impl CooperativeScoreScratch {
+    pub(crate) fn score_cache_counts(&self) -> (u64, u64) {
+        (self.score_cache_hits, self.score_cache_misses)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -445,7 +452,7 @@ fn prepare_cooperative_evaluation(
         fever_chart.init_with_fever(fever_chart.combo, false)?;
         scratch.source_chart = chart_address;
         scratch.fever_chart = Some(fever_chart);
-        scratch.evaluations.clear();
+        scratch.score_histograms.clear();
         scratch.exact = ExactScoreScratch::default();
     }
     Ok([
@@ -467,19 +474,12 @@ fn evaluate_prepared_cooperative_captain(
     repeated_player_indices: &[usize],
     scratch: &mut CooperativeScoreScratch,
 ) -> Result<FixedTeamPtEvaluation, PtMaximizeError> {
-    let key = CooperativeEvaluationKey {
+    let score_key = CooperativeScoreKey {
         stat,
-        point_bonus_basis_points: scenario.point_bonus_basis_points,
         duration_bits: captain.duration.to_bits(),
         score_up_bits: captain.score_up.to_bits(),
         rateup: captain.rateup,
     };
-    if let Some(cached) = scratch.evaluations.get(&key) {
-        let mut evaluation = cached.clone();
-        evaluation.captain_index = captain_index;
-        evaluation.captain_card_id = captain.card_id;
-        return Ok(evaluation);
-    }
     let player_skills = [
         captain,
         scenario.teammates[0].skill(1),
@@ -491,20 +491,23 @@ fn evaluate_prepared_cooperative_captain(
         .fever_chart
         .as_ref()
         .expect("cooperative scratch prepares a fever chart");
-    let joint = cooperative_score_histogram(
-        chart,
-        &player_skills,
-        player_stats,
-        repeated_player_indices,
-        &mut scratch.exact,
-    )?;
-    let evaluation =
-        evaluate_cooperative_distribution(captain_index, captain.card_id, joint, scenario)?;
-    let mut canonical = evaluation.clone();
-    canonical.captain_index = 0;
-    canonical.captain_card_id = 0;
-    scratch.evaluations.insert(key, canonical);
-    Ok(evaluation)
+    if let Some(joint) = scratch.score_histograms.get(&score_key) {
+        scratch.score_cache_hits += 1;
+        return evaluate_cooperative_distribution(captain_index, captain.card_id, joint, scenario);
+    } else {
+        scratch.score_cache_misses += 1;
+        let joint = cooperative_score_histogram(
+            chart,
+            &player_skills,
+            player_stats,
+            repeated_player_indices,
+            &mut scratch.exact,
+        )?;
+        let evaluation =
+            evaluate_cooperative_distribution(captain_index, captain.card_id, &joint, scenario)?;
+        scratch.score_histograms.insert(score_key, joint);
+        Ok(evaluation)
+    }
 }
 
 fn cooperative_repeated_player_indices(
@@ -650,7 +653,7 @@ fn cooperative_score_histogram_queued(
 fn evaluate_cooperative_distribution(
     captain_index: usize,
     captain_card_id: u32,
-    joint: BTreeMap<(i32, i64), u64>,
+    joint: &BTreeMap<(i32, i64), u64>,
     scenario: CooperativePtScenario,
 ) -> Result<FixedTeamPtEvaluation, PtMaximizeError> {
     let mut personal_histogram = BTreeMap::new();
@@ -658,14 +661,14 @@ fn evaluate_cooperative_distribution(
     let mut cp_sum = 0u128;
     let mut min_pt = u64::MAX;
     let mut max_pt = 0u64;
-    for ((personal_score, total_score), count) in joint {
+    for (&(personal_score, total_score), &count) in joint {
         *personal_histogram.entry(personal_score).or_insert(0) += count;
         let pt = cooperative_points(
             scenario.event_type,
             personal_score,
             total_score,
             scenario.point_bonus_basis_points,
-            0,
+            scenario.mission_support_pt_bonus,
         )?;
         pt_sum += u128::from(pt) * u128::from(count);
         if scenario.event_type == crate::EventType::Challenge {
@@ -1147,6 +1150,7 @@ mod tests {
             ],
             leader_selection: CooperativeLeaderSelection::MaxStat,
             point_bonus_basis_points: 0,
+            mission_support_pt_bonus: 0,
         };
 
         let result = evaluate_cooperative_team(&chart, &team, 300_000, scenario).unwrap();
@@ -1190,6 +1194,7 @@ mod tests {
             }),
             leader_selection: CooperativeLeaderSelection::Specified { player_index: 3 },
             point_bonus_basis_points: 0,
+            mission_support_pt_bonus: 0,
         };
 
         let specified = evaluate_cooperative_team(&chart, &team, 300_000, base_scenario).unwrap();
@@ -1206,5 +1211,73 @@ mod tests {
         )
         .unwrap();
         assert_eq!(random.score_distribution.sample_count, 600);
+    }
+
+    #[test]
+    fn cooperative_score_cache_is_shared_across_point_bonuses() {
+        let nodes = (0..6)
+            .flat_map(|activation| {
+                let start = activation as f64 * 10.0;
+                [
+                    ChartNode {
+                        node_type: ChartNodeType::Skill,
+                        time: start,
+                    },
+                    ChartNode {
+                        node_type: ChartNodeType::Node,
+                        time: start + 1.0,
+                    },
+                ]
+            })
+            .collect();
+        let mut chart = Chart::new_with_fever_section(25, nodes, Some(35.0), Some(55.0));
+        chart.init(0, false).unwrap();
+        let captain = TeamCardSkill {
+            card_id: 1,
+            duration: 3.0,
+            score_up: 1.3,
+            rateup: false,
+        };
+        let base_scenario = CooperativePtScenario {
+            event_type: EventType::MissionLive,
+            teammates: std::array::from_fn(|_| CooperativeTeammate {
+                expected_stat: 290_000,
+                leader_score_up: 1.3,
+                leader_skill_duration: 3.0,
+            }),
+            leader_selection: CooperativeLeaderSelection::MaxStat,
+            point_bonus_basis_points: 0,
+            mission_support_pt_bonus: 100,
+        };
+        let mut scratch = CooperativeScoreScratch::default();
+
+        let without_bonus = evaluate_cooperative_captain_with_scratch(
+            &chart,
+            captain,
+            0,
+            300_000,
+            base_scenario,
+            &mut scratch,
+        )
+        .unwrap();
+        let with_bonus = evaluate_cooperative_captain_with_scratch(
+            &chart,
+            captain,
+            0,
+            300_000,
+            CooperativePtScenario {
+                point_bonus_basis_points: 1_000,
+                ..base_scenario
+            },
+            &mut scratch,
+        )
+        .unwrap();
+
+        assert_eq!(scratch.score_cache_counts(), (1, 1));
+        assert_eq!(
+            without_bonus.score_distribution,
+            with_bonus.score_distribution
+        );
+        assert!(with_bonus.average_pt > without_bonus.average_pt);
     }
 }

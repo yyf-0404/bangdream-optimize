@@ -26,6 +26,17 @@ const FESTIVAL_RANK_PT: [u64; 5] = [125, 117, 110, 105, 100];
 const CHALLENGE_CP_FIXED_PT: u64 = 3_250;
 const CHALLENGE_CP_SCORE_DIVISOR: u64 = 450;
 
+pub(crate) fn point_multiplier_fixed_score_equivalent(event_type: EventType) -> Option<f64> {
+    let value = match event_type {
+        EventType::MissionLive => MISSION_FIXED_PT * MISSION_PERSONAL_SCORE_DIVISOR,
+        EventType::LiveTry => LIVE_TRY_FIXED_PT * LIVE_TRY_PERSONAL_SCORE_DIVISOR,
+        EventType::Challenge => CHALLENGE_FIXED_PT * CHALLENGE_PERSONAL_SCORE_DIVISOR,
+        EventType::Festival => FESTIVAL_SOLO_FIXED_PT * FESTIVAL_SOLO_SCORE_DIVISOR,
+        EventType::Medley | EventType::Versus => return None,
+    };
+    Some(value as f64)
+}
+
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum EventPtError {
     #[error("event type {event_type:?} is not supported by this event PT formula")]
@@ -163,6 +174,30 @@ fn rank_points<const N: usize>(values: [u64; N], rank: u8) -> Result<u64, EventP
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn point_multiplier_fixed_score_equivalent_matches_each_formula() {
+        assert_eq!(
+            point_multiplier_fixed_score_equivalent(EventType::MissionLive),
+            Some(1_800_000.0)
+        );
+        assert_eq!(
+            point_multiplier_fixed_score_equivalent(EventType::LiveTry),
+            Some(3_380_000.0)
+        );
+        assert_eq!(
+            point_multiplier_fixed_score_equivalent(EventType::Challenge),
+            Some(3_500_000.0)
+        );
+        assert_eq!(
+            point_multiplier_fixed_score_equivalent(EventType::Festival),
+            Some(1_120_000.0)
+        );
+        assert_eq!(
+            point_multiplier_fixed_score_equivalent(EventType::Versus),
+            None
+        );
+    }
 
     #[test]
     fn matches_formula_workbook_examples() {

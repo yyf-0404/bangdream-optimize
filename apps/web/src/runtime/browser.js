@@ -14,7 +14,7 @@ import {
 import { submitFeedbackRequest } from '../data/feedback.js?v=2';
 import { fetchBangDreamUserDataRequest } from '../data/bangdream-import.js?v=1';
 
-const ASSET_VERSION = '4';
+const ASSET_VERSION = '5';
 
 export async function createBrowserRuntime({ onProgress } = {}) {
   const config = readRuntimeConfig();

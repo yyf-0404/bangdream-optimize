@@ -298,6 +298,20 @@ cargo install wasm-bindgen-cli
 
 ## 更新策略
 
+生产服务器可从任意当前目录调用仓库内的一键更新脚本；仓库根目录始终根据脚本自身位置
+解析，不要求安装到固定路径：
+
+```bash
+bash /实际仓库路径/scripts/update-production.sh
+```
+
+脚本会依次执行：强制同步 `origin/master`、删除未跟踪且未忽略的文件、重新构建后端与
+game-data 同步程序、构建 Web/WASM、重启后端并等待健康检查、将前端同步到
+`/var/www/bangdream-optimize/web`，最后校验配置并重启 Nginx。Git 忽略的生产密钥、
+`var/` 运行数据和后端环境文件不会被 `git clean -fd` 删除。无人值守运行时传入
+`--yes`；其他分支、服务名、发布目录和健康检查地址可通过 `--help` 中列出的参数或
+环境变量覆盖。
+
 可通过后端启动同步或定时同步更新 `BANGDREAM_OPTIMIZE_GAME_DATA_ROOT`，
 或将 `apps/web/config.js` 指向后端/CDN 镜像。
 运行时会从配置镜像同步到 IndexedDB。

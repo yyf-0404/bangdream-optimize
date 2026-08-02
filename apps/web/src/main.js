@@ -1,4 +1,4 @@
-import { createRuntime } from './runtime/index.js?v=6';
+import { createRuntime } from './runtime/index.js?v=7';
 import { characterIconUrls } from './assets/index.js?v=3';
 import {
   areaItemGroupIconUrls,
@@ -13,7 +13,7 @@ import {
   createBestdoriProfileImporter,
   parseBestdoriProfileExport,
 } from './data/bestdori.js?v=3';
-import { createCalculationActions } from './actions/calculation.js?v=3';
+import { createCalculationActions } from './actions/calculation.js?v=4';
 import {
   characterBonusWithRates as buildCharacterBonusWithRates,
   createCharacterBonusHelpers,
@@ -54,7 +54,7 @@ import {
   normalizedServer as normalizeServerValue,
   readFiniteInput,
 } from './models/player.js?v=3';
-import { createPageController } from './app/page.js?v=3';
+import { createPageController } from './app/page.js?v=4';
 import { createPlayerStore } from './app/player.js?v=3';
 import { createPlayerView } from './views/player.js?v=3';
 import { createProfileActions } from './actions/profile.js?v=3';

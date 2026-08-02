@@ -3,9 +3,10 @@ use super::hard::{
     MedleyPruneContext,
 };
 use super::signature::{signature_label, MedleyPruneSignature};
-use crate::model::chart::Chart;
+use crate::model::chart::{Chart, TeamCardSkill};
 use crate::model::preparation::PreparedCard;
 use bangdream_optimize_team_prune::{
+    direct_dominance_graph_for_cross_subsets, direct_dominance_graph_for_index_subset_with_base,
     dominance_graph_for_index_subset_with_base, dominator_cover_after_worst_teammate_groups,
     dominator_cover_summary_after_worst_teammate_groups, DominanceGraph, DominatorCoverSummary,
 };
@@ -23,19 +24,47 @@ const SCORE_CONTRIBUTION_EPS: f64 = 1e-7;
 const CONTRIBUTION_DIAGNOSTIC_TARGETS: usize = 3;
 const CONTRIBUTION_DIAGNOSTIC_NEAR_MISSES: usize = 4;
 
-pub(crate) fn contribution_dominance_graph_for_signature(
+pub(crate) fn contribution_dominance_graph_for_models(
     cards: &[PreparedCard],
-    signature: MedleyPruneSignature,
     hard_dominance_graph: &DominanceGraph,
-    contribution_dominance: &mut MedleyContributionDominance<'_>,
+    contribution_dominance: &MedleyContributionDominance<'_>,
+    models: &SignatureContributionModels,
+    indices: &[usize],
+    close_transitively: bool,
 ) -> DominanceGraph {
-    let models = contribution_dominance.models_for_signature(signature);
-    dominance_graph_for_index_subset_with_base(
+    let build = |dominator_idx, target_idx| {
+        contribution_dominance.card_can_replace_with_models(dominator_idx, target_idx, models)
+    };
+    if close_transitively {
+        dominance_graph_for_index_subset_with_base(
+            cards.len(),
+            indices,
+            hard_dominance_graph,
+            build,
+        )
+    } else {
+        direct_dominance_graph_for_index_subset_with_base(
+            cards.len(),
+            indices,
+            hard_dominance_graph,
+            build,
+        )
+    }
+}
+
+pub(crate) fn contribution_dominance_graph_for_cross_subsets(
+    cards: &[PreparedCard],
+    contribution_dominance: &MedleyContributionDominance<'_>,
+    models: &SignatureContributionModels,
+    left_indices: &[usize],
+    right_indices: &[usize],
+) -> DominanceGraph {
+    direct_dominance_graph_for_cross_subsets(
         cards.len(),
-        &models.allowed_indices,
-        hard_dominance_graph,
+        left_indices,
+        right_indices,
         |dominator_idx, target_idx| {
-            contribution_dominance.card_can_replace_with_models(dominator_idx, target_idx, &models)
+            contribution_dominance.card_can_replace_with_models(dominator_idx, target_idx, models)
         },
     )
 }
@@ -49,6 +78,81 @@ pub(crate) fn same_shape_contribution_active_indices(
     replacement_values: Option<&[u64]>,
 ) -> Vec<usize> {
     let mut dominance = MedleyContributionDominance::new(cards, charts, profiles, 0);
+    same_shape_contribution_active_indices_with_dominance(
+        cards,
+        signature,
+        required_cover,
+        replacement_values,
+        &mut dominance,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn same_shape_contribution_active_indices_with_joint_point_bonus(
+    cards: &[PreparedCard],
+    charts: &[Chart],
+    profiles: &[MedleyCardPruneProfile],
+    signature: MedleyPruneSignature,
+    required_cover: usize,
+    card_bonus_micros: &[u64],
+    teammate_bonus_bounds: [u64; 2],
+    fixed_score_equivalent: f64,
+) -> Vec<usize> {
+    let mut dominance = MedleyContributionDominance::new(cards, charts, profiles, 0);
+    dominance.set_joint_point_bonus_context(
+        card_bonus_micros,
+        teammate_bonus_bounds,
+        fixed_score_equivalent,
+    );
+    same_shape_contribution_active_indices_with_dominance(
+        cards,
+        signature,
+        required_cover,
+        Some(card_bonus_micros),
+        &mut dominance,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn same_shape_contribution_active_indices_with_fixed_teammate_skills(
+    cards: &[PreparedCard],
+    charts: &[Chart],
+    profiles: &[MedleyCardPruneProfile],
+    signature: MedleyPruneSignature,
+    required_cover: usize,
+    replacement_values: Option<&[u64]>,
+    teammate_skills: &[TeamCardSkill; 4],
+    teammate_effective_stat: f64,
+    teammate_bonus_bounds: Option<[u64; 2]>,
+    fixed_score_equivalent: f64,
+) -> Vec<usize> {
+    let mut dominance = MedleyContributionDominance::new(cards, charts, profiles, 0);
+    dominance.set_fixed_teammate_context(teammate_skills, teammate_effective_stat);
+    if let (Some(card_bonus_micros), Some(teammate_bonus_bounds)) =
+        (replacement_values, teammate_bonus_bounds)
+    {
+        dominance.set_joint_point_bonus_context(
+            card_bonus_micros,
+            teammate_bonus_bounds,
+            fixed_score_equivalent,
+        );
+    }
+    same_shape_contribution_active_indices_with_dominance(
+        cards,
+        signature,
+        required_cover,
+        replacement_values,
+        &mut dominance,
+    )
+}
+
+fn same_shape_contribution_active_indices_with_dominance(
+    cards: &[PreparedCard],
+    signature: MedleyPruneSignature,
+    required_cover: usize,
+    replacement_values: Option<&[u64]>,
+    dominance: &mut MedleyContributionDominance<'_>,
+) -> Vec<usize> {
     let allowed = cards
         .iter()
         .enumerate()
@@ -83,8 +187,9 @@ pub(crate) fn same_shape_contribution_active_indices(
                     if dominator_idx == target_idx {
                         return false;
                     }
-                    if replacement_values
-                        .is_some_and(|values| values[dominator_idx] < values[target_idx])
+                    if !dominance.has_joint_point_bonus()
+                        && replacement_values
+                            .is_some_and(|values| values[dominator_idx] < values[target_idx])
                     {
                         return false;
                     }
@@ -459,7 +564,17 @@ pub(crate) struct MedleyContributionDominance<'a> {
     charts: &'a [Chart],
     profiles: &'a [MedleyCardPruneProfile],
     seed_score_floor_by_chart: Vec<f64>,
+    fixed_teammate_skills: Option<[TeamCardSkill; 4]>,
+    fixed_teammate_effective_stat: f64,
+    joint_point_bonus: Option<JointPointBonusContext<'a>>,
     signature_context_cache: Vec<SignatureContributionContextCacheEntry>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct JointPointBonusContext<'a> {
+    card_bonus_micros: &'a [u64],
+    teammate_bonus_bounds: [u64; 2],
+    fixed_score_equivalent: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -531,8 +646,7 @@ impl ContributionAffineModel {
 }
 
 #[derive(Debug)]
-struct SignatureContributionModels {
-    allowed_indices: Vec<usize>,
+pub(crate) struct SignatureContributionModels {
     complete_by_card: Vec<bool>,
     models_by_card_skill_position: Vec<ContributionAffineModel>,
     models_per_card: usize,
@@ -646,6 +760,9 @@ impl<'a> MedleyContributionDominance<'a> {
                 profiles,
                 current_best,
             ),
+            fixed_teammate_skills: None,
+            fixed_teammate_effective_stat: 0.0,
+            joint_point_bonus: None,
             signature_context_cache: Vec::new(),
         }
     }
@@ -667,8 +784,40 @@ impl<'a> MedleyContributionDominance<'a> {
                 current_best,
                 best_any_team_scores,
             ),
+            fixed_teammate_skills: None,
+            fixed_teammate_effective_stat: 0.0,
+            joint_point_bonus: None,
             signature_context_cache: Vec::new(),
         }
+    }
+
+    pub(crate) fn set_fixed_teammate_context(
+        &mut self,
+        teammate_skills: &[TeamCardSkill; 4],
+        teammate_effective_stat: f64,
+    ) {
+        self.fixed_teammate_skills = Some(*teammate_skills);
+        self.fixed_teammate_effective_stat = teammate_effective_stat;
+        self.signature_context_cache.clear();
+    }
+
+    pub(crate) fn set_joint_point_bonus_context(
+        &mut self,
+        card_bonus_micros: &'a [u64],
+        teammate_bonus_bounds: [u64; 2],
+        fixed_score_equivalent: f64,
+    ) {
+        debug_assert_eq!(card_bonus_micros.len(), self.cards.len());
+        debug_assert!(teammate_bonus_bounds[0] <= teammate_bonus_bounds[1]);
+        self.joint_point_bonus = Some(JointPointBonusContext {
+            card_bonus_micros,
+            teammate_bonus_bounds,
+            fixed_score_equivalent,
+        });
+    }
+
+    pub(crate) fn has_joint_point_bonus(&self) -> bool {
+        self.joint_point_bonus.is_some()
     }
 
     fn card_can_replace_for_signature(
@@ -717,7 +866,9 @@ impl<'a> MedleyContributionDominance<'a> {
                 right,
                 &self.profiles[right_idx],
                 signature,
-            ) {
+            ) && self.joint_point_bonus.is_none_or(|context| {
+                context.card_bonus_micros[left_idx] >= context.card_bonus_micros[right_idx]
+            }) {
                 return ContributionReplacementComparison {
                     replaces: true,
                     reason: ContributionReplacementReason::StrictDominance,
@@ -790,7 +941,21 @@ impl<'a> MedleyContributionDominance<'a> {
                     );
                 };
 
-                let endpoint = affine_contribution_endpoint_comparison(left_model, right_model);
+                let Some(endpoint) = self.contribution_endpoint_comparison(
+                    left_idx,
+                    right_idx,
+                    left_model,
+                    right_model,
+                ) else {
+                    return contribution_replacement_reject(
+                        ContributionReplacementReason::MissingBounds,
+                        f64::NEG_INFINITY,
+                        Some(chart_idx),
+                        Some(skill_position),
+                        0.0,
+                        0.0,
+                    );
+                };
                 let margin = endpoint.margin;
                 if margin < min_margin {
                     min_margin = margin;
@@ -841,13 +1006,12 @@ impl<'a> MedleyContributionDominance<'a> {
         }
     }
 
-    fn models_for_signature(
+    pub(crate) fn models_for_signature(
         &mut self,
         signature: MedleyPruneSignature,
     ) -> SignatureContributionModels {
         let context = self.signature_context_bounds(signature);
         let models_per_card = self.charts.len() * CONTRIBUTION_SCENARIO_COUNT;
-        let mut allowed_indices = Vec::new();
         let mut complete_by_card = vec![false; self.cards.len()];
         let mut models_by_card_skill_position =
             vec![ContributionAffineModel::default(); self.cards.len() * models_per_card];
@@ -856,7 +1020,6 @@ impl<'a> MedleyContributionDominance<'a> {
             if !signature.allows(card) {
                 continue;
             }
-            allowed_indices.push(idx);
             let Some(context) = context.as_ref() else {
                 continue;
             };
@@ -892,14 +1055,13 @@ impl<'a> MedleyContributionDominance<'a> {
         }
 
         SignatureContributionModels {
-            allowed_indices,
             complete_by_card,
             models_by_card_skill_position,
             models_per_card,
         }
     }
 
-    fn card_can_replace_with_models(
+    pub(crate) fn card_can_replace_with_models(
         &self,
         left_idx: usize,
         right_idx: usize,
@@ -921,7 +1083,11 @@ impl<'a> MedleyContributionDominance<'a> {
 
         let mut strictly_better = false;
         for (&left_model, &right_model) in left_models.iter().zip(right_models) {
-            let margin = affine_contribution_min_margin(left_model, right_model);
+            let Some(margin) =
+                self.contribution_min_margin(left_idx, right_idx, left_model, right_model)
+            else {
+                return false;
+            };
             if margin < 0.0 {
                 return false;
             }
@@ -929,6 +1095,73 @@ impl<'a> MedleyContributionDominance<'a> {
         }
 
         strictly_better || left.card_id < right.card_id
+    }
+
+    fn contribution_endpoint_comparison(
+        &self,
+        left_idx: usize,
+        right_idx: usize,
+        left_model: ContributionAffineModel,
+        right_model: ContributionAffineModel,
+    ) -> Option<ContributionEndpointComparison> {
+        let Some(context) = self.joint_point_bonus else {
+            return Some(affine_contribution_endpoint_comparison(
+                left_model,
+                right_model,
+            ));
+        };
+        let left_bonus = *context.card_bonus_micros.get(left_idx)?;
+        let right_bonus = *context.card_bonus_micros.get(right_idx)?;
+        joint_point_bonus_endpoints(left_model, right_model, context.teammate_bonus_bounds)
+            .into_iter()
+            .map(|teammate_bonus| {
+                let left = point_bonus_scaled_model(
+                    left_model,
+                    context.fixed_score_equivalent,
+                    left_bonus,
+                    teammate_bonus,
+                );
+                let right = point_bonus_scaled_model(
+                    right_model,
+                    context.fixed_score_equivalent,
+                    right_bonus,
+                    teammate_bonus,
+                );
+                affine_contribution_endpoint_comparison(left, right)
+            })
+            .min_by(|left, right| left.margin.total_cmp(&right.margin))
+    }
+
+    fn contribution_min_margin(
+        &self,
+        left_idx: usize,
+        right_idx: usize,
+        left_model: ContributionAffineModel,
+        right_model: ContributionAffineModel,
+    ) -> Option<f64> {
+        let Some(context) = self.joint_point_bonus else {
+            return Some(affine_contribution_min_margin(left_model, right_model));
+        };
+        let left_bonus = *context.card_bonus_micros.get(left_idx)?;
+        let right_bonus = *context.card_bonus_micros.get(right_idx)?;
+        joint_point_bonus_endpoints(left_model, right_model, context.teammate_bonus_bounds)
+            .into_iter()
+            .map(|teammate_bonus| {
+                let left = point_bonus_scaled_model(
+                    left_model,
+                    context.fixed_score_equivalent,
+                    left_bonus,
+                    teammate_bonus,
+                );
+                let right = point_bonus_scaled_model(
+                    right_model,
+                    context.fixed_score_equivalent,
+                    right_bonus,
+                    teammate_bonus,
+                );
+                affine_contribution_min_margin(left, right)
+            })
+            .min_by(f64::total_cmp)
     }
 
     fn signature_context_bounds(
@@ -962,10 +1195,13 @@ impl<'a> MedleyContributionDominance<'a> {
                 high: self.profiles[idx].stat,
             })
         });
+        let external_stat = self.fixed_teammate_effective_stat;
         let coarse_stat_low =
-            bottom_value_range_sum::<{ TEAM_SIZE - 1 }, _>(&stat_ranges, |range| range.low)?;
+            bottom_value_range_sum::<{ TEAM_SIZE - 1 }, _>(&stat_ranges, |range| range.low)?
+                + external_stat;
         let stat_high =
-            top_value_range_sum::<{ TEAM_SIZE - 1 }, _>(&stat_ranges, |range| range.high)?;
+            top_value_range_sum::<{ TEAM_SIZE - 1 }, _>(&stat_ranges, |range| range.high)?
+                + external_stat;
         let max_card_stat = stat_ranges
             .iter()
             .map(|range| range.high)
@@ -979,33 +1215,44 @@ impl<'a> MedleyContributionDominance<'a> {
         let mut normal_plus_captain_meta_low_by_chart = Vec::with_capacity(self.charts.len());
         let mut normal_plus_captain_meta_high_by_chart = Vec::with_capacity(self.charts.len());
         for chart_idx in 0..self.charts.len() {
-            let normal_ranges = character_value_ranges(self.cards, |idx, card| {
-                signature
-                    .allows(card)
-                    .then(|| {
-                        signature_card_normal_meta_bounds_for_chart(
-                            card,
-                            &self.profiles[idx],
-                            signature,
-                            chart_idx,
-                        )
-                    })
-                    .flatten()
-            });
-            let normal_low =
-                bottom_value_range_sum::<{ TEAM_SIZE - 1 }, _>(&normal_ranges, |range| range.low)?;
-            let normal_high =
-                top_value_range_sum::<{ TEAM_SIZE - 1 }, _>(&normal_ranges, |range| range.high)?;
-            let normal_plus_captain = signature_normal_plus_captain_meta_bounds(
-                self.cards,
-                self.profiles,
-                signature,
-                chart_idx,
-                None,
-                TEAM_SIZE - 1,
-            )?;
-            normal_meta_low_by_chart.push(normal_low);
-            normal_meta_high_by_chart.push(normal_high);
+            let (normal, normal_plus_captain) = if let Some(teammate_skills) =
+                self.fixed_teammate_skills.as_ref()
+            {
+                fixed_teammate_meta_bounds_for_chart(&self.charts[chart_idx], teammate_skills)?
+            } else {
+                let normal_ranges = character_value_ranges(self.cards, |idx, card| {
+                    signature
+                        .allows(card)
+                        .then(|| {
+                            signature_card_normal_meta_bounds_for_chart(
+                                card,
+                                &self.profiles[idx],
+                                signature,
+                                chart_idx,
+                            )
+                        })
+                        .flatten()
+                });
+                let normal = ValueRange {
+                    low: bottom_value_range_sum::<{ TEAM_SIZE - 1 }, _>(&normal_ranges, |range| {
+                        range.low
+                    })?,
+                    high: top_value_range_sum::<{ TEAM_SIZE - 1 }, _>(&normal_ranges, |range| {
+                        range.high
+                    })?,
+                };
+                let normal_plus_captain = signature_normal_plus_captain_meta_bounds(
+                    self.cards,
+                    self.profiles,
+                    signature,
+                    chart_idx,
+                    None,
+                    TEAM_SIZE - 1,
+                )?;
+                (normal, normal_plus_captain)
+            };
+            normal_meta_low_by_chart.push(normal.low);
+            normal_meta_high_by_chart.push(normal.high);
             normal_plus_captain_meta_low_by_chart.push(normal_plus_captain.low);
             normal_plus_captain_meta_high_by_chart.push(normal_plus_captain.high);
         }
@@ -1013,10 +1260,11 @@ impl<'a> MedleyContributionDominance<'a> {
         // All cards must be compared on one shared rectangle for ordinary graph transitivity to
         // remain valid. Tighten that rectangle by first deriving a card-forced lower bound and
         // then taking the minimum over every card that can occur in this exact signature.
-        let need_forced_meta = self
-            .seed_score_floor_by_chart
-            .iter()
-            .any(|&score| score > 0.0);
+        let need_forced_meta = self.fixed_teammate_skills.is_none()
+            && self
+                .seed_score_floor_by_chart
+                .iter()
+                .any(|&score| score > 0.0);
         // Mixed is the large shared pool and the only signature where the extra fixed-card DP has
         // paid for itself in fixture candidate counts. Keep the previous coarse score floor for
         // the smaller unified pools to avoid rebuilding category envelopes with no solver benefit.
@@ -1591,6 +1839,51 @@ fn affine_contribution_min_margin(
     stat_delta * x + meta_delta * y + constant_delta
 }
 
+fn affine_contribution_max_margin(
+    left: ContributionAffineModel,
+    right: ContributionAffineModel,
+) -> f64 {
+    -affine_contribution_min_margin(right, left)
+}
+
+fn joint_point_bonus_endpoints(
+    left: ContributionAffineModel,
+    right: ContributionAffineModel,
+    teammate_bonus_bounds: [u64; 2],
+) -> impl Iterator<Item = u64> {
+    debug_assert!(teammate_bonus_bounds[0] <= teammate_bonus_bounds[1]);
+    let slope_min = affine_contribution_min_margin(left, right);
+    let (first, second) = if slope_min >= 0.0 {
+        (teammate_bonus_bounds[0], None)
+    } else if affine_contribution_max_margin(left, right) <= 0.0 {
+        (teammate_bonus_bounds[1], None)
+    } else if teammate_bonus_bounds[0] == teammate_bonus_bounds[1] {
+        (teammate_bonus_bounds[0], None)
+    } else {
+        (teammate_bonus_bounds[0], Some(teammate_bonus_bounds[1]))
+    };
+    std::iter::once(first).chain(second)
+}
+
+fn point_bonus_scaled_model(
+    model: ContributionAffineModel,
+    fixed_score_equivalent: f64,
+    card_bonus_micros: u64,
+    teammate_bonus_micros: u64,
+) -> ContributionAffineModel {
+    debug_assert_eq!(card_bonus_micros % 100_000, 0);
+    debug_assert_eq!(teammate_bonus_micros % 100_000, 0);
+    let total_bonus_micros = card_bonus_micros.saturating_add(teammate_bonus_micros);
+    let bonus_basis_points = total_bonus_micros / 10_000;
+    let multiplier = 10_000_u64.saturating_add(bonus_basis_points) as f64;
+    ContributionAffineModel {
+        stat: model.stat * multiplier,
+        meta: model.meta * multiplier,
+        constant: (model.constant + fixed_score_equivalent) * multiplier,
+        ..model
+    }
+}
+
 fn signature_card_normal_meta_bounds_for_chart(
     card: &PreparedCard,
     profile: &MedleyCardPruneProfile,
@@ -1605,6 +1898,58 @@ fn signature_card_normal_meta_bounds_for_chart(
         .copied()
         .fold(f64::NEG_INFINITY, f64::max);
     Some(ValueRange { low, high })
+}
+
+fn fixed_teammate_meta_bounds_for_chart(
+    chart: &Chart,
+    teammate_skills: &[TeamCardSkill; 4],
+) -> Option<(ValueRange, ValueRange)> {
+    let mut normal = ValueRange {
+        low: f64::INFINITY,
+        high: f64::NEG_INFINITY,
+    };
+    let mut normal_plus_captain = normal;
+
+    for candidate_position in 0..TEAM_SIZE {
+        let positions = (0..TEAM_SIZE)
+            .filter(|&position| position != candidate_position)
+            .collect::<Vec<_>>();
+        for first in 0..4 {
+            for second in 0..4 {
+                if second == first {
+                    continue;
+                }
+                for third in 0..4 {
+                    if third == first || third == second {
+                        continue;
+                    }
+                    let fourth = 6 - first - second - third;
+                    let permutation = [first, second, third, fourth];
+                    let mut normal_value = 0.0;
+                    for (&position, &skill_index) in positions.iter().zip(&permutation) {
+                        normal_value += chart
+                            .skill_meta_value(position, teammate_skills[skill_index])
+                            .ok()?;
+                    }
+                    normal.low = normal.low.min(normal_value);
+                    normal.high = normal.high.max(normal_value);
+                    for &captain_index in &permutation {
+                        let value = normal_value
+                            + chart
+                                .skill_meta_value(TEAM_SIZE, teammate_skills[captain_index])
+                                .ok()?;
+                        normal_plus_captain.low = normal_plus_captain.low.min(value);
+                        normal_plus_captain.high = normal_plus_captain.high.max(value);
+                    }
+                }
+            }
+        }
+    }
+
+    normal
+        .low
+        .is_finite()
+        .then_some((normal, normal_plus_captain))
 }
 
 fn signature_card_captain_meta_for_chart(
@@ -1810,6 +2155,70 @@ mod tests {
     use crate::model::preparation::{AreaItemPercent, ScoreUp, StatValue};
     use crate::model::schema::Attribute;
     use crate::team_prune::hard::medley_card_prune_profiles;
+
+    #[test]
+    fn fixed_teammate_stat_shifts_captain_contribution_context() {
+        let cards = (1..=5)
+            .map(|character_id| prepared_card(character_id, character_id, 1, Attribute::Cool))
+            .collect::<Vec<_>>();
+        let chart = medley_charts().remove(0);
+        let stats = adjusted_card_stats(&cards, &AreaItemPercent::empty(), &selected_cool_items());
+        let profiles =
+            medley_card_prune_profiles(&cards, std::slice::from_ref(&chart), &stats).unwrap();
+        let teammate_skills = [cards[0].skill; 4];
+
+        let mut without_external =
+            MedleyContributionDominance::new(&cards, std::slice::from_ref(&chart), &profiles, 0);
+        without_external.set_fixed_teammate_context(&teammate_skills, 0.0);
+        let base = without_external
+            .build_signature_context_bounds(MedleyPruneSignature::Mixed)
+            .unwrap();
+
+        let external_stat = 118_000.0;
+        let mut with_external =
+            MedleyContributionDominance::new(&cards, std::slice::from_ref(&chart), &profiles, 0);
+        with_external.set_fixed_teammate_context(&teammate_skills, external_stat);
+        let shifted = with_external
+            .build_signature_context_bounds(MedleyPruneSignature::Mixed)
+            .unwrap();
+
+        assert_eq!(shifted.stat_high - base.stat_high, external_stat);
+        for (&shifted_low, &base_low) in shifted
+            .teammate_stat_low_by_chart_scenario
+            .iter()
+            .zip(&base.teammate_stat_low_by_chart_scenario)
+        {
+            assert_eq!(shifted_low - base_low, external_stat);
+        }
+    }
+
+    #[test]
+    fn joint_point_bonus_can_trade_lower_bonus_for_more_score() {
+        let score_model = |score| ContributionAffineModel {
+            stat: score,
+            meta: 0.0,
+            constant: 0.0,
+            x_low: 1.0,
+            x_high: 1.0,
+            y_low: 0.0,
+            y_high: 0.0,
+        };
+        let lower_bonus = point_bonus_scaled_model(score_model(120.0), 0.0, 0, 0);
+        let higher_bonus = point_bonus_scaled_model(score_model(100.0), 0.0, 1_000_000, 0);
+
+        assert!(affine_contribution_min_margin(lower_bonus, higher_bonus) > 0.0);
+    }
+
+    #[test]
+    fn point_bonus_scaling_uses_exact_tenth_percent_units() {
+        let model = ContributionAffineModel {
+            constant: 1.0,
+            ..ContributionAffineModel::default()
+        };
+        let scaled = point_bonus_scaled_model(model, 0.0, 200_000, 300_000);
+
+        assert_eq!(scaled.constant, 10_050.0);
+    }
 
     #[test]
     fn same_shape_prefilter_uses_contribution_tradeoff_only_within_shape() {
@@ -2077,7 +2486,6 @@ mod tests {
         let mut all_models = left_models;
         all_models.extend(right_models);
         let models = SignatureContributionModels {
-            allowed_indices: vec![0, 1],
             complete_by_card: vec![true, true],
             models_by_card_skill_position: all_models,
             models_per_card: CONTRIBUTION_SCENARIO_COUNT,
@@ -2134,7 +2542,6 @@ mod tests {
         let mut all_models = vec![left; CONTRIBUTION_SCENARIO_COUNT];
         all_models.extend(vec![right; CONTRIBUTION_SCENARIO_COUNT]);
         let models = SignatureContributionModels {
-            allowed_indices: vec![0, 1],
             complete_by_card: vec![true, true],
             models_by_card_skill_position: all_models,
             models_per_card: CONTRIBUTION_SCENARIO_COUNT,
@@ -2274,5 +2681,118 @@ mod tests {
             let margin = affine_contribution_min_margin(left, right);
             assert!((endpoint.margin - margin).abs() < f64::EPSILON);
         }
+    }
+
+    #[test]
+    fn joint_point_bonus_endpoint_choice_matches_exhaustive_scan() {
+        fn next(seed: &mut u64, limit: u64) -> f64 {
+            *seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            ((*seed >> 32) % limit) as f64
+        }
+
+        let mut seed = 0x5eed_u64;
+        for _ in 0..2_000 {
+            let x_low = next(&mut seed, 100) + 1.0;
+            let x_high = x_low + next(&mut seed, 100);
+            let y_low = next(&mut seed, 100) + 1.0;
+            let y_high = y_low + next(&mut seed, 100);
+            let model = |seed: &mut u64| ContributionAffineModel {
+                stat: next(seed, 200),
+                meta: next(seed, 200),
+                constant: next(seed, 20_000),
+                x_low,
+                x_high,
+                y_low,
+                y_high,
+            };
+            let left = model(&mut seed);
+            let right = model(&mut seed);
+            let left_bonus = (next(&mut seed, 21) as u64) * 100_000;
+            let right_bonus = (next(&mut seed, 21) as u64) * 100_000;
+            let fixed_score_equivalent = next(&mut seed, 20_000);
+            let bounds = [0, 2_000_000];
+
+            let optimized = joint_point_bonus_endpoints(left, right, bounds)
+                .map(|teammate_bonus| {
+                    affine_contribution_min_margin(
+                        point_bonus_scaled_model(
+                            left,
+                            fixed_score_equivalent,
+                            left_bonus,
+                            teammate_bonus,
+                        ),
+                        point_bonus_scaled_model(
+                            right,
+                            fixed_score_equivalent,
+                            right_bonus,
+                            teammate_bonus,
+                        ),
+                    )
+                })
+                .min_by(f64::total_cmp)
+                .unwrap();
+            let exhaustive = (bounds[0]..=bounds[1])
+                .step_by(100_000)
+                .map(|teammate_bonus| {
+                    affine_contribution_min_margin(
+                        point_bonus_scaled_model(
+                            left,
+                            fixed_score_equivalent,
+                            left_bonus,
+                            teammate_bonus,
+                        ),
+                        point_bonus_scaled_model(
+                            right,
+                            fixed_score_equivalent,
+                            right_bonus,
+                            teammate_bonus,
+                        ),
+                    )
+                })
+                .min_by(f64::total_cmp)
+                .unwrap();
+            let tolerance = exhaustive.abs().max(1.0) * 1e-12;
+            assert!(
+                (optimized - exhaustive).abs() <= tolerance,
+                "optimized={optimized} exhaustive={exhaustive} left={left:?} right={right:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn joint_point_bonus_uses_one_endpoint_when_slope_sign_is_fixed() {
+        let fixed_range = |constant| ContributionAffineModel {
+            constant,
+            x_low: 0.0,
+            x_high: 1.0,
+            y_low: 0.0,
+            y_high: 1.0,
+            ..ContributionAffineModel::default()
+        };
+        let bounds = [100_000, 900_000];
+
+        assert_eq!(
+            joint_point_bonus_endpoints(fixed_range(2.0), fixed_range(1.0), bounds)
+                .collect::<Vec<_>>(),
+            vec![bounds[0]]
+        );
+        assert_eq!(
+            joint_point_bonus_endpoints(fixed_range(1.0), fixed_range(2.0), bounds)
+                .collect::<Vec<_>>(),
+            vec![bounds[1]]
+        );
+
+        let left = ContributionAffineModel {
+            stat: 2.0,
+            ..fixed_range(0.0)
+        };
+        let right = ContributionAffineModel {
+            meta: 2.0,
+            ..fixed_range(0.0)
+        };
+        assert_eq!(
+            joint_point_bonus_endpoints(left, right, bounds).collect::<Vec<_>>(),
+            bounds
+        );
     }
 }

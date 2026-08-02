@@ -160,14 +160,15 @@ export function createPageController({
     const festival = active && selected === 'festival';
     elements.ptMaximizeFestivalOtherFields.hidden = !festival;
     elements.ptMaximizeFestivalTeammateFields.hidden = !festival;
-    const missionLiveSolo =
-      active && event?.eventType === 'mission_live' && selected === 'solo';
-    elements.ptMaximizeMissionSupportField.hidden = !missionLiveSolo;
-    elements.ptMaximizeMissionSupportPt.required = missionLiveSolo;
+    const missionLive = active
+      && event?.eventType === 'mission_live'
+      && (selected === 'solo' || selected === 'cooperative');
+    elements.ptMaximizeMissionSupportField.hidden = !missionLive;
+    elements.ptMaximizeMissionSupportPt.required = missionLive;
     const teammatePaneVisible = cooperative || festival;
     elements.ptMaximizeTeammatePane.hidden = !teammatePaneVisible;
     elements.ptMaximizeParameterGrid.hidden =
-      !(cooperative || versus || festival || missionLiveSolo);
+      !(cooperative || versus || festival || missionLive);
     elements.ptMaximizeParameterGrid.classList.toggle(
       'has-teammate-pane',
       teammatePaneVisible,

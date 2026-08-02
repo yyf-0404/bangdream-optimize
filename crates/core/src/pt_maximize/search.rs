@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use crate::event_pt::point_multiplier_fixed_score_equivalent;
 use crate::single::candidate::{self, SingleCardRole};
 use crate::single::profile::{skill_meta_profile, SkillMetaProfile};
 use crate::timing::Timer;
@@ -19,6 +20,17 @@ use super::{
     LiveVariant, PtMaximizeError, PtMaximizeSearchScenario, PtMaximizeSingleMetrics,
     PtMaximizeTeamResult,
 };
+
+const COOPERATIVE_OTHER_SCORE_STAT_WEIGHT: f64 = 0.1;
+
+fn cooperative_teammate_effective_stat(scenario: CooperativePtScenario) -> f64 {
+    scenario
+        .teammates
+        .iter()
+        .map(|teammate| teammate.expected_stat.max(0) as f64)
+        .sum::<f64>()
+        * COOPERATIVE_OTHER_SCORE_STAT_WEIGHT
+}
 
 pub fn event_bonus_application(
     event_type: EventType,
@@ -78,6 +90,69 @@ struct CooperativeBranchUpper {
     teammate_score_upper: i64,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct CooperativeFillerDpState {
+    cards: [Option<SearchCard>; 4],
+    selected: usize,
+    stat_sum: f64,
+}
+
+impl CooperativeFillerDpState {
+    fn empty() -> Self {
+        Self {
+            cards: [None; 4],
+            selected: 0,
+            stat_sum: 0.0,
+        }
+    }
+
+    fn with_card(mut self, card: SearchCard) -> Self {
+        debug_assert!(self.selected < self.cards.len());
+        self.cards[self.selected] = Some(card);
+        self.selected += 1;
+        self.stat_sum += card.stat;
+        self
+    }
+
+    fn combined_with(mut self, other: Self) -> Self {
+        for card in other.cards.into_iter().flatten() {
+            self = self.with_card(card);
+        }
+        self
+    }
+
+    fn complete_cards(self) -> [SearchCard; 4] {
+        debug_assert_eq!(self.selected, self.cards.len());
+        self.cards
+            .map(|card| card.expect("complete filler DP state"))
+    }
+
+    fn sorted_card_ids(self) -> [u32; 4] {
+        let mut ids = self
+            .cards
+            .map(|card| card.map(|card| card.card_id).unwrap_or(u32::MAX));
+        ids.sort_unstable();
+        ids
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CooperativeFillerSelection {
+    cards: [SearchCard; 4],
+    point_bonus_micros: u64,
+    stat_sum: f64,
+}
+
+type CooperativeFillerBonusDp = BTreeMap<u64, CooperativeFillerDpState>;
+type CooperativeFillerCountDp = [CooperativeFillerBonusDp; 5];
+
+#[derive(Debug)]
+struct CooperativeFillerPrefixSuffixDp {
+    character_ids: Vec<u32>,
+    prefix: Vec<CooperativeFillerCountDp>,
+    suffix: Vec<CooperativeFillerCountDp>,
+}
+
 #[derive(Debug)]
 struct SingleSearchTrace {
     enabled: bool,
@@ -102,10 +177,15 @@ struct SingleSearchTrace {
     prepare_ms: f64,
     mode_meta_precheck_ms: f64,
     preprune_ms: f64,
+    captain_preprune_ms: f64,
+    filler_preprune_ms: f64,
+    captain_prune_trace: crate::team_prune::MedleyPruneTrace,
     resolve_ms: f64,
     canonical_prune_ms: f64,
     suffix_ms: f64,
     enumerate_ms: f64,
+    cooperative_filler_dp_ms: f64,
+    cooperative_filler_selection_ms: f64,
     exact_evaluation_ms: f64,
 }
 
@@ -134,10 +214,15 @@ impl SingleSearchTrace {
             prepare_ms: 0.0,
             mode_meta_precheck_ms: 0.0,
             preprune_ms: 0.0,
+            captain_preprune_ms: 0.0,
+            filler_preprune_ms: 0.0,
+            captain_prune_trace: crate::team_prune::MedleyPruneTrace::default(),
             resolve_ms: 0.0,
             canonical_prune_ms: 0.0,
             suffix_ms: 0.0,
             enumerate_ms: 0.0,
+            cooperative_filler_dp_ms: 0.0,
+            cooperative_filler_selection_ms: 0.0,
             exact_evaluation_ms: 0.0,
         }
     }
@@ -217,6 +302,8 @@ pub fn search_single_song_with_metrics(
             trace.mode_searches += 1;
             let mode_start = trace.enabled.then(Timer::start);
             let before_exact = trace.exact_evaluations;
+            let (before_score_cache_hits, before_score_cache_misses) =
+                exact_scratch.cooperative.score_cache_counts();
             match search_team_for_mode_traced(
                 cards,
                 chart,
@@ -238,20 +325,26 @@ pub fn search_single_song_with_metrics(
                 Err(error) => return Err(error),
             }
             if trace.log_enabled && trace.exact_evaluations - before_exact >= 1_000 {
+                let (score_cache_hits, score_cache_misses) =
+                    exact_scratch.cooperative.score_cache_counts();
                 eprintln!(
-                    "PT single mode complete: item={} mode={} exact_evaluations={} mode_exact_evaluations={} mode_elapsed_ms={:.3}",
+                    "PT single mode complete: item={} mode={} mode_value={mode:?} exact_evaluations={} mode_exact_evaluations={} mode_score_cache_hits={} mode_score_cache_misses={} mode_elapsed_ms={:.3}",
                     item_index,
                     mode_index,
                     trace.exact_evaluations,
                     trace.exact_evaluations - before_exact,
+                    score_cache_hits - before_score_cache_hits,
+                    score_cache_misses - before_score_cache_misses,
                     mode_start.map(|timer| timer.elapsed_ms()).unwrap_or_default(),
                 );
             }
         }
     }
     if trace.log_enabled {
+        let (cooperative_score_cache_hits, cooperative_score_cache_misses) =
+            exact_scratch.cooperative.score_cache_counts();
         eprintln!(
-            "PT single stages: items={} modes={} mode_searches={} allowed_cards={} prepruned_cards={} canonical_cards={} retained_cards={} planned_leaves={} recursive_nodes={} leaves={} minimum_stat_rejects={} exact_evaluations={} mode_meta_upper_bound_prunes={} branch_meta_upper_bound_prunes={} meta_upper_bound_prunes={} exact_upper_bound_prunes={} prepare_ms={:.3} mode_meta_precheck_ms={:.3} preprune_ms={:.3} resolve_ms={:.3} canonical_prune_ms={:.3} suffix_ms={:.3} enumerate_ms={:.3} exact_evaluation_ms={:.3} total_ms={:.3}",
+            "PT single stages: items={} modes={} mode_searches={} allowed_cards={} prepruned_cards={} canonical_cards={} retained_cards={} planned_leaves={} recursive_nodes={} leaves={} minimum_stat_rejects={} exact_evaluations={} cooperative_score_cache_hits={} cooperative_score_cache_misses={} mode_meta_upper_bound_prunes={} branch_meta_upper_bound_prunes={} meta_upper_bound_prunes={} exact_upper_bound_prunes={} prepare_ms={:.3} mode_meta_precheck_ms={:.3} preprune_ms={:.3} captain_preprune_ms={:.3} filler_preprune_ms={:.3} captain_pool_ms={:.3} captain_point_bonus_bounds_ms={:.3} captain_adjusted_stats_ms={:.3} captain_same_shape_prefilter_ms={:.3} captain_profile_ms={:.3} captain_output_mapping_ms={:.3} captain_same_shape_contribution_ms={:.3} captain_fixed_point_ms={:.3} captain_hard_graph_ms={:.3} captain_hard_cover_ms={:.3} captain_contribution_context_ms={:.3} captain_contribution_graph_ms={:.3} captain_contribution_cover_ms={:.3} captain_completion_ms={:.3} captain_upper_bound_ms={:.3} resolve_ms={:.3} canonical_prune_ms={:.3} suffix_ms={:.3} enumerate_ms={:.3} cooperative_filler_dp_ms={:.3} cooperative_filler_selection_ms={:.3} exact_evaluation_ms={:.3} total_ms={:.3}",
             items.len(),
             modes.len(),
             trace.mode_searches,
@@ -264,6 +357,8 @@ pub fn search_single_song_with_metrics(
             trace.leaves,
             trace.minimum_stat_rejects,
             trace.exact_evaluations,
+            cooperative_score_cache_hits,
+            cooperative_score_cache_misses,
             trace.mode_meta_upper_bound_prunes,
             trace.branch_meta_upper_bound_prunes,
             trace.meta_upper_bound_prunes,
@@ -271,10 +366,29 @@ pub fn search_single_song_with_metrics(
             trace.prepare_ms,
             trace.mode_meta_precheck_ms,
             trace.preprune_ms,
+            trace.captain_preprune_ms,
+            trace.filler_preprune_ms,
+            trace.captain_prune_trace.active_indices_ms,
+            trace.captain_prune_trace.point_bonus_bounds_ms,
+            trace.captain_prune_trace.adjusted_stats_ms,
+            trace.captain_prune_trace.same_shape_prefilter_ms,
+            trace.captain_prune_trace.profile_ms,
+            trace.captain_prune_trace.output_mapping_ms,
+            trace.captain_prune_trace.same_shape_contribution_ms,
+            trace.captain_prune_trace.fixed_point_ms,
+            trace.captain_prune_trace.hard_graph_ms,
+            trace.captain_prune_trace.hard_cover_ms,
+            trace.captain_prune_trace.contribution_context_ms,
+            trace.captain_prune_trace.contribution_graph_ms,
+            trace.captain_prune_trace.contribution_cover_ms,
+            trace.captain_prune_trace.completion_ms,
+            trace.captain_prune_trace.upper_bound_ms,
             trace.resolve_ms,
             trace.canonical_prune_ms,
             trace.suffix_ms,
             trace.enumerate_ms,
+            trace.cooperative_filler_dp_ms,
+            trace.cooperative_filler_selection_ms,
             trace.exact_evaluation_ms,
             trace.total_start.elapsed_ms(),
         );
@@ -377,6 +491,9 @@ fn search_team_for_mode_traced(
                 })
                 .collect::<Vec<_>>()
         });
+    let point_bonus_fixed_score_equivalent = replacement_values
+        .as_ref()
+        .and_then(|_| point_multiplier_fixed_score_equivalent(scenario.event_type()));
     let preprune_start = trace.enabled.then(Timer::start);
     let branch_meta_supported = matches!(
         scenario,
@@ -404,45 +521,59 @@ fn search_team_for_mode_traced(
             mode,
             SingleCardRole::FullSkill,
             replacement_values.as_deref(),
+            point_bonus_fixed_score_equivalent,
         )
         .map_err(|error| PtMaximizeError::MedleyCandidate(error.to_string()))?
     };
     let (captain_indices, filler_indices) = if cooperative_branch_supported {
-        (
-            if best.is_none() {
-                candidate::pruned_card_indices_for_role(
-                    cards,
-                    chart,
-                    area_item_percent,
-                    selected_items,
-                    mode,
-                    SingleCardRole::Captain,
-                    replacement_values.as_deref(),
-                )
-                .map_err(|error| PtMaximizeError::MedleyCandidate(error.to_string()))?
-            } else {
-                // The original contribution graph is safe for a cooperative
-                // captain, but rebuilding it for every item/mode costs more than
-                // the strict incumbent bounds save. An unpruned captain pool is
-                // also safe; role-aware canonical pruning below still removes
-                // exact and same-skill duplicates.
-                cards
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(index, card)| mode.allows(card).then_some(index))
-                    .collect()
-            },
-            candidate::pruned_card_indices_for_role(
-                cards,
-                chart,
-                area_item_percent,
-                selected_items,
-                mode,
-                SingleCardRole::Filler,
-                replacement_values.as_deref(),
-            )
-            .map_err(|error| PtMaximizeError::MedleyCandidate(error.to_string()))?,
+        let PtMaximizeSearchScenario::Cooperative {
+            scenario: cooperative,
+        } = scenario
+        else {
+            unreachable!("cooperative branch requires cooperative parameters");
+        };
+        let teammate_skills =
+            std::array::from_fn(|index| cooperative.teammates[index].skill(index + 1));
+        // All supported cooperative PT formulas value other-player score at one tenth of
+        // personal score. Include that fixed skill target in Captain contribution dominance.
+        let teammate_effective_stat = cooperative_teammate_effective_stat(cooperative);
+        let captain_preprune_start = trace.enabled.then(Timer::start);
+        let (captain_indices, captain_prune_trace) = candidate::pruned_cooperative_captain_indices(
+            cards,
+            chart,
+            area_item_percent,
+            selected_items,
+            mode,
+            &teammate_skills,
+            teammate_effective_stat,
+            replacement_values.as_deref(),
+            point_bonus_fixed_score_equivalent,
         )
+        .map_err(|error| PtMaximizeError::MedleyCandidate(error.to_string()))?;
+        if trace.enabled {
+            trace.captain_prune_trace.add(&captain_prune_trace);
+            trace.captain_preprune_ms += captain_preprune_start
+                .map(|timer| timer.elapsed_ms())
+                .unwrap_or_default();
+        }
+        let filler_preprune_start = trace.enabled.then(Timer::start);
+        let filler_indices = candidate::pruned_card_indices_for_role(
+            cards,
+            chart,
+            area_item_percent,
+            selected_items,
+            mode,
+            SingleCardRole::Filler,
+            replacement_values.as_deref(),
+            None,
+        )
+        .map_err(|error| PtMaximizeError::MedleyCandidate(error.to_string()))?;
+        if trace.enabled {
+            trace.filler_preprune_ms += filler_preprune_start
+                .map(|timer| timer.elapsed_ms())
+                .unwrap_or_default();
+        }
+        (captain_indices, filler_indices)
     } else {
         (Vec::new(), Vec::new())
     };
@@ -529,11 +660,6 @@ fn search_team_for_mode_traced(
     if let (Some(captain_groups), Some(filler_groups)) = (captain_groups, filler_groups) {
         if captain_groups.groups.is_empty() || filler_groups.groups.len() < 4 {
             return Err(PtMaximizeError::NotEnoughDistinctCharacters);
-        }
-        if trace.enabled {
-            let planned_leaves =
-                planned_cooperative_team_count(&captain_groups.groups, &filler_groups.groups);
-            trace.planned_leaves = trace.planned_leaves.saturating_add(planned_leaves);
         }
         let enumerate_start = trace.enabled.then(Timer::start);
         let PtMaximizeSearchScenario::Cooperative {
@@ -901,30 +1027,6 @@ fn planned_team_count_for_slots(groups: &[Vec<SearchCard>], slots: usize) -> u12
     counts[slots]
 }
 
-fn planned_cooperative_team_count(
-    captain_groups: &[Vec<SearchCard>],
-    filler_groups: &[Vec<SearchCard>],
-) -> u128 {
-    captain_groups.iter().fold(0_u128, |total, captains| {
-        let Some(captain) = captains.first() else {
-            return total;
-        };
-        let available_fillers = filler_groups
-            .iter()
-            .filter(|group| {
-                group
-                    .first()
-                    .is_some_and(|filler| filler.character_id != captain.character_id)
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        total.saturating_add(
-            (captains.len() as u128)
-                .saturating_mul(planned_team_count_for_slots(&available_fillers, 4)),
-        )
-    })
-}
-
 fn suffix_bounds(groups: &[Vec<SearchCard>]) -> Vec<SuffixBound> {
     let mut suffix = vec![empty_suffix_bound(); groups.len() + 1];
     for group_index in (0..groups.len()).rev() {
@@ -1152,6 +1254,148 @@ fn cooperative_branch_upper(
     })
 }
 
+fn empty_cooperative_filler_count_dp() -> CooperativeFillerCountDp {
+    let mut dp = std::array::from_fn(|_| BTreeMap::new());
+    dp[0].insert(0, CooperativeFillerDpState::empty());
+    dp
+}
+
+fn insert_cooperative_filler_state(
+    states: &mut CooperativeFillerBonusDp,
+    point_bonus_micros: u64,
+    candidate: CooperativeFillerDpState,
+) {
+    states
+        .entry(point_bonus_micros)
+        .and_modify(|current| {
+            if candidate.stat_sum > current.stat_sum
+                || (candidate.stat_sum == current.stat_sum
+                    && candidate.sorted_card_ids() < current.sorted_card_ids())
+            {
+                *current = candidate;
+            }
+        })
+        .or_insert(candidate);
+}
+
+fn cooperative_filler_role_frontier(group: &[SearchCard]) -> Vec<SearchCard> {
+    let mut by_bonus = BTreeMap::<u64, SearchCard>::new();
+    for &card in group {
+        by_bonus
+            .entry(card.point_bonus_micros)
+            .and_modify(|current| {
+                if card.stat > current.stat
+                    || (card.stat == current.stat && card.card_id < current.card_id)
+                {
+                    *current = card;
+                }
+            })
+            .or_insert(card);
+    }
+    by_bonus.into_values().collect()
+}
+
+fn cooperative_filler_dp_advance(
+    previous: &CooperativeFillerCountDp,
+    role: &[SearchCard],
+) -> CooperativeFillerCountDp {
+    let mut next = previous.clone();
+    for selected in 0..4 {
+        for (&point_bonus_micros, &state) in &previous[selected] {
+            for &card in role {
+                insert_cooperative_filler_state(
+                    &mut next[selected + 1],
+                    point_bonus_micros.saturating_add(card.point_bonus_micros),
+                    state.with_card(card),
+                );
+            }
+        }
+    }
+    next
+}
+
+fn cooperative_filler_prefix_suffix_dp(
+    groups: &[Vec<SearchCard>],
+) -> CooperativeFillerPrefixSuffixDp {
+    let roles = groups
+        .iter()
+        .map(|group| cooperative_filler_role_frontier(group))
+        .collect::<Vec<_>>();
+    let character_ids = groups
+        .iter()
+        .map(|group| {
+            group
+                .first()
+                .expect("filler role group is non-empty")
+                .character_id
+        })
+        .collect::<Vec<_>>();
+
+    let mut prefix = Vec::with_capacity(roles.len() + 1);
+    prefix.push(empty_cooperative_filler_count_dp());
+    for role in &roles {
+        prefix.push(cooperative_filler_dp_advance(
+            prefix.last().expect("prefix contains the empty state"),
+            role,
+        ));
+    }
+
+    let mut suffix = Vec::with_capacity(roles.len() + 1);
+    suffix.resize_with(roles.len() + 1, empty_cooperative_filler_count_dp);
+    for index in (0..roles.len()).rev() {
+        suffix[index] = cooperative_filler_dp_advance(&suffix[index + 1], &roles[index]);
+    }
+
+    CooperativeFillerPrefixSuffixDp {
+        character_ids,
+        prefix,
+        suffix,
+    }
+}
+
+fn cooperative_filler_selections_without_character(
+    dp: &CooperativeFillerPrefixSuffixDp,
+    excluded_character_id: u32,
+) -> Vec<CooperativeFillerSelection> {
+    let mut states = BTreeMap::new();
+    if let Some(excluded) = dp
+        .character_ids
+        .iter()
+        .position(|&character_id| character_id == excluded_character_id)
+    {
+        for left_count in 0..=4 {
+            let right_count = 4 - left_count;
+            for (&left_bonus, &left) in &dp.prefix[excluded][left_count] {
+                for (&right_bonus, &right) in &dp.suffix[excluded + 1][right_count] {
+                    insert_cooperative_filler_state(
+                        &mut states,
+                        left_bonus.saturating_add(right_bonus),
+                        left.combined_with(right),
+                    );
+                }
+            }
+        }
+    } else {
+        states.clone_from(&dp.prefix.last().expect("prefix contains all roles")[4]);
+    }
+
+    let mut result = states
+        .iter()
+        .map(|(&point_bonus_micros, &state)| CooperativeFillerSelection {
+            cards: state.complete_cards(),
+            point_bonus_micros,
+            stat_sum: state.stat_sum,
+        })
+        .collect::<Vec<_>>();
+    result.sort_unstable_by(|left, right| {
+        right
+            .point_bonus_micros
+            .cmp(&left.point_bonus_micros)
+            .then_with(|| right.stat_sum.total_cmp(&left.stat_sum))
+    });
+    result
+}
+
 #[allow(clippy::too_many_arguments)]
 fn enumerate_cooperative_teams(
     captain_groups: &[Vec<SearchCard>],
@@ -1173,24 +1417,36 @@ fn enumerate_cooperative_teams(
         scenario.teammates[2].skill(3),
         scenario.teammates[3].skill(4),
     ];
+    let filler_dp_start = trace.enabled.then(Timer::start);
+    let filler_dp = cooperative_filler_prefix_suffix_dp(filler_groups);
+    if trace.enabled {
+        trace.cooperative_filler_dp_ms += filler_dp_start
+            .map(|timer| timer.elapsed_ms())
+            .unwrap_or_default();
+    }
     for captain_group in captain_groups {
         let Some(captain_character_id) = captain_group.first().map(|captain| captain.character_id)
         else {
             continue;
         };
-        let available_fillers = filler_groups
-            .iter()
-            .filter_map(|group| {
-                group
-                    .first()
-                    .is_some_and(|filler| filler.character_id != captain_character_id)
-                    .then_some(group.clone())
-            })
-            .collect::<Vec<_>>();
-        if available_fillers.len() < 4 {
+        if filler_dp.character_ids.len()
+            < 4 + usize::from(filler_dp.character_ids.contains(&captain_character_id))
+        {
             continue;
         }
-        let suffix = suffix_bounds(&available_fillers);
+        let filler_selection_start = trace.enabled.then(Timer::start);
+        let filler_selections =
+            cooperative_filler_selections_without_character(&filler_dp, captain_character_id);
+        if trace.enabled {
+            trace.cooperative_filler_selection_ms += filler_selection_start
+                .map(|timer| timer.elapsed_ms())
+                .unwrap_or_default();
+        }
+        if trace.enabled {
+            trace.planned_leaves = trace.planned_leaves.saturating_add(
+                (captain_group.len() as u128).saturating_mul(filler_selections.len() as u128),
+            );
+        }
         for &captain in captain_group {
             let upper = cooperative_branch_upper(
                 &fever_chart,
@@ -1199,111 +1455,30 @@ fn enumerate_cooperative_teams(
                 teammate_skills,
                 scenario,
             )?;
-            let mut selected = Vec::with_capacity(5);
-            selected.push(captain);
-            enumerate_cooperative_fillers(
-                &available_fillers,
-                &suffix,
-                0,
-                &mut selected,
-                chart,
-                selected_items,
-                minimum_stat,
-                scenario,
-                upper,
-                best,
-                trace,
-                exact_scratch,
-            )?;
-        }
-    }
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-fn enumerate_cooperative_fillers(
-    groups: &[Vec<SearchCard>],
-    suffix: &[SuffixBound],
-    group_start: usize,
-    selected: &mut Vec<SearchCard>,
-    chart: &Chart,
-    selected_items: &SelectedAreaItems,
-    minimum_stat: Option<i32>,
-    scenario: CooperativePtScenario,
-    upper: CooperativeBranchUpper,
-    best: &mut Option<PtMaximizeTeamResult>,
-    trace: &mut SingleSearchTrace,
-    exact_scratch: &mut SinglePtScoreScratch,
-) -> Result<(), PtMaximizeError> {
-    trace.recursive_nodes += u64::from(trace.enabled);
-    if selected.len() == 5 {
-        trace.leaves += u64::from(trace.enabled);
-        return evaluate_cooperative_selection(
-            selected,
-            chart,
-            selected_items,
-            minimum_stat,
-            scenario,
-            upper,
-            best,
-            trace,
-            exact_scratch,
-        );
-    }
-    let needed = 5 - selected.len();
-    if groups.len().saturating_sub(group_start) < needed {
-        return Ok(());
-    }
-    let selected_stat = selected.iter().map(|card| card.stat).sum::<f64>();
-    let stat_upper =
-        ceil_team_stat_upper([selected_stat, suffix[group_start].stat_by_slots[needed]]);
-    if minimum_stat.is_some_and(|minimum| stat_upper < minimum) {
-        trace.branch_meta_upper_bound_prunes += u64::from(trace.enabled);
-        return Ok(());
-    }
-    if let Some(current) = best.as_ref() {
-        let point_bonus_micros = selected
-            .iter()
-            .map(|card| card.point_bonus_micros)
-            .sum::<u64>()
-            .saturating_add(suffix[group_start].point_bonus_by_slots[needed]);
-        let point_bonus_basis_points =
-            ((point_bonus_micros.saturating_add(5_000)) / 10_000).min(u32::MAX as u64) as u32;
-        let personal_score_upper = (stat_upper.max(0) as f64 * upper.score_factor)
-            .ceil()
-            .clamp(i32::MIN as f64, i32::MAX as f64) as i32;
-        let total_score_upper =
-            i64::from(personal_score_upper).saturating_add(upper.teammate_score_upper);
-        let pt_upper = cooperative_points(
-            scenario.event_type,
-            personal_score_upper,
-            total_score_upper,
-            point_bonus_basis_points,
-            0,
-        )?;
-        if AveragePt::new(u128::from(pt_upper), 1)? < current.evaluation.average_pt {
-            trace.branch_meta_upper_bound_prunes += u64::from(trace.enabled);
-            return Ok(());
-        }
-    }
-    for group_index in group_start..=groups.len() - needed {
-        for &card in &groups[group_index] {
-            selected.push(card);
-            enumerate_cooperative_fillers(
-                groups,
-                suffix,
-                group_index + 1,
-                selected,
-                chart,
-                selected_items,
-                minimum_stat,
-                scenario,
-                upper,
-                best,
-                trace,
-                exact_scratch,
-            )?;
-            selected.pop();
+            trace.recursive_nodes = trace
+                .recursive_nodes
+                .saturating_add(u64::from(trace.enabled) * filler_selections.len() as u64);
+            for fillers in &filler_selections {
+                trace.leaves += u64::from(trace.enabled);
+                let selected = [
+                    captain,
+                    fillers.cards[0],
+                    fillers.cards[1],
+                    fillers.cards[2],
+                    fillers.cards[3],
+                ];
+                evaluate_cooperative_selection(
+                    &selected,
+                    chart,
+                    selected_items,
+                    minimum_stat,
+                    scenario,
+                    upper,
+                    best,
+                    trace,
+                    exact_scratch,
+                )?;
+            }
         }
     }
     Ok(())
@@ -1344,7 +1519,7 @@ fn evaluate_cooperative_selection(
             personal_score_upper,
             total_score_upper,
             point_bonus_basis_points,
-            0,
+            scenario.mission_support_pt_bonus,
         )?;
         if AveragePt::new(u128::from(pt_upper), 1)? < current.evaluation.average_pt {
             trace.meta_upper_bound_prunes += u64::from(trace.enabled);
@@ -1632,10 +1807,44 @@ fn sorted_team_with_captain_index(
 mod tests {
     use super::*;
     use crate::{
-        evaluate_cooperative_team, Attribute, ChartNode, ChartNodeType, CooperativeLeaderSelection,
-        CooperativeTeammate, FixedTeamPtEvaluation, FixedTeamPtScenario, Magazine, ScoreHistogram,
-        ScoreUp, StatValue,
+        evaluate_cooperative_team, evaluate_full_team, Attribute, ChartNode, ChartNodeType,
+        CooperativeLeaderSelection, CooperativeTeammate, FixedTeamPtEvaluation,
+        FixedTeamPtScenario, Magazine, ScoreHistogram, ScoreUp, StatValue,
     };
+
+    #[test]
+    fn cooperative_captain_prune_weights_external_stats_for_pt() {
+        let scenario = CooperativePtScenario {
+            event_type: EventType::MissionLive,
+            teammates: [
+                CooperativeTeammate {
+                    expected_stat: 280_000,
+                    leader_score_up: 1.3,
+                    leader_skill_duration: 7.0,
+                },
+                CooperativeTeammate {
+                    expected_stat: 290_000,
+                    leader_score_up: 1.3,
+                    leader_skill_duration: 7.0,
+                },
+                CooperativeTeammate {
+                    expected_stat: 300_000,
+                    leader_score_up: 1.3,
+                    leader_skill_duration: 7.0,
+                },
+                CooperativeTeammate {
+                    expected_stat: 310_000,
+                    leader_score_up: 1.3,
+                    leader_skill_duration: 7.0,
+                },
+            ],
+            leader_selection: CooperativeLeaderSelection::MaxStat,
+            point_bonus_basis_points: 0,
+            mission_support_pt_bonus: 0,
+        };
+
+        assert_eq!(cooperative_teammate_effective_stat(scenario), 118_000.0);
+    }
 
     #[test]
     fn sorted_team_remaps_captain_index() {
@@ -1740,6 +1949,21 @@ mod tests {
             attribute: "cool".to_owned(),
             magazine: Magazine::Performance,
         };
+        let replacement_values = cards
+            .iter()
+            .map(|card| bonuses.get(&card.card_id).copied().unwrap_or_default())
+            .collect::<Vec<_>>();
+        let active = candidate::pruned_card_indices_for_role(
+            &cards,
+            &chart,
+            &AreaItemPercent::empty(),
+            &items,
+            SongMode::Mixed,
+            SingleCardRole::FullSkill,
+            Some(&replacement_values),
+            point_multiplier_fixed_score_equivalent(EventType::Challenge),
+        )
+        .unwrap();
         let result = search_team_for_mode(
             &cards,
             &chart,
@@ -1758,9 +1982,137 @@ mod tests {
         )
         .unwrap();
 
+        assert!(active.contains(&0));
+        assert!(!active.contains(&5));
         assert!(result.team_card_ids.contains(&1));
         assert!(!result.team_card_ids.contains(&6));
         assert_eq!(result.point_bonus_basis_points, 10_000);
+    }
+
+    #[test]
+    fn joint_point_bonus_full_skill_search_matches_small_exhaustive_samples() {
+        let mut nodes = Vec::new();
+        for activation in 0..6 {
+            nodes.push(ChartNode {
+                node_type: ChartNodeType::Skill,
+                time: activation as f64 * 10.0,
+            });
+            nodes.push(ChartNode {
+                node_type: ChartNodeType::Node,
+                time: activation as f64 * 10.0 + 1.0,
+            });
+        }
+        let mut chart = Chart::new(25, nodes);
+        chart.init(0, false).unwrap();
+        let items = SelectedAreaItems {
+            band: "1".to_owned(),
+            attribute: "cool".to_owned(),
+            magazine: Magazine::Performance,
+        };
+        let mut seed = 0x6a09_e667_u32;
+        let next = |seed: &mut u32| {
+            *seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            *seed
+        };
+
+        for sample in 0..256 {
+            let character_ids = [1, 1, 2, 2, 3, 4, 5, 6];
+            let cards = character_ids
+                .iter()
+                .enumerate()
+                .map(|(index, &character_id)| {
+                    let stat = 800.0 + (next(&mut seed) % 801) as f64;
+                    let score_up = 0.3 + (next(&mut seed) % 101) as f64 / 100.0;
+                    card(index as u32 + 1, character_id, stat, score_up)
+                })
+                .collect::<Vec<_>>();
+            let bonuses = cards
+                .iter()
+                .map(|card| (card.card_id, u64::from(next(&mut seed) % 5) * 10_000_000))
+                .collect::<BTreeMap<_, _>>();
+            let base_scenario = FixedTeamPtScenario::Solo {
+                event_type: EventType::Challenge,
+                point_bonus_basis_points: 0,
+                mission_support_pt_bonus: 0,
+            };
+            let result = search_team_for_mode(
+                &cards,
+                &chart,
+                &AreaItemPercent::empty(),
+                &items,
+                SongMode::Mixed,
+                &bonuses,
+                None,
+                PtMaximizeSearchScenario::FullTeam {
+                    scenario: base_scenario,
+                },
+            )
+            .unwrap();
+
+            let mut brute = None;
+            for a in 0..cards.len() {
+                for b in a + 1..cards.len() {
+                    for c in b + 1..cards.len() {
+                        for d in c + 1..cards.len() {
+                            for e in d + 1..cards.len() {
+                                let indices = [a, b, c, d, e];
+                                let mut characters =
+                                    indices.map(|index| cards[index].character_id).to_vec();
+                                characters.sort_unstable();
+                                characters.dedup();
+                                if characters.len() != 5 {
+                                    continue;
+                                }
+                                let stat = floor_team_stat(indices.iter().map(|&index| {
+                                    cards[index].add_up_stat(
+                                        &AreaItemPercent::empty(),
+                                        &items.band,
+                                        &items.attribute,
+                                        items.magazine.as_str(),
+                                    )
+                                }));
+                                let point_bonus_micros = indices
+                                    .iter()
+                                    .map(|&index| bonuses[&cards[index].card_id])
+                                    .sum::<u64>();
+                                let point_bonus_basis_points =
+                                    ((point_bonus_micros + 5_000) / 10_000) as u32;
+                                let scenario = FixedTeamPtScenario::Solo {
+                                    event_type: EventType::Challenge,
+                                    point_bonus_basis_points,
+                                    mission_support_pt_bonus: 0,
+                                };
+                                let team = indices.map(|index| cards[index].skill);
+                                let evaluation =
+                                    evaluate_full_team(&chart, &team, stat, false, scenario)
+                                        .unwrap();
+                                let candidate = PtMaximizeTeamResult {
+                                    team_card_ids: indices
+                                        .map(|index| cards[index].card_id)
+                                        .to_vec(),
+                                    captain_card_id: evaluation.captain_card_id,
+                                    total_stat: stat,
+                                    point_bonus_basis_points,
+                                    items: items.clone(),
+                                    evaluation,
+                                };
+                                if brute
+                                    .as_ref()
+                                    .is_none_or(|current| better(&candidate, current))
+                                {
+                                    brute = Some(candidate);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let brute = brute.unwrap();
+            assert_eq!(
+                result.evaluation.average_pt, brute.evaluation.average_pt,
+                "sample {sample}"
+            );
+        }
     }
 
     #[test]
@@ -1822,6 +2174,52 @@ mod tests {
     }
 
     #[test]
+    fn cooperative_filler_dp_keeps_max_stat_for_each_point_bonus() {
+        let make = |card_id, character_id, stat, point_bonus_micros| SearchCard {
+            card_id,
+            character_id,
+            stat,
+            point_bonus_micros,
+            skill: TeamCardSkill {
+                card_id,
+                duration: 0.0,
+                score_up: 0.0,
+                rateup: false,
+            },
+            best_normal_meta: 0.0,
+            captain_meta: 0.0,
+        };
+        let groups = [
+            vec![
+                make(9, 1, 10.0, 0),
+                make(1, 1, 10.0, 0),
+                make(2, 1, 8.0, 10),
+            ],
+            vec![make(3, 2, 20.0, 0)],
+            vec![make(4, 3, 30.0, 0)],
+            vec![make(5, 4, 40.0, 0)],
+            vec![make(6, 5, 50.0, 0)],
+        ];
+        let dp = cooperative_filler_prefix_suffix_dp(&groups);
+        let selections = cooperative_filler_selections_without_character(&dp, u32::MAX);
+        let zero_bonus = selections
+            .iter()
+            .find(|selection| selection.point_bonus_micros == 0)
+            .unwrap();
+        assert_eq!(zero_bonus.stat_sum, 140.0);
+        assert_eq!(zero_bonus.cards.map(|card| card.card_id), [3, 4, 5, 6]);
+
+        let ten_bonus = selections
+            .iter()
+            .find(|selection| selection.point_bonus_micros == 10)
+            .unwrap();
+        assert_eq!(ten_bonus.stat_sum, 128.0);
+        let mut ids = ten_bonus.cards.map(|card| card.card_id);
+        ids.sort_unstable();
+        assert_eq!(ids, [2, 4, 5, 6]);
+    }
+
+    #[test]
     fn cooperative_captain_fill_search_matches_exhaustive_teams() {
         let mut nodes = Vec::new();
         for activation in 0..6 {
@@ -1868,6 +2266,7 @@ mod tests {
             }; 4],
             leader_selection: CooperativeLeaderSelection::MaxStat,
             point_bonus_basis_points: 0,
+            mission_support_pt_bonus: 0,
         };
         let result = search_team_for_mode(
             &cards,

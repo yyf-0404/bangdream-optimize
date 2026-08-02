@@ -6,6 +6,13 @@ pub(crate) struct MedleyPruneTrace {
     pub(crate) upper_bounds_init_ms: f64,
     pub(crate) signatures_ms: f64,
     pub(crate) active_indices_ms: f64,
+    pub(crate) point_bonus_bounds_ms: f64,
+    pub(crate) adjusted_stats_ms: f64,
+    pub(crate) same_shape_prefilter_ms: f64,
+    pub(crate) profile_ms: f64,
+    pub(crate) output_mapping_ms: f64,
+    pub(crate) same_shape_contribution_ms: f64,
+    pub(crate) fixed_point_ms: f64,
     pub(crate) hard_graph_ms: f64,
     pub(crate) hard_cover_ms: f64,
     pub(crate) contribution_context_ms: f64,
@@ -24,6 +31,13 @@ impl MedleyPruneTrace {
         self.upper_bounds_init_ms += other.upper_bounds_init_ms;
         self.signatures_ms += other.signatures_ms;
         self.active_indices_ms += other.active_indices_ms;
+        self.point_bonus_bounds_ms += other.point_bonus_bounds_ms;
+        self.adjusted_stats_ms += other.adjusted_stats_ms;
+        self.same_shape_prefilter_ms += other.same_shape_prefilter_ms;
+        self.profile_ms += other.profile_ms;
+        self.output_mapping_ms += other.output_mapping_ms;
+        self.same_shape_contribution_ms += other.same_shape_contribution_ms;
+        self.fixed_point_ms += other.fixed_point_ms;
         self.hard_graph_ms += other.hard_graph_ms;
         self.hard_cover_ms += other.hard_cover_ms;
         self.contribution_context_ms += other.contribution_context_ms;

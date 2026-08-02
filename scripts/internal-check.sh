@@ -4,6 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 bash -n scripts/build-web-assets.sh
+bash -n scripts/update-production.sh
 bash -n scripts/server-smoke.sh
 bash -n scripts/sync-game-data.sh
 bash -n scripts/run-server.sh

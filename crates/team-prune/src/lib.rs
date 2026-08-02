@@ -28,6 +28,61 @@ impl DominanceGraph {
         &self.incoming_by_target[target_idx]
     }
 
+    pub fn extend_edges_from(&mut self, other: &Self) {
+        debug_assert_eq!(
+            self.incoming_by_target.len(),
+            other.incoming_by_target.len()
+        );
+        for (target, incoming) in self
+            .incoming_by_target
+            .iter_mut()
+            .zip(&other.incoming_by_target)
+        {
+            target.extend_from_slice(incoming);
+            target.sort_unstable();
+            target.dedup();
+        }
+    }
+
+    pub fn retain_nodes(&mut self, retained_indices: &[usize]) {
+        let mut retained = vec![false; self.incoming_by_target.len()];
+        for &idx in retained_indices {
+            retained[idx] = true;
+        }
+        for (target_idx, incoming) in self.incoming_by_target.iter_mut().enumerate() {
+            if !retained[target_idx] {
+                incoming.clear();
+            } else {
+                incoming.retain(|&dominator_idx| retained[dominator_idx]);
+            }
+        }
+    }
+
+    pub fn transitive_closure_for_subset(&mut self, indices: &[usize]) {
+        if indices.is_empty() {
+            return;
+        }
+        let node_count = self.incoming_by_target.len();
+        let subset_count = indices.len();
+        let word_count = subset_count.div_ceil(u64::BITS as usize);
+        let mut index_to_pos = vec![usize::MAX; node_count];
+        for (pos, &idx) in indices.iter().enumerate() {
+            index_to_pos[idx] = pos;
+        }
+        let mut incoming_bits = vec![vec![0_u64; word_count]; subset_count];
+        for (target_pos, &target_idx) in indices.iter().enumerate() {
+            for &dominator_idx in &self.incoming_by_target[target_idx] {
+                let dominator_pos = index_to_pos[dominator_idx];
+                if dominator_pos != usize::MAX && dominator_pos != target_pos {
+                    incoming_bits[target_pos][dominator_pos / u64::BITS as usize] |=
+                        1_u64 << (dominator_pos % u64::BITS as usize);
+                }
+            }
+        }
+        close_incoming_bits(&mut incoming_bits, word_count);
+        write_subset_incoming(self, indices, &mut incoming_bits);
+    }
+
     pub fn transitive_closure(&mut self) {
         let node_count = self.incoming_by_target.len();
         if node_count == 0 {
@@ -68,6 +123,43 @@ impl DominanceGraph {
                 })
                 .collect();
         }
+    }
+}
+
+fn close_incoming_bits(incoming_bits: &mut [Vec<u64>], word_count: usize) {
+    for via_pos in 0..incoming_bits.len() {
+        let via_bits = incoming_bits[via_pos].clone();
+        for target_pos in 0..incoming_bits.len() {
+            if (incoming_bits[target_pos][via_pos / u64::BITS as usize]
+                & (1_u64 << (via_pos % u64::BITS as usize)))
+                == 0
+            {
+                continue;
+            }
+            for word_idx in 0..word_count {
+                incoming_bits[target_pos][word_idx] |= via_bits[word_idx];
+            }
+        }
+    }
+}
+
+fn write_subset_incoming(
+    graph: &mut DominanceGraph,
+    indices: &[usize],
+    incoming_bits: &mut [Vec<u64>],
+) {
+    for (target_pos, (&target_idx, bits)) in indices.iter().zip(incoming_bits).enumerate() {
+        bits[target_pos / u64::BITS as usize] &= !(1_u64 << (target_pos % u64::BITS as usize));
+        graph.incoming_by_target[target_idx] = indices
+            .iter()
+            .enumerate()
+            .filter_map(|(dominator_pos, &dominator_idx)| {
+                ((bits[dominator_pos / u64::BITS as usize]
+                    & (1_u64 << (dominator_pos % u64::BITS as usize)))
+                    != 0)
+                    .then_some(dominator_idx)
+            })
+            .collect();
     }
 }
 
@@ -165,7 +257,18 @@ pub fn dominance_graph_for_index_subset<Dominates>(
 where
     Dominates: FnMut(usize, usize) -> bool,
 {
-    dominance_graph_for_index_subset_inner(node_count, indices, None, dominates)
+    dominance_graph_for_index_subset_inner(node_count, indices, None, true, dominates)
+}
+
+pub fn direct_dominance_graph_for_index_subset<Dominates>(
+    node_count: usize,
+    indices: &[usize],
+    dominates: Dominates,
+) -> DominanceGraph
+where
+    Dominates: FnMut(usize, usize) -> bool,
+{
+    dominance_graph_for_index_subset_inner(node_count, indices, None, false, dominates)
 }
 
 pub fn dominance_graph_for_index_subset_with_base<Dominates>(
@@ -177,13 +280,49 @@ pub fn dominance_graph_for_index_subset_with_base<Dominates>(
 where
     Dominates: FnMut(usize, usize) -> bool,
 {
-    dominance_graph_for_index_subset_inner(node_count, indices, Some(base_graph), dominates)
+    dominance_graph_for_index_subset_inner(node_count, indices, Some(base_graph), true, dominates)
+}
+
+pub fn direct_dominance_graph_for_index_subset_with_base<Dominates>(
+    node_count: usize,
+    indices: &[usize],
+    base_graph: &DominanceGraph,
+    dominates: Dominates,
+) -> DominanceGraph
+where
+    Dominates: FnMut(usize, usize) -> bool,
+{
+    dominance_graph_for_index_subset_inner(node_count, indices, Some(base_graph), false, dominates)
+}
+
+pub fn direct_dominance_graph_for_cross_subsets<Dominates>(
+    node_count: usize,
+    left_indices: &[usize],
+    right_indices: &[usize],
+    mut dominates: Dominates,
+) -> DominanceGraph
+where
+    Dominates: FnMut(usize, usize) -> bool,
+{
+    let mut graph = DominanceGraph::new(node_count);
+    for &left_idx in left_indices {
+        for &right_idx in right_indices {
+            if dominates(left_idx, right_idx) {
+                graph.add_edge(left_idx, right_idx);
+            }
+            if dominates(right_idx, left_idx) {
+                graph.add_edge(right_idx, left_idx);
+            }
+        }
+    }
+    graph
 }
 
 fn dominance_graph_for_index_subset_inner<Dominates>(
     node_count: usize,
     indices: &[usize],
     base_graph: Option<&DominanceGraph>,
+    close_transitively: bool,
     mut dominates: Dominates,
 ) -> DominanceGraph
 where
@@ -229,33 +368,10 @@ where
         }
     }
 
-    for via_pos in 0..subset_count {
-        let via_bits = incoming_bits[via_pos].clone();
-        for target_pos in 0..subset_count {
-            if (incoming_bits[target_pos][via_pos / u64::BITS as usize]
-                & (1_u64 << (via_pos % u64::BITS as usize)))
-                == 0
-            {
-                continue;
-            }
-            for word_idx in 0..word_count {
-                incoming_bits[target_pos][word_idx] |= via_bits[word_idx];
-            }
-        }
+    if close_transitively {
+        close_incoming_bits(&mut incoming_bits, word_count);
     }
-
-    for (target_pos, &target_idx) in indices.iter().enumerate() {
-        incoming_bits[target_pos][target_pos / u64::BITS as usize] &=
-            !(1_u64 << (target_pos % u64::BITS as usize));
-        graph.incoming_by_target[target_idx] = (0..subset_count)
-            .filter_map(|dominator_pos| {
-                ((incoming_bits[target_pos][dominator_pos / u64::BITS as usize]
-                    & (1_u64 << (dominator_pos % u64::BITS as usize)))
-                    != 0)
-                    .then_some(indices[dominator_pos])
-            })
-            .collect();
-    }
+    write_subset_incoming(&mut graph, indices, &mut incoming_bits);
 
     graph
 }
@@ -651,5 +767,30 @@ mod tests {
 
         assert_eq!(same_cover, 3);
         assert!(cross_cover > 0);
+    }
+
+    #[test]
+    fn direct_subgraphs_can_be_merged_before_subset_closure() {
+        let left = direct_dominance_graph_for_index_subset(4, &[0, 1], |left, right| {
+            left == 0 && right == 1
+        });
+        let right = direct_dominance_graph_for_index_subset(4, &[2, 3], |left, right| {
+            left == 2 && right == 3
+        });
+        let cross = direct_dominance_graph_for_cross_subsets(4, &[0, 1], &[2, 3], |left, right| {
+            left == 1 && right == 2
+        });
+
+        let mut merged = left;
+        merged.extend_edges_from(&right);
+        merged.extend_edges_from(&cross);
+        assert_eq!(merged.incoming(3), &[2]);
+
+        merged.transitive_closure_for_subset(&[0, 1, 2, 3]);
+        assert_eq!(merged.incoming(3), &[0, 1, 2]);
+
+        merged.retain_nodes(&[0, 2, 3]);
+        assert_eq!(merged.incoming(3), &[0, 2]);
+        assert!(merged.incoming(1).is_empty());
     }
 }

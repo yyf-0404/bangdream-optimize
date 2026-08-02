@@ -1,4 +1,4 @@
-const ASSET_VERSION = '3';
+const ASSET_VERSION = '5';
 
 let wasmPromise = null;
 

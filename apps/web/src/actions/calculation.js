@@ -31,8 +31,9 @@ export function createCalculationActions({
   renderResultCache,
   persistResultCache,
   clearPersistedResultCache,
+  yieldForPaint = yieldToBrowserPaint,
 }) {
-  const RESULT_CACHE_KEY_VERSION = 5;
+  const RESULT_CACHE_KEY_VERSION = 6;
   const calculateButton = elements.calculateButton;
   const calculateButtons = Array.from(elements.calculateButtons || []);
   const calculateButtonLabel = calculateButton?.querySelector('.button-label');
@@ -194,6 +195,8 @@ export function createCalculationActions({
     isCalculating = true;
     setCalculatingState(true);
     try {
+      setStatus('准备计算');
+      await yieldForPaint();
       setStatus('同步数据');
       const player = readPlayer();
       applyEventInputToPlayer(player);
@@ -418,8 +421,10 @@ export function createCalculationActions({
       eventType,
     });
     const liveVariant = ptMaximizeLiveVariant(form, eventType);
-    if (elements.ptMaximizeMissionSupportPt.required && form.missionSupportPtBonus == null) {
-      throw new Error('任务 Live 自由演出必须填写支援乐队 PT 加成');
+    const missionSupportRequired = eventType === 'mission_live'
+      && (liveVariant === 'solo' || liveVariant === 'cooperative');
+    if (missionSupportRequired && form.missionSupportPtBonus == null) {
+      throw new Error('任务 Live 必须填写支援乐队 PT 加成');
     }
     const songs = player.eventSongs?.[String(eventId)] ?? [];
     const request = {
@@ -429,9 +434,11 @@ export function createCalculationActions({
       minimumPersonalStat: liveVariant === 'cooperative'
         ? form.minimumPersonalStat
         : undefined,
-      missionSupportPtBonus: elements.ptMaximizeMissionSupportPt.required
-        ? form.missionSupportPtBonus
-        : undefined,
+      // Game data is authoritative and may correct a stale frontend event type.
+      // Keep the support value on every request so a corrected mission_live
+      // request never reaches the core without its required input. Other event
+      // types ignore this field.
+      missionSupportPtBonus: form.missionSupportPtBonus ?? 100,
     };
     if (liveVariant === 'cooperative') {
       if (form.minimumPersonalStat == null) {
@@ -777,6 +784,27 @@ export function createCalculationActions({
     handleScoreRangeInputChange,
     handlePtMaximizeInputChange,
   };
+}
+
+function yieldToBrowserPaint() {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame !== 'function') {
+      setTimeout(resolve, 0);
+      return;
+    }
+    let settled = false;
+    let fallbackTimer;
+    const done = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(fallbackTimer);
+      resolve();
+    };
+    requestAnimationFrame(() => setTimeout(done, 0));
+    fallbackTimer = setTimeout(done, 50);
+  });
 }
 
 export function scoreCheckPayloadFromDiagnostic(diagnostic) {

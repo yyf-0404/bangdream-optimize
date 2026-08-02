@@ -44,12 +44,19 @@ fn replays_pt_maximize_diagnostic() {
             diagnostic.server,
         )
         .unwrap();
+    let mut request = diagnostic.calculation_request.clone();
+    if let Ok(value) = std::env::var("BANGDREAM_OPTIMIZE_MISSION_SUPPORT_PT_BONUS") {
+        request.mission_support_pt_bonus =
+            Some(value.parse().expect(
+                "BANGDREAM_OPTIMIZE_MISSION_SUPPORT_PT_BONUS must be a non-negative integer",
+            ));
+    }
     let result = builder
         .pt_maximize_sync(
             diagnostic.player,
             diagnostic.server,
             Some(event_id),
-            diagnostic.calculation_request.clone(),
+            request,
         )
         .unwrap();
     let team = result.team.as_ref().expect("single-song result has a team");

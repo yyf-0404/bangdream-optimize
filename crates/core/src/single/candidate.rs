@@ -79,6 +79,7 @@ pub(crate) fn pruned_card_indices(
         mode,
         SingleCardRole::FullSkill,
         None,
+        None,
     )
 }
 
@@ -90,10 +91,10 @@ pub(crate) fn pruned_card_indices_for_role(
     mode: SongMode,
     role: SingleCardRole,
     replacement_values: Option<&[u64]>,
+    point_bonus_fixed_score_equivalent: Option<f64>,
 ) -> Result<Vec<usize>, team::TeamBuildError> {
-    // FullSkill and Captain share the existing contribution proof: it proves
-    // replacement for every normal/captain physical role, so it is valid for
-    // either subset of roles. Filler deliberately bypasses every skill field.
+    // Filler deliberately bypasses every skill field. Cooperative captains use
+    // `pruned_cooperative_captain_indices`, which supplies the four external skills.
     if role == SingleCardRole::Filler {
         return Ok(filler_pruned_card_indices(
             cards,
@@ -110,6 +111,32 @@ pub(crate) fn pruned_card_indices_for_role(
         selected_items,
         mode,
         replacement_values,
+        point_bonus_fixed_score_equivalent,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn pruned_cooperative_captain_indices(
+    cards: &[PreparedCard],
+    chart: &Chart,
+    area_item_percent: &AreaItemPercent,
+    selected_items: &SelectedAreaItems,
+    mode: SongMode,
+    teammate_skills: &[TeamCardSkill; 4],
+    teammate_effective_stat: f64,
+    replacement_values: Option<&[u64]>,
+    point_bonus_fixed_score_equivalent: Option<f64>,
+) -> Result<(Vec<usize>, crate::team_prune::MedleyPruneTrace), team::TeamBuildError> {
+    dominance::contribution_pruned_captain_indices(
+        cards,
+        chart,
+        area_item_percent,
+        selected_items,
+        mode,
+        teammate_skills,
+        teammate_effective_stat,
+        replacement_values,
+        point_bonus_fixed_score_equivalent,
     )
 }
 

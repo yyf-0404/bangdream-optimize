@@ -1,10 +1,10 @@
 export async function createRuntime(options = {}) {
   if (isDesktopRuntimeAvailable()) {
-    const { createDesktopRuntime } = await import('./desktop.js?v=6');
+    const { createDesktopRuntime } = await import('./desktop.js?v=7');
     return createDesktopRuntime(options);
   }
 
-  const { createBrowserRuntime } = await import('./browser.js?v=6');
+  const { createBrowserRuntime } = await import('./browser.js?v=7');
   return createBrowserRuntime(options);
 }
 
