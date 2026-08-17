@@ -7,7 +7,7 @@ function createHarness() {
   const submissions = [];
   const classNames = new Set();
   const elements = {
-    appVersion: { textContent: 'v0.3.4' },
+    appVersion: { textContent: 'v0.3.5' },
     feedbackAttachmentSummary: { textContent: '' },
     feedbackAttachments: { files: [] },
     feedbackCategory: { value: 'suggestion', focus() {} },

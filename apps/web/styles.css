@@ -4474,3 +4474,659 @@ td select {
   }
 
 }
+
+/* Once the sidebar moves above the workbench, turn it into a compact app
+   header and let the whole document scroll. */
+@media (max-width: 980px) {
+  html {
+    min-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scroll-padding-top: 94px;
+  }
+
+  body {
+    min-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .app-shell {
+    min-height: 100%;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .app-sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    height: auto;
+    padding: 8px 12px;
+    grid-template-areas:
+      "brand nav actions"
+      "status status toggle";
+    grid-template-columns: auto minmax(300px, 1fr) auto;
+    align-items: center;
+    gap: 6px 10px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 5px 18px rgba(82, 28, 48, 0.08);
+    backdrop-filter: blur(12px);
+  }
+
+  .sidebar-brand {
+    grid-area: brand;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+  }
+
+  .sidebar-kicker {
+    display: none;
+  }
+
+  .sidebar-brand h1 {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    margin: 0;
+    font-size: 16px;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  .app-version {
+    font-size: 10px;
+  }
+
+  .app-nav {
+    grid-area: nav;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-auto-flow: row;
+    gap: 3px;
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+  }
+
+  .app-nav-item {
+    min-width: 0;
+    min-height: 42px;
+    padding: 0 6px;
+    justify-content: center;
+    gap: 5px;
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.15;
+    text-align: center;
+  }
+
+  .app-nav-item.page-tab.active {
+    box-shadow: inset 0 -3px 0 var(--accent);
+  }
+
+  .sidebar-toggle-topbar {
+    grid-area: toggle;
+    display: inline-flex;
+    justify-self: end;
+    justify-content: center;
+    min-height: 26px;
+    padding: 0 9px;
+    white-space: nowrap;
+  }
+
+  .sidebar-status {
+    grid-area: status;
+    margin: 0;
+  }
+
+  .sidebar-status > .muted {
+    display: none;
+  }
+
+  .sidebar-status .status {
+    min-width: 0;
+    min-height: 26px;
+    max-height: 44px;
+    margin: 0;
+    overflow: auto;
+    padding: 4px 8px;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .sidebar-actions {
+    grid-area: actions;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .sidebar-actions button,
+  .sidebar-actions .primary {
+    width: auto;
+    min-height: 42px;
+    white-space: nowrap;
+  }
+
+  .app-main {
+    display: block;
+    min-height: 0;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .app-topbar {
+    min-height: 0;
+    padding: 10px 12px;
+    gap: 8px;
+    box-shadow: none;
+  }
+
+  .topbar-main {
+    display: block;
+  }
+
+  .topbar-title {
+    display: none;
+  }
+
+  .topbar-actions,
+  .config-toolbar-actions {
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    padding-bottom: 3px;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+  }
+
+  .topbar-actions::-webkit-scrollbar,
+  .config-toolbar-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .topbar-actions > button,
+  .config-toolbar-actions > button {
+    flex: 0 0 auto;
+    min-height: 38px;
+  }
+
+  .workspace-grid {
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .activity-bonus-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "basic"
+      "match"
+      "member";
+  }
+
+  .activity-match-bonus {
+    align-self: start;
+    border-top: 1px dashed var(--line);
+    border-left: 0;
+  }
+
+  .event-compact-bonus-empty {
+    grid-column: 1 / -1;
+    width: max-content;
+    max-width: 100%;
+  }
+}
+
+@media (min-width: 761px) and (max-width: 980px) {
+  .config-toolbar-primary {
+    grid-template-columns: auto repeat(4, minmax(105px, 1fr));
+  }
+
+  .config-toolbar-primary h2 {
+    grid-column: auto;
+    margin: 0 4px 0 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .app-sidebar {
+    grid-template-areas:
+      "brand actions"
+      "nav nav"
+      "status toggle";
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+
+@media (max-width: 620px) and (orientation: landscape) {
+  .config-toolbar-primary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .config-toolbar-primary h2 {
+    grid-column: 1 / -1;
+  }
+
+  .config-toolbar-primary label {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+  }
+}
+
+/* Portrait phones use an even denser version of the shared top-header layout. */
+@media (max-width: 620px) and (orientation: portrait) {
+  html {
+    min-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scroll-padding-top: 148px;
+  }
+
+  body {
+    min-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    font-size: 14px;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    touch-action: manipulation;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  .app-shell {
+    min-height: 100%;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .app-sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    height: auto;
+    padding: calc(8px + env(safe-area-inset-top)) 10px 8px;
+    grid-template-areas:
+      "brand toggle"
+      "nav nav"
+      "status status";
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 5px 18px rgba(82, 28, 48, 0.08);
+    backdrop-filter: blur(12px);
+  }
+
+  .sidebar-brand {
+    min-width: 0;
+    min-height: 34px;
+    margin: 0;
+    padding: 0 4px;
+  }
+
+  .sidebar-kicker {
+    display: none;
+  }
+
+  .sidebar-brand h1 {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    margin: 0;
+    overflow: hidden;
+    font-size: 17px;
+    line-height: 1.2;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .app-version {
+    flex: 0 0 auto;
+    font-size: 10px;
+  }
+
+  .app-nav {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-auto-flow: row;
+    gap: 3px;
+    width: 100%;
+  }
+
+  .app-nav-item {
+    min-width: 0;
+    min-height: 48px;
+    padding: 4px 2px;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    border-radius: 6px;
+    font-size: 11px;
+    line-height: 1.15;
+    text-align: center;
+  }
+
+  .app-nav-item.page-tab.active {
+    box-shadow: inset 0 -3px 0 var(--accent);
+  }
+
+  .app-nav-item .nav-icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  .sidebar-actions {
+    display: none;
+  }
+
+  .sidebar-toggle-topbar {
+    align-self: center;
+    min-height: 34px;
+    padding-inline: 7px;
+    font-size: 12px;
+  }
+
+  .sidebar-toggle-topbar .button-icon {
+    width: 16px;
+    height: 16px;
+  }
+
+  .sidebar-status {
+    margin: 0;
+  }
+
+  .sidebar-status > .muted {
+    display: none;
+  }
+
+  .sidebar-status .status {
+    min-width: 0;
+    min-height: 28px;
+    max-height: 48px;
+    margin: 0;
+    overflow: auto;
+    padding: 5px 8px;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .app-main {
+    display: block;
+    min-height: 0;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .app-topbar {
+    min-height: 0;
+    padding: 10px;
+    gap: 8px;
+    box-shadow: none;
+  }
+
+  .topbar-main {
+    display: block;
+  }
+
+  .topbar-title {
+    display: none;
+  }
+
+  .topbar-actions {
+    display: block;
+  }
+
+  .topbar-actions > button:not(.calculate-submit) {
+    display: none !important;
+  }
+
+  .topbar-actions .calculate-submit {
+    width: 100%;
+    min-height: 44px;
+    font-size: 15px;
+  }
+
+  .config-manager-panel {
+    gap: 8px;
+  }
+
+  .config-toolbar-primary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding: 10px;
+    border-radius: 8px;
+  }
+
+  .config-toolbar-primary h2 {
+    grid-column: 1 / -1;
+    margin: 0;
+  }
+
+  .config-toolbar-primary label {
+    min-width: 0;
+  }
+
+  .config-toolbar-primary input,
+  .config-toolbar-primary select {
+    height: 44px;
+    min-width: 0;
+  }
+
+  .config-toolbar-actions {
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 6px;
+    width: calc(100% + 20px);
+    margin-inline: -10px;
+    overflow-x: auto;
+    padding: 0 10px 4px;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+  }
+
+  .config-toolbar-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .config-toolbar-actions > button {
+    flex: 0 0 auto;
+    min-height: 40px;
+  }
+
+  .workspace-grid {
+    display: block;
+    min-height: 0;
+    overflow: visible;
+    padding: 10px;
+  }
+
+  .workspace-main,
+  .main-workbench,
+  .card-page,
+  .player-page,
+  .result-page {
+    gap: 10px;
+  }
+
+  .panel {
+    border-radius: 8px;
+  }
+
+  .panel-header {
+    position: static;
+    min-height: 44px;
+    padding-inline: 12px;
+  }
+
+  .config-content {
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .calculation-mode-control {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .calculation-mode-control > label {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+    min-height: 44px;
+  }
+
+  .calculation-mode-control > label > span {
+    padding-inline: 5px;
+    white-space: normal;
+    line-height: 1.2;
+    text-align: center;
+  }
+
+  .activity-song-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .activity-song-item .song-input-cell {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+
+  .activity-song-item .song-inline-cover {
+    width: 72px;
+    height: 72px;
+  }
+
+  .character-bonus-list {
+    width: 100%;
+    max-width: 100%;
+    grid-template-columns: 30px repeat(5, minmax(82px, 1fr));
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  .card-add-form,
+  .song-add-form,
+  .inline-form:not(.compact-add-form) {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .card-add-preview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-height: none;
+  }
+
+  .card-list-item {
+    width: 100%;
+    grid-template-columns: 84px minmax(0, 1fr);
+  }
+
+  .card-list-entity {
+    width: 84px;
+  }
+
+  .card-list-number-fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .card-character-switcher {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .result-overview,
+  .score-range-overview,
+  .score-range-overview.has-point-bonus,
+  .result-items {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .result-overview > :first-child,
+  .score-range-overview > :first-child {
+    grid-column: 1 / -1;
+  }
+
+  .result-stat:nth-child(odd):not(:first-child),
+  .result-item:nth-child(odd):not(:first-child) {
+    border-left: 0;
+  }
+
+  .result-song {
+    padding: 10px;
+  }
+
+  .result-song-header {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .result-song-header.no-cover {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .song-cover {
+    width: 72px;
+    height: 72px;
+  }
+
+  .result-song-score {
+    grid-column: 1 / -1;
+    text-align: left;
+  }
+
+  .result-cache-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .result-cache-actions {
+    justify-content: flex-start;
+  }
+
+  .feedback-dialog,
+  .bestdori-profile-dialog,
+  .desktop-downloads-dialog {
+    width: calc(100vw - 20px);
+    max-width: calc(100vw - 20px);
+    max-height: calc(100dvh - 20px);
+    margin: auto;
+  }
+
+  .feedback-dialog-content,
+  .bestdori-profile-dialog-content,
+  .desktop-downloads-dialog-content {
+    padding: 12px;
+  }
+
+  .feedback-dialog-actions,
+  .bestdori-profile-dialog-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .feedback-dialog-actions button,
+  .bestdori-profile-dialog-actions button {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .copy-success-toast {
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    max-width: calc(100vw - 24px);
+    white-space: normal;
+  }
+}
