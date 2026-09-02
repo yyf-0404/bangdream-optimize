@@ -76,7 +76,6 @@ struct ItemBatchMetrics {
     full_queries: usize,
     lower_bound_pruned_layers: usize,
     upper_bound_pruned_layers: usize,
-    lower_bound_pruned_buckets: usize,
     upper_bound_pruned_buckets: usize,
     structural_pruned_contexts: usize,
     max_base_pairs: usize,
@@ -131,18 +130,24 @@ struct NonRateupSongTemplate {
 struct SkillSearchContext {
     songs: Vec<SongModel>,
     intervals: BTreeMap<u32, ValidIntervalSet>,
-    score_lower_bounds: BTreeMap<(usize, u64), Option<i32>>,
+    point_intervals: BTreeMap<u32, BTreeMap<u64, PointStatIndex>>,
+    score_lower_bounds: ScoreLowerBoundCache,
 }
 
 #[derive(Debug, Clone, Copy)]
 struct ValidStatInterval {
     min_stat: i32,
     max_stat: i32,
-    song_index: usize,
-    base_points: u64,
+    plan: IntervalPlan,
 }
 
 #[derive(Debug, Clone, Copy)]
+enum IntervalPlan {
+    OneSong { song_index: usize, base_points: u64 },
+    TwoSongs(TwoSongPlan),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct StatRange {
     min_stat: i32,
     max_stat: i32,
@@ -161,18 +166,56 @@ struct ValidIntervalSet {
 }
 
 #[derive(Debug, Clone)]
+struct PointStatIndex {
+    union: Vec<StatRange>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ScoreLowerBoundCache {
+    individual: BTreeMap<(usize, u64), Option<i32>>,
+    batches: BTreeMap<u64, Vec<i32>>,
+}
+
+#[derive(Debug, Clone)]
 struct Candidate {
     team: ScoreRangeTeam,
     plan: Vec<ScoreRangePlay>,
 }
 
-type CandidateKey = (SkillBucketKey, u32, i32, SongKey);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum CandidateSongs {
+    One(SongKey),
+    Two(SongKey, SongKey),
+}
+
+type CandidateKey = (SkillBucketKey, u32, i32, CandidateSongs);
 type CandidateMap = BTreeMap<CandidateKey, Candidate>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct PlanObjective {
     play_count: u64,
     total_fire_cost: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TwoSongPlan {
+    left_points: u64,
+    right_points: u64,
+    left_units: u64,
+    right_units: u64,
+    objective: PlanObjective,
+}
+
+#[derive(Debug, Clone)]
+enum SearchLayerKind {
+    OneSong { base_points: u64 },
+    TwoSongs { plans: Vec<TwoSongPlan> },
+}
+
+#[derive(Debug, Clone)]
+struct SearchLayer {
+    objective: PlanObjective,
+    kind: SearchLayerKind,
 }
 
 #[derive(Debug, Default)]
@@ -182,6 +225,29 @@ struct LayerTiming {
     score_compression_ms: f64,
     exact_bounds_ms: f64,
     item_search_ms: f64,
+}
+
+impl SearchLayer {
+    fn contains_points_in(&self, bounds: BasePointBounds) -> bool {
+        match &self.kind {
+            SearchLayerKind::OneSong { base_points } => {
+                bounds.min <= *base_points && *base_points <= bounds.max
+            }
+            SearchLayerKind::TwoSongs { plans } => plans.iter().any(|plan| {
+                bounds.min <= plan.left_points
+                    && plan.left_points <= bounds.max
+                    && bounds.min <= plan.right_points
+                    && plan.right_points <= bounds.max
+            }),
+        }
+    }
+
+    fn description(&self) -> String {
+        match &self.kind {
+            SearchLayerKind::OneSong { base_points } => format!("one_song points={base_points}"),
+            SearchLayerKind::TwoSongs { plans } => format!("two_songs plans={}", plans.len()),
+        }
+    }
 }
 
 fn optimistic_term_frontier(mut terms: Vec<(f64, usize)>) -> Vec<(f64, usize)> {
@@ -322,7 +388,11 @@ pub(crate) fn search_raw_domain(
         request.mission_support_pt_bonus.unwrap_or_default(),
     )?;
     let global_min_base_points = theoretical_min_base_points.max(pessimistic_global_base_points);
-    let base_point_layers = ranked_base_point_layers(target_delta);
+    let search_layers = ranked_search_layers(
+        target_delta,
+        global_min_base_points,
+        optimistic_global_base_points,
+    );
     let mut candidates = CandidateMap::new();
     let mut selected_objective = None;
     let mut skill_contexts = BTreeMap::<SkillBucketKey, SkillSearchContext>::new();
@@ -333,7 +403,17 @@ pub(crate) fn search_raw_domain(
         .map(|_| None)
         .collect::<Vec<Option<PreparedMode<'_>>>>();
 
-    for (objective, base_points) in base_point_layers {
+    for layer in search_layers {
+        let required_two_song_points = match &layer.kind {
+            SearchLayerKind::OneSong { .. } => Vec::new(),
+            SearchLayerKind::TwoSongs { plans } => plans
+                .iter()
+                .flat_map(|plan| [plan.left_points, plan.right_points])
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect(),
+        };
+        let objective = layer.objective;
         let layer_started = trace.then(Timer::start);
         let mut layer_timing = LayerTiming::default();
         candidates.clear();
@@ -342,24 +422,34 @@ pub(crate) fn search_raw_domain(
         }
         if trace {
             eprintln!(
-                "score-range objective layer: plays={} total_fire_cost={} base_points={base_points}",
-                objective.play_count, objective.total_fire_cost,
+                "score-range objective layer: plays={} total_fire_cost={} {}",
+                objective.play_count,
+                objective.total_fire_cost,
+                layer.description(),
             );
         }
-        if optimistic_global_base_points < base_points {
+        if !layer.contains_points_in(BasePointBounds {
+            min: theoretical_min_base_points,
+            max: optimistic_global_base_points,
+        }) {
             item_metrics.upper_bound_pruned_layers += 1;
             if trace {
                 eprintln!(
-                    "score-range objective layer pruned: base_points={base_points} optimistic_global_base_points={optimistic_global_base_points} optimistic_global_score={optimistic_global_score} optimistic_global_stat={optimistic_global_stat} optimistic_global_bonus={optimistic_global_bonus} optimistic_skill_multiplier={optimistic_skill_multiplier}",
+                    "score-range objective layer pruned: {} optimistic_global_base_points={optimistic_global_base_points} optimistic_global_score={optimistic_global_score} optimistic_global_stat={optimistic_global_stat} optimistic_global_bonus={optimistic_global_bonus} optimistic_skill_multiplier={optimistic_skill_multiplier}",
+                    layer.description(),
                 );
             }
             continue;
         }
-        if base_points < global_min_base_points {
+        if !layer.contains_points_in(BasePointBounds {
+            min: global_min_base_points,
+            max: optimistic_global_base_points,
+        }) {
             item_metrics.lower_bound_pruned_layers += 1;
             if trace {
                 eprintln!(
-                    "score-range objective layer pruned: base_points={base_points} global_min_base_points={global_min_base_points}",
+                    "score-range objective layer pruned: {} global_min_base_points={global_min_base_points}",
+                    layer.description(),
                 );
             }
             continue;
@@ -385,23 +475,14 @@ pub(crate) fn search_raw_domain(
                 .as_mut()
                 .expect("mode was prepared above");
             debug_assert_eq!(prepared_mode.mode, mode);
-            if base_points < prepared_mode.coarse_base_points.min {
-                item_metrics.lower_bound_pruned_buckets += prepared_mode.buckets.len();
-                if trace {
-                    eprintln!(
-                        "score-range MITM mode coarsely lower-pruned: mode={mode:?} buckets={} target_base_points={base_points} pessimistic_base_points={}",
-                        prepared_mode.buckets.len(),
-                        prepared_mode.coarse_base_points.min,
-                    );
-                }
-                continue;
-            }
-            if prepared_mode.coarse_base_points.max < base_points {
+            if !layer.contains_points_in(prepared_mode.coarse_base_points) {
                 item_metrics.upper_bound_pruned_buckets += prepared_mode.buckets.len();
                 if trace {
                     eprintln!(
-                        "score-range MITM mode coarsely upper-pruned: mode={mode:?} buckets={} target_base_points={base_points} optimistic_base_points={}",
+                        "score-range MITM mode coarsely pruned: mode={mode:?} buckets={} target={} bounds={}..={}",
                         prepared_mode.buckets.len(),
+                        layer.description(),
+                        prepared_mode.coarse_base_points.min,
                         prepared_mode.coarse_base_points.max,
                     );
                 }
@@ -413,27 +494,18 @@ pub(crate) fn search_raw_domain(
                 let skill = bucket.skill;
                 let cards = &bucket.cards;
                 let team_bounds = bucket.team_bounds;
-                if base_points < bucket.coarse_base_points.min {
-                    item_metrics.lower_bound_pruned_buckets += 1;
-                    if trace {
-                        eprintln!(
-                            "score-range MITM bucket coarsely lower-pruned: mode={mode:?} skill={skill_key:?} cards={} target_base_points={base_points} pessimistic_base_points={} pessimistic_stat={} pessimistic_bonus={}",
-                            cards.len(),
-                            bucket.coarse_base_points.min,
-                            team_bounds.min_stat,
-                            team_bounds.min_bonus_basis_points,
-                        );
-                    }
-                    continue;
-                }
-                if bucket.coarse_base_points.max < base_points {
+                if !layer.contains_points_in(bucket.coarse_base_points) {
                     item_metrics.upper_bound_pruned_buckets += 1;
                     if trace {
                         eprintln!(
-                            "score-range MITM bucket coarsely upper-pruned: mode={mode:?} skill={skill_key:?} cards={} target_base_points={base_points} optimistic_base_points={} optimistic_stat={} optimistic_bonus={}",
+                            "score-range MITM bucket coarsely pruned: mode={mode:?} skill={skill_key:?} cards={} target={} bounds={}..={} stat={}..={} bonus={}..={}",
                             cards.len(),
+                            layer.description(),
+                            bucket.coarse_base_points.min,
                             bucket.coarse_base_points.max,
+                            team_bounds.min_stat,
                             team_bounds.max_stat,
+                            team_bounds.min_bonus_basis_points,
                             team_bounds.max_bonus_basis_points,
                         );
                     }
@@ -485,22 +557,15 @@ pub(crate) fn search_raw_domain(
                     layer_timing.exact_bounds_ms += optional_elapsed_ms(phase_started);
                 }
                 if let Some(template_base_points) = bucket.template_base_points {
-                    if base_points < template_base_points.min {
-                        item_metrics.lower_bound_pruned_buckets += 1;
-                        if trace {
-                            eprintln!(
-                                "score-range MITM bucket lower-pruned before materialization: mode={mode:?} skill={skill_key:?} cards={} target_base_points={base_points} pessimistic_base_points={}",
-                                cards.len(), template_base_points.min,
-                            );
-                        }
-                        continue;
-                    }
-                    if template_base_points.max < base_points {
+                    if !layer.contains_points_in(template_base_points) {
                         item_metrics.upper_bound_pruned_buckets += 1;
                         if trace {
                             eprintln!(
-                                "score-range MITM bucket upper-pruned before materialization: mode={mode:?} skill={skill_key:?} cards={} target_base_points={base_points} optimistic_base_points={}",
-                                cards.len(), template_base_points.max,
+                                "score-range MITM bucket pruned before materialization: mode={mode:?} skill={skill_key:?} cards={} target={} bounds={}..={}",
+                                cards.len(),
+                                layer.description(),
+                                template_base_points.min,
+                                template_base_points.max,
                             );
                         }
                         continue;
@@ -567,7 +632,8 @@ pub(crate) fn search_raw_domain(
                     entry.insert(SkillSearchContext {
                         songs: song_models,
                         intervals: BTreeMap::new(),
-                        score_lower_bounds: BTreeMap::new(),
+                        point_intervals: BTreeMap::new(),
+                        score_lower_bounds: ScoreLowerBoundCache::default(),
                     });
                 }
                 layer_timing.skill_contexts_ms += optional_elapsed_ms(phase_started);
@@ -612,27 +678,18 @@ pub(crate) fn search_raw_domain(
                 let safe_base_points = bucket
                     .safe_base_points
                     .expect("safe bounds were initialized above");
-                if base_points < safe_base_points.min {
-                    item_metrics.lower_bound_pruned_buckets += 1;
-                    if trace {
-                        eprintln!(
-                            "score-range MITM bucket lower-pruned: mode={mode:?} skill={skill_key:?} cards={} target_base_points={base_points} pessimistic_base_points={} pessimistic_stat={} pessimistic_bonus={}",
-                            cards.len(),
-                            safe_base_points.min,
-                            team_bounds.min_stat,
-                            team_bounds.min_bonus_basis_points,
-                        );
-                    }
-                    continue;
-                }
-                if safe_base_points.max < base_points {
+                if !layer.contains_points_in(safe_base_points) {
                     item_metrics.upper_bound_pruned_buckets += 1;
                     if trace {
                         eprintln!(
-                            "score-range MITM bucket upper-pruned: mode={mode:?} skill={skill_key:?} cards={} target_base_points={base_points} optimistic_base_points={} optimistic_stat={} optimistic_bonus={}",
+                            "score-range MITM bucket pruned: mode={mode:?} skill={skill_key:?} cards={} target={} bounds={}..={} stat={}..={} bonus={}..={}",
                             cards.len(),
+                            layer.description(),
+                            safe_base_points.min,
                             safe_base_points.max,
+                            team_bounds.min_stat,
                             team_bounds.max_stat,
+                            team_bounds.min_bonus_basis_points,
                             team_bounds.max_bonus_basis_points,
                         );
                     }
@@ -641,6 +698,7 @@ pub(crate) fn search_raw_domain(
                 let SkillSearchContext {
                     songs: song_models,
                     intervals: interval_cache,
+                    point_intervals,
                     score_lower_bounds,
                 } = context;
                 if trace {
@@ -656,7 +714,8 @@ pub(crate) fn search_raw_domain(
                 enumerate_item_groups(
                     request,
                     target_delta,
-                    &[base_points],
+                    &layer,
+                    &required_two_song_points,
                     mode,
                     skill_key,
                     skill,
@@ -665,6 +724,7 @@ pub(crate) fn search_raw_domain(
                     &raw.area_item_percent,
                     song_models,
                     interval_cache,
+                    point_intervals,
                     score_lower_bounds,
                     &mut candidates,
                     &mut item_metrics,
@@ -714,20 +774,49 @@ pub(crate) fn search_raw_domain(
             .flat_map(|context| context.intervals.values())
             .map(|intervals| intervals.union.len())
             .sum::<usize>();
-        let score_boundary_cache_entries = skill_contexts
+        let score_boundary_scalar_entries = skill_contexts
             .values()
-            .map(|context| context.score_lower_bounds.len())
+            .map(|context| context.score_lower_bounds.individual.len())
+            .sum::<usize>();
+        let score_boundary_batch_targets = skill_contexts
+            .values()
+            .map(|context| context.score_lower_bounds.batches.len())
+            .sum::<usize>();
+        let score_boundary_batch_values = skill_contexts
+            .values()
+            .flat_map(|context| context.score_lower_bounds.batches.values())
+            .map(Vec::len)
+            .sum::<usize>();
+        let point_interval_bonus_contexts = skill_contexts
+            .values()
+            .map(|context| context.point_intervals.len())
+            .sum::<usize>();
+        let point_interval_entries = skill_contexts
+            .values()
+            .flat_map(|context| context.point_intervals.values())
+            .map(BTreeMap::len)
+            .sum::<usize>();
+        let point_interval_ranges = skill_contexts
+            .values()
+            .flat_map(|context| context.point_intervals.values())
+            .flat_map(BTreeMap::values)
+            .map(|index| index.union.len())
             .sum::<usize>();
         let pair_index_peak_bytes = item_metrics
             .max_base_pairs
             .saturating_add(item_metrics.max_adjusted_pairs)
             .saturating_mul(std::mem::size_of::<PairRecord>());
         eprintln!(
-            "score-range item batch metrics: {item_metrics:?} skill_contexts={} interval_cache_entries={} interval_cache_ranges={} score_boundary_cache_entries={} pair_index_peak_bytes={pair_index_peak_bytes}",
+            "score-range item batch metrics: {item_metrics:?} skill_contexts={} interval_cache_entries={} interval_cache_ranges={} score_boundary_scalar_entries={} score_boundary_batch_targets={} score_boundary_batch_values={} point_interval_bonus_contexts={} point_interval_entries={} point_interval_ranges={} pair_index_peak_bytes={pair_index_peak_bytes}",
             skill_contexts.len(),
             interval_cache_entries,
             interval_cache_ranges,
-            score_boundary_cache_entries,
+            score_boundary_scalar_entries,
+            score_boundary_batch_targets,
+            score_boundary_batch_values,
+            point_interval_bonus_contexts,
+            point_interval_entries,
+            point_interval_ranges,
         );
         eprintln!("score-range selected objective: {selected_objective:?}");
     }
@@ -1082,7 +1171,8 @@ fn optimistic_multiplier_for_skill(skill: TeamCardSkill) -> f64 {
 fn enumerate_item_groups(
     request: &ScoreRangeRequest,
     target_delta: u64,
-    divisors: &[u64],
+    layer: &SearchLayer,
+    required_two_song_points: &[u64],
     mode: SongMode,
     skill_key: SkillBucketKey,
     skill: TeamCardSkill,
@@ -1091,7 +1181,8 @@ fn enumerate_item_groups(
     area_item_percent: &AreaItemPercent,
     songs: &[SongModel],
     interval_cache: &mut BTreeMap<u32, ValidIntervalSet>,
-    score_lower_bounds: &mut BTreeMap<(usize, u64), Option<i32>>,
+    point_interval_cache: &mut BTreeMap<u32, BTreeMap<u64, PointStatIndex>>,
+    score_lower_bounds: &mut ScoreLowerBoundCache,
     candidates: &mut CandidateMap,
     metrics: &mut ItemBatchMetrics,
 ) -> Result<(), ScoreRangeError> {
@@ -1115,7 +1206,8 @@ fn enumerate_item_groups(
             enumerate_full_item_context(
                 request,
                 target_delta,
-                divisors,
+                layer,
+                required_two_song_points,
                 mode,
                 skill_key,
                 skill,
@@ -1124,6 +1216,7 @@ fn enumerate_item_groups(
                 area_item_percent,
                 songs,
                 interval_cache,
+                point_interval_cache,
                 score_lower_bounds,
                 candidates,
                 metrics,
@@ -1137,7 +1230,8 @@ fn enumerate_item_groups(
             enumerate_local_item_batch(
                 request,
                 target_delta,
-                divisors,
+                layer,
+                required_two_song_points,
                 mode,
                 skill_key,
                 skill,
@@ -1147,6 +1241,7 @@ fn enumerate_item_groups(
                 area_item_percent,
                 songs,
                 interval_cache,
+                point_interval_cache,
                 score_lower_bounds,
                 candidates,
                 metrics,
@@ -1163,7 +1258,8 @@ fn enumerate_item_groups(
 fn enumerate_full_item_context(
     request: &ScoreRangeRequest,
     target_delta: u64,
-    divisors: &[u64],
+    layer: &SearchLayer,
+    required_two_song_points: &[u64],
     mode: SongMode,
     skill_key: SkillBucketKey,
     skill: TeamCardSkill,
@@ -1172,7 +1268,8 @@ fn enumerate_full_item_context(
     area_item_percent: &AreaItemPercent,
     songs: &[SongModel],
     interval_cache: &mut BTreeMap<u32, ValidIntervalSet>,
-    score_lower_bounds: &mut BTreeMap<(usize, u64), Option<i32>>,
+    point_interval_cache: &mut BTreeMap<u32, BTreeMap<u64, PointStatIndex>>,
+    score_lower_bounds: &mut ScoreLowerBoundCache,
     candidates: &mut CandidateMap,
     metrics: &mut ItemBatchMetrics,
 ) -> Result<(), ScoreRangeError> {
@@ -1184,11 +1281,13 @@ fn enumerate_full_item_context(
     if !item_context_may_match(
         request,
         target_delta,
-        divisors,
+        layer,
+        required_two_song_points,
         &resolved,
         &stats,
         songs,
         interval_cache,
+        point_interval_cache,
         score_lower_bounds,
     )? {
         metrics.structural_pruned_contexts += 1;
@@ -1200,7 +1299,8 @@ fn enumerate_full_item_context(
     enumerate_item_context(
         request,
         target_delta,
-        divisors,
+        layer,
+        required_two_song_points,
         mode,
         skill_key,
         skill,
@@ -1212,6 +1312,7 @@ fn enumerate_full_item_context(
         None,
         songs,
         interval_cache,
+        point_interval_cache,
         score_lower_bounds,
         candidates,
     )
@@ -1221,7 +1322,8 @@ fn enumerate_full_item_context(
 fn enumerate_local_item_batch(
     request: &ScoreRangeRequest,
     target_delta: u64,
-    divisors: &[u64],
+    layer: &SearchLayer,
+    required_two_song_points: &[u64],
     mode: SongMode,
     skill_key: SkillBucketKey,
     skill: TeamCardSkill,
@@ -1231,7 +1333,8 @@ fn enumerate_local_item_batch(
     area_item_percent: &AreaItemPercent,
     songs: &[SongModel],
     interval_cache: &mut BTreeMap<u32, ValidIntervalSet>,
-    score_lower_bounds: &mut BTreeMap<(usize, u64), Option<i32>>,
+    point_interval_cache: &mut BTreeMap<u32, BTreeMap<u64, PointStatIndex>>,
+    score_lower_bounds: &mut ScoreLowerBoundCache,
     candidates: &mut CandidateMap,
     metrics: &mut ItemBatchMetrics,
 ) -> Result<(), ScoreRangeError> {
@@ -1281,11 +1384,13 @@ fn enumerate_local_item_batch(
         let base_can_match = item_context_may_match(
             request,
             target_delta,
-            divisors,
+            layer,
+            required_two_song_points,
             &resolved,
             &base_stats,
             songs,
             interval_cache,
+            point_interval_cache,
             score_lower_bounds,
         )?;
         let mut prefetched_inner = Vec::new();
@@ -1301,11 +1406,13 @@ fn enumerate_local_item_batch(
                 let can_match = item_context_may_match(
                     request,
                     target_delta,
-                    divisors,
+                    layer,
+                    required_two_song_points,
                     &resolved,
                     &stats,
                     songs,
                     interval_cache,
+                    point_interval_cache,
                     score_lower_bounds,
                 )?;
                 prefetched_inner.push(can_match.then_some((affected_cards, stats)));
@@ -1324,7 +1431,8 @@ fn enumerate_local_item_batch(
             enumerate_item_context(
                 request,
                 target_delta,
-                divisors,
+                layer,
+                required_two_song_points,
                 mode,
                 skill_key,
                 skill,
@@ -1336,6 +1444,7 @@ fn enumerate_local_item_batch(
                 None,
                 songs,
                 interval_cache,
+                point_interval_cache,
                 score_lower_bounds,
                 &mut base_candidates,
             )?;
@@ -1368,11 +1477,13 @@ fn enumerate_local_item_batch(
                 item_context_may_match(
                     request,
                     target_delta,
-                    divisors,
+                    layer,
+                    required_two_song_points,
                     &resolved,
                     &stats,
                     songs,
                     interval_cache,
+                    point_interval_cache,
                     score_lower_bounds,
                 )?
                 .then_some((affected_cards, stats))
@@ -1391,7 +1502,8 @@ fn enumerate_local_item_batch(
             enumerate_item_context(
                 request,
                 target_delta,
-                divisors,
+                layer,
+                required_two_song_points,
                 mode,
                 skill_key,
                 skill,
@@ -1407,6 +1519,7 @@ fn enumerate_local_item_batch(
                 (!base_had_solution).then_some(affected_cards.as_slice()),
                 songs,
                 interval_cache,
+                point_interval_cache,
                 score_lower_bounds,
                 candidates,
             )?;
@@ -1677,12 +1790,14 @@ fn build_pair_stat_bounds_for_cards(cards: &[ResolvedCard<'_>], stats: &[f64]) -
 fn item_context_may_match(
     request: &ScoreRangeRequest,
     target_delta: u64,
-    divisors: &[u64],
+    layer: &SearchLayer,
+    required_two_song_points: &[u64],
     cards: &[ResolvedCard<'_>],
     stats: &[f64],
     songs: &[SongModel],
     interval_cache: &mut BTreeMap<u32, ValidIntervalSet>,
-    score_lower_bounds: &mut BTreeMap<(usize, u64), Option<i32>>,
+    point_interval_cache: &mut BTreeMap<u32, BTreeMap<u64, PointStatIndex>>,
+    score_lower_bounds: &mut ScoreLowerBoundCache,
 ) -> Result<bool, ScoreRangeError> {
     // This is a relaxed 2+3 feasibility check. It may admit overlapping characters across the
     // two halves, but a miss proves that the exact search cannot produce a five-card team.
@@ -1721,11 +1836,13 @@ fn item_context_may_match(
                     let ranges = build_triple_stat_ranges(
                         request,
                         target_delta,
-                        divisors,
+                        layer,
+                        required_two_song_points,
                         triple_bonus,
                         &pair_bounds,
                         songs,
                         interval_cache,
+                        point_interval_cache,
                         score_lower_bounds,
                     )?;
                     triple_range_cache.push((triple_bonus, ranges));
@@ -1746,7 +1863,8 @@ fn item_context_may_match(
 fn enumerate_item_context(
     request: &ScoreRangeRequest,
     target_delta: u64,
-    divisors: &[u64],
+    layer: &SearchLayer,
+    required_two_song_points: &[u64],
     mode: SongMode,
     skill_key: SkillBucketKey,
     skill: TeamCardSkill,
@@ -1758,7 +1876,8 @@ fn enumerate_item_context(
     triple_must_touch: Option<&[bool]>,
     songs: &[SongModel],
     interval_cache: &mut BTreeMap<u32, ValidIntervalSet>,
-    score_lower_bounds: &mut BTreeMap<(usize, u64), Option<i32>>,
+    point_interval_cache: &mut BTreeMap<u32, BTreeMap<u64, PointStatIndex>>,
+    score_lower_bounds: &mut ScoreLowerBoundCache,
     candidates: &mut CandidateMap,
 ) -> Result<(), ScoreRangeError> {
     debug_assert_eq!(cards.len(), stats.len());
@@ -1789,11 +1908,13 @@ fn enumerate_item_context(
                     let ranges = build_triple_stat_ranges(
                         request,
                         target_delta,
-                        divisors,
+                        layer,
+                        required_two_song_points,
                         triple_bonus,
                         &pair_bounds,
                         songs,
                         interval_cache,
+                        point_interval_cache,
                         score_lower_bounds,
                     )?;
                     triple_range_cache.push((triple_bonus, ranges));
@@ -2080,12 +2201,14 @@ fn search_triple_candidate(
 fn build_triple_stat_ranges(
     request: &ScoreRangeRequest,
     target_delta: u64,
-    divisors: &[u64],
+    layer: &SearchLayer,
+    required_two_song_points: &[u64],
     triple_bonus: u64,
     pair_bounds: &PairStatBounds,
     songs: &[SongModel],
     interval_cache: &mut BTreeMap<u32, ValidIntervalSet>,
-    score_lower_bounds: &mut BTreeMap<(usize, u64), Option<i32>>,
+    point_interval_cache: &mut BTreeMap<u32, BTreeMap<u64, PointStatIndex>>,
+    score_lower_bounds: &mut ScoreLowerBoundCache,
 ) -> Result<Vec<ExactStatRange>, ScoreRangeError> {
     let mut ranges = Vec::new();
     for (&pair_bonus, &(min_pair_stat, max_pair_stat)) in pair_bounds {
@@ -2095,12 +2218,14 @@ fn build_triple_stat_ranges(
         if let std::collections::btree_map::Entry::Vacant(entry) =
             interval_cache.entry(point_bonus_basis_points)
         {
-            entry.insert(build_valid_intervals(
+            entry.insert(build_layer_intervals(
                 request,
                 target_delta,
-                divisors,
+                layer,
+                required_two_song_points,
                 point_bonus_basis_points,
                 songs,
+                point_interval_cache,
                 score_lower_bounds,
             )?);
         }
@@ -2196,23 +2321,45 @@ fn candidate_from_pair_records(
         else {
             continue;
         };
-        let song = &songs[interval.song_index];
-        let score = song.exact.score(total_stat);
-        let base_points = points_for_score_with_support(
-            request.event_type,
-            score,
-            point_bonus_basis_points,
-            1,
-            request.mission_support_pt_bonus.unwrap_or_default(),
-        )?;
-        if base_points != interval.base_points
-            || base_points == 0
-            || !target_delta.is_multiple_of(base_points)
-        {
-            continue;
-        }
-        let Some(plan) = one_song_plan(song.key, score, base_points, target_delta) else {
-            continue;
+        let (candidate_songs, plan) = match interval.plan {
+            IntervalPlan::OneSong {
+                song_index,
+                base_points: expected_base_points,
+            } => {
+                let song = &songs[song_index];
+                let score = song.exact.score(total_stat);
+                let base_points = points_for_score_with_support(
+                    request.event_type,
+                    score,
+                    point_bonus_basis_points,
+                    1,
+                    request.mission_support_pt_bonus.unwrap_or_default(),
+                )?;
+                if base_points != expected_base_points
+                    || base_points == 0
+                    || !target_delta.is_multiple_of(base_points)
+                {
+                    continue;
+                }
+                let Some(plan) = one_song_plan(song.key, score, base_points, target_delta) else {
+                    continue;
+                };
+                (CandidateSongs::One(song.key), plan)
+            }
+            IntervalPlan::TwoSongs(two_song) => {
+                let Some((song_keys, plan)) = recover_two_song_plan(
+                    request,
+                    target_delta,
+                    total_stat,
+                    point_bonus_basis_points,
+                    songs,
+                    two_song,
+                )?
+                else {
+                    continue;
+                };
+                (CandidateSongs::Two(song_keys[0], song_keys[1]), plan)
+            }
         };
         let mut card_ids = indices.map(|index| cards[index].card.card_id);
         card_ids.sort_unstable();
@@ -2226,19 +2373,86 @@ fn candidate_from_pair_records(
             items: items.clone(),
             recovery_mode: None,
         };
-        let key = (skill_key, point_bonus_basis_points, total_stat, song.key);
+        let key = (
+            skill_key,
+            point_bonus_basis_points,
+            total_stat,
+            candidate_songs,
+        );
         return Ok(Some((key, Candidate { team, plan })));
     }
     Ok(None)
 }
 
-fn build_valid_intervals(
+#[allow(clippy::too_many_arguments)]
+fn build_layer_intervals(
+    request: &ScoreRangeRequest,
+    target_delta: u64,
+    layer: &SearchLayer,
+    required_two_song_points: &[u64],
+    point_bonus_basis_points: u32,
+    songs: &[SongModel],
+    point_interval_cache: &mut BTreeMap<u32, BTreeMap<u64, PointStatIndex>>,
+    score_lower_bounds: &mut ScoreLowerBoundCache,
+) -> Result<ValidIntervalSet, ScoreRangeError> {
+    match &layer.kind {
+        SearchLayerKind::OneSong { base_points } => build_single_valid_intervals(
+            request,
+            target_delta,
+            &[*base_points],
+            point_bonus_basis_points,
+            songs,
+            score_lower_bounds,
+        ),
+        SearchLayerKind::TwoSongs { plans } => {
+            ensure_point_stat_indexes(
+                request,
+                required_two_song_points,
+                point_bonus_basis_points,
+                songs,
+                point_interval_cache,
+                score_lower_bounds,
+            )?;
+            let indexes = &point_interval_cache[&point_bonus_basis_points];
+            let mut ranked = Vec::new();
+            for &plan in plans {
+                let (Some(left), Some(right)) = (
+                    indexes.get(&plan.left_points),
+                    indexes.get(&plan.right_points),
+                ) else {
+                    continue;
+                };
+                for range in intersect_stat_ranges(&left.union, &right.union) {
+                    ranked.push(ValidStatInterval {
+                        min_stat: range.min_stat,
+                        max_stat: range.max_stat,
+                        plan: IntervalPlan::TwoSongs(plan),
+                    });
+                }
+            }
+            ranked.sort_by_key(|interval| {
+                let IntervalPlan::TwoSongs(plan) = interval.plan else {
+                    unreachable!();
+                };
+                (
+                    std::cmp::Reverse(plan.left_points.max(plan.right_points)),
+                    std::cmp::Reverse(plan.left_points.min(plan.right_points)),
+                    interval.min_stat,
+                )
+            });
+            let union = union_stat_ranges(&ranked);
+            Ok(ValidIntervalSet { union, ranked })
+        }
+    }
+}
+
+fn build_single_valid_intervals(
     request: &ScoreRangeRequest,
     target_delta: u64,
     divisors: &[u64],
     point_bonus_basis_points: u32,
     songs: &[SongModel],
-    score_lower_bounds: &mut BTreeMap<(usize, u64), Option<i32>>,
+    score_lower_bounds: &mut ScoreLowerBoundCache,
 ) -> Result<ValidIntervalSet, ScoreRangeError> {
     let trace = std::env::var_os("BANGDREAM_OPTIMIZE_SCORE_RANGE_TRACE").is_some();
     let started = trace.then(Timer::start);
@@ -2278,25 +2492,41 @@ fn build_valid_intervals(
                 result.push(ValidStatInterval {
                     min_stat,
                     max_stat,
-                    song_index,
-                    base_points,
+                    plan: IntervalPlan::OneSong {
+                        song_index,
+                        base_points,
+                    },
                 });
             }
         }
     }
     result.sort_by_key(|interval| {
+        let IntervalPlan::OneSong {
+            song_index,
+            base_points,
+        } = interval.plan
+        else {
+            unreachable!();
+        };
         (
-            objective_for_base_points(target_delta, interval.base_points),
-            songs[interval.song_index].key,
+            objective_for_base_points(target_delta, base_points),
+            songs[song_index].key,
             interval.min_stat,
         )
     });
     result.dedup_by_key(|interval| {
+        let IntervalPlan::OneSong {
+            song_index,
+            base_points,
+        } = interval.plan
+        else {
+            unreachable!();
+        };
         (
             interval.min_stat,
             interval.max_stat,
-            interval.song_index,
-            interval.base_points,
+            song_index,
+            base_points,
         )
     });
     let raw_count = result.len();
@@ -2318,19 +2548,156 @@ fn build_valid_intervals(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
+fn ensure_point_stat_indexes(
+    request: &ScoreRangeRequest,
+    required_points: &[u64],
+    point_bonus_basis_points: u32,
+    songs: &[SongModel],
+    cache: &mut BTreeMap<u32, BTreeMap<u64, PointStatIndex>>,
+    score_lower_bounds: &mut ScoreLowerBoundCache,
+) -> Result<(), ScoreRangeError> {
+    let missing_points = required_points
+        .iter()
+        .copied()
+        .filter(|points| {
+            !cache
+                .get(&point_bonus_basis_points)
+                .is_some_and(|indexes| indexes.contains_key(points))
+        })
+        .collect::<BTreeSet<_>>();
+    if missing_points.is_empty() {
+        return Ok(());
+    }
+
+    #[derive(Clone, Copy)]
+    struct ScoreBand {
+        points: u64,
+        min_score: u64,
+        max_score: u64,
+    }
+
+    let mut bands = Vec::with_capacity(missing_points.len());
+    let mut unreachable_points = Vec::new();
+    for &points in &missing_points {
+        if let Some(interval) = score_interval_for_points_with_support(
+            request.event_type,
+            points,
+            point_bonus_basis_points,
+            1,
+            request.mission_support_pt_bonus.unwrap_or_default(),
+        )? {
+            bands.push(ScoreBand {
+                points,
+                min_score: interval.min_score,
+                max_score: interval.max_score,
+            });
+        } else {
+            unreachable_points.push(points);
+        }
+    }
+    bands.sort_unstable_by_key(|band| (band.min_score, band.max_score, band.points));
+
+    let mut new_indexes = BTreeMap::new();
+    for band in bands {
+        let mut intervals = Vec::with_capacity(songs.len());
+        let next_target = band.max_score.checked_add(1);
+        ensure_score_boundary_batch(score_lower_bounds, band.min_score, songs);
+        if let Some(target) = next_target {
+            ensure_score_boundary_batch(score_lower_bounds, target, songs);
+        }
+        let lower_stats = &score_lower_bounds.batches[&band.min_score];
+        let upper_stats = next_target.map(|target| &score_lower_bounds.batches[&target]);
+        for song_index in 0..songs.len() {
+            let min_stat = decode_cached_stat(lower_stats[song_index]);
+            let Some(min_stat) = min_stat else {
+                continue;
+            };
+            let max_stat = if let Some(upper_stats) = upper_stats {
+                let upper = decode_cached_stat(upper_stats[song_index]);
+                upper.map(|stat| stat.saturating_sub(1)).unwrap_or(i32::MAX)
+            } else {
+                i32::MAX
+            };
+            if min_stat <= max_stat {
+                intervals.push(StatRange { min_stat, max_stat });
+            }
+        }
+        new_indexes.insert(
+            band.points,
+            PointStatIndex {
+                union: merge_stat_ranges(intervals),
+            },
+        );
+    }
+    for points in unreachable_points {
+        new_indexes.insert(points, PointStatIndex { union: Vec::new() });
+    }
+    cache
+        .entry(point_bonus_basis_points)
+        .or_default()
+        .extend(new_indexes);
+    Ok(())
+}
+
+fn intersect_stat_ranges(left: &[StatRange], right: &[StatRange]) -> Vec<StatRange> {
+    let mut result = Vec::new();
+    let mut left_index = 0;
+    let mut right_index = 0;
+    while left_index < left.len() && right_index < right.len() {
+        let min_stat = left[left_index].min_stat.max(right[right_index].min_stat);
+        let max_stat = left[left_index].max_stat.min(right[right_index].max_stat);
+        if min_stat <= max_stat {
+            result.push(StatRange { min_stat, max_stat });
+        }
+        if left[left_index].max_stat <= right[right_index].max_stat {
+            left_index += 1;
+        } else {
+            right_index += 1;
+        }
+    }
+    result
+}
+
 fn cached_lower_bound_score(
-    cache: &mut BTreeMap<(usize, u64), Option<i32>>,
+    cache: &mut ScoreLowerBoundCache,
     song_index: usize,
     model: &CompressedAutoScore,
     target: u64,
 ) -> Option<i32> {
+    if let Some(values) = cache.batches.get(&target) {
+        return decode_cached_stat(values[song_index]);
+    }
     let key = (song_index, target);
-    if let Some(&value) = cache.get(&key) {
+    if let Some(&value) = cache.individual.get(&key) {
         return value;
     }
     let value = lower_bound_score(model, target);
-    cache.insert(key, value);
+    cache.individual.insert(key, value);
     value
+}
+
+fn ensure_score_boundary_batch(cache: &mut ScoreLowerBoundCache, target: u64, songs: &[SongModel]) {
+    if cache.batches.contains_key(&target) {
+        return;
+    }
+    let values = songs
+        .iter()
+        .enumerate()
+        .map(|(song_index, song)| {
+            let value = cache
+                .individual
+                .get(&(song_index, target))
+                .copied()
+                .unwrap_or_else(|| lower_bound_score(&song.exact, target));
+            value.unwrap_or(-1)
+        })
+        .collect();
+    cache.batches.insert(target, values);
+}
+
+fn decode_cached_stat(value: i32) -> Option<i32> {
+    (value >= 0).then_some(value)
 }
 
 fn union_stat_ranges(intervals: &[ValidStatInterval]) -> Vec<StatRange> {
@@ -2418,7 +2785,15 @@ fn one_song_plan(
     if base_points == 0 || !target.is_multiple_of(base_points) {
         return None;
     }
-    let mut units = target / base_points;
+    plays_for_units(song, score, base_points, target / base_points)
+}
+
+fn plays_for_units(
+    song: SongKey,
+    score: i32,
+    base_points: u64,
+    mut units: u64,
+) -> Option<Vec<ScoreRangePlay>> {
     let mut result = Vec::new();
     for fire_multiplier in [15_u32, 10, 5, 1] {
         let count = units / fire_multiplier as u64;
@@ -2436,6 +2811,68 @@ fn one_song_plan(
         units %= fire_multiplier as u64;
     }
     (units == 0).then_some(result)
+}
+
+type RecoveredTwoSongPlan = ([SongKey; 2], Vec<ScoreRangePlay>);
+
+fn recover_two_song_plan(
+    request: &ScoreRangeRequest,
+    target_delta: u64,
+    stat: i32,
+    point_bonus_basis_points: u32,
+    songs: &[SongModel],
+    two_song: TwoSongPlan,
+) -> Result<Option<RecoveredTwoSongPlan>, ScoreRangeError> {
+    let mut left = None::<(SongKey, i32)>;
+    let mut right = None::<(SongKey, i32)>;
+    for song in songs {
+        let score = song.exact.score(stat);
+        let points = points_for_score_with_support(
+            request.event_type,
+            score,
+            point_bonus_basis_points,
+            1,
+            request.mission_support_pt_bonus.unwrap_or_default(),
+        )?;
+        let replace = |current: Option<(SongKey, i32)>| {
+            current.is_none_or(|(key, current_score)| {
+                score > current_score || (score == current_score && song.key < key)
+            })
+        };
+        if points == two_song.left_points && replace(left) {
+            left = Some((song.key, score));
+        } else if points == two_song.right_points && replace(right) {
+            right = Some((song.key, score));
+        }
+    }
+    let (Some((left_key, left_score)), Some((right_key, right_score))) = (left, right) else {
+        return Ok(None);
+    };
+    debug_assert_ne!(left_key, right_key);
+    let Some(mut plan) = plays_for_units(
+        left_key,
+        left_score,
+        two_song.left_points,
+        two_song.left_units,
+    ) else {
+        return Ok(None);
+    };
+    let Some(right_plan) = plays_for_units(
+        right_key,
+        right_score,
+        two_song.right_points,
+        two_song.right_units,
+    ) else {
+        return Ok(None);
+    };
+    plan.extend(right_plan);
+    let produced = plan.iter().fold(0_u64, |total, play| {
+        total.saturating_add(play.pt.saturating_mul(u64::from(play.count)))
+    });
+    if produced != target_delta || plan_objective(&plan) != two_song.objective {
+        return Ok(None);
+    }
+    Ok(Some(([left_key, right_key], plan)))
 }
 
 fn objective_for_units(mut units: u64) -> PlanObjective {
@@ -2468,6 +2905,157 @@ fn ranked_base_point_layers(target: u64) -> Vec<(PlanObjective, u64)> {
         (*objective, std::cmp::Reverse(*base_points))
     });
     layers
+}
+
+fn ranked_search_layers(target: u64, min_points: u64, max_points: u64) -> Vec<SearchLayer> {
+    let mut layers = ranked_base_point_layers(target)
+        .into_iter()
+        .map(|(objective, base_points)| SearchLayer {
+            objective,
+            kind: SearchLayerKind::OneSong { base_points },
+        })
+        .collect::<Vec<_>>();
+    layers.extend(ranked_two_song_layers(target, min_points, max_points));
+    layers.sort_by(|left, right| {
+        left.objective
+            .cmp(&right.objective)
+            .then_with(|| match (&left.kind, &right.kind) {
+                (
+                    SearchLayerKind::OneSong {
+                        base_points: left_points,
+                    },
+                    SearchLayerKind::OneSong {
+                        base_points: right_points,
+                    },
+                ) => right_points.cmp(left_points),
+                (SearchLayerKind::OneSong { .. }, SearchLayerKind::TwoSongs { .. }) => {
+                    std::cmp::Ordering::Less
+                }
+                (SearchLayerKind::TwoSongs { .. }, SearchLayerKind::OneSong { .. }) => {
+                    std::cmp::Ordering::Greater
+                }
+                (SearchLayerKind::TwoSongs { .. }, SearchLayerKind::TwoSongs { .. }) => {
+                    std::cmp::Ordering::Equal
+                }
+            })
+    });
+    layers
+}
+
+fn ranked_two_song_layers(target: u64, min_points: u64, max_points: u64) -> Vec<SearchLayer> {
+    let mut result = Vec::new();
+    let mut two_song_layers = BTreeMap::<PlanObjective, Vec<TwoSongPlan>>::new();
+    if min_points < max_points {
+        for left_points in min_points..max_points {
+            for right_points in (left_points + 1)..=max_points {
+                if let Some(plan) = best_two_song_plan(target, left_points, right_points) {
+                    two_song_layers
+                        .entry(plan.objective)
+                        .or_default()
+                        .push(plan);
+                }
+            }
+        }
+    }
+    for (objective, mut plans) in two_song_layers {
+        plans.sort_unstable_by_key(|plan| {
+            (
+                std::cmp::Reverse(plan.right_points),
+                std::cmp::Reverse(plan.left_points),
+                plan.left_units,
+                plan.right_units,
+            )
+        });
+        result.push(SearchLayer {
+            objective,
+            kind: SearchLayerKind::TwoSongs { plans },
+        });
+    }
+    result
+}
+
+fn best_two_song_plan(target: u64, left_points: u64, right_points: u64) -> Option<TwoSongPlan> {
+    debug_assert!(0 < left_points && left_points < right_points);
+    let remaining = target.checked_sub(left_points)?.checked_sub(right_points)?;
+    let divisor = gcd(left_points, right_points);
+    if !remaining.is_multiple_of(divisor) {
+        return None;
+    }
+    let left = left_points / divisor;
+    let right = right_points / divisor;
+    let reduced_target = remaining / divisor;
+    let extra_left = if right == 1 {
+        0
+    } else {
+        let inverse = modular_inverse(left % right, right)?;
+        ((reduced_target % right) as u128 * inverse as u128 % right as u128) as u64
+    };
+    let used_by_left = left_points.checked_mul(extra_left)?;
+    if used_by_left > remaining {
+        return None;
+    }
+    let extra_right = (remaining - used_by_left) / right_points;
+    let max_step = extra_right / left;
+    let mut best = None;
+    // Every solution is (extra_left + k * right, extra_right - k * left).
+    // Advancing k by 15 changes both unit counts by multiples of every fire
+    // denomination, so the objective changes by exactly
+    // (right - left) additional plays and three times that much fire. Since
+    // right > left, no solution after the first 15 residues can be better.
+    for step in 0..=max_step.min(14) {
+        let left_units = 1_u64
+            .checked_add(extra_left)?
+            .checked_add(step.checked_mul(right)?)?;
+        let right_units = 1_u64.checked_add(extra_right.checked_sub(step.checked_mul(left)?)?)?;
+        let left_objective = objective_for_units(left_units);
+        let right_objective = objective_for_units(right_units);
+        let objective = PlanObjective {
+            play_count: left_objective
+                .play_count
+                .saturating_add(right_objective.play_count),
+            total_fire_cost: left_objective
+                .total_fire_cost
+                .saturating_add(right_objective.total_fire_cost),
+        };
+        let candidate = TwoSongPlan {
+            left_points,
+            right_points,
+            left_units,
+            right_units,
+            objective,
+        };
+        if best.is_none_or(|current: TwoSongPlan| {
+            (
+                candidate.objective,
+                candidate.left_units,
+                candidate.right_units,
+            ) < (current.objective, current.left_units, current.right_units)
+        }) {
+            best = Some(candidate);
+        }
+    }
+    best
+}
+
+fn gcd(mut left: u64, mut right: u64) -> u64 {
+    while right != 0 {
+        (left, right) = (right, left % right);
+    }
+    left
+}
+
+fn modular_inverse(value: u64, modulus: u64) -> Option<u64> {
+    if modulus == 1 {
+        return Some(0);
+    }
+    let (mut old_r, mut r) = (value as i128, modulus as i128);
+    let (mut old_s, mut s) = (1_i128, 0_i128);
+    while r != 0 {
+        let quotient = old_r / r;
+        (old_r, r) = (r, old_r - quotient * r);
+        (old_s, s) = (s, old_s - quotient * s);
+    }
+    (old_r == 1).then(|| old_s.rem_euclid(modulus as i128) as u64)
 }
 
 fn divisors_descending(value: u64) -> Vec<u64> {
@@ -2610,6 +3198,37 @@ mod tests {
     }
 
     #[test]
+    fn combined_layers_are_globally_ranked_and_try_one_song_first_on_ties() {
+        let layers = ranked_search_layers(30, 1, 29);
+        assert!(layers
+            .windows(2)
+            .all(|window| window[0].objective <= window[1].objective));
+
+        let tied_objective = PlanObjective {
+            play_count: 2,
+            total_fire_cost: 0,
+        };
+        let tied = layers
+            .iter()
+            .filter(|layer| layer.objective == tied_objective)
+            .collect::<Vec<_>>();
+        assert!(matches!(&tied[0].kind, SearchLayerKind::OneSong { .. }));
+        assert!(tied
+            .iter()
+            .any(|layer| matches!(&layer.kind, SearchLayerKind::TwoSongs { .. })));
+
+        let best_two_song = layers
+            .iter()
+            .position(|layer| matches!(&layer.kind, SearchLayerKind::TwoSongs { .. }))
+            .unwrap();
+        let worse_one_song = layers
+            .iter()
+            .position(|layer| matches!(&layer.kind, SearchLayerKind::OneSong { base_points: 5 }))
+            .unwrap();
+        assert!(best_two_song < worse_one_song);
+    }
+
+    #[test]
     fn plan_rank_uses_actual_fire_cost_after_play_count() {
         let play = |fire_multiplier, count| ScoreRangePlay {
             song_id: 1,
@@ -2633,6 +3252,134 @@ mod tests {
     fn exact_score_lower_bound_finds_first_stat() {
         let model = CompressedAutoScoreTest::linear();
         assert_eq!(lower_bound_score(&model, 18), Some(9));
+    }
+
+    #[test]
+    fn narrow_exact_score_inverse_matches_neighbor_definition() {
+        let song = fixture_song();
+        for rateup in [false, true] {
+            let model = song
+                .compressed_score(TeamCardSkill {
+                    card_id: 1,
+                    duration: 5.0,
+                    score_up: 1.3,
+                    rateup,
+                })
+                .unwrap();
+            for stat in (0..=500_000).step_by(997) {
+                for target in [model.score(stat) as u64, model.score(stat) as u64 + 1] {
+                    let Some(found) = lower_bound_score(&model, target) else {
+                        panic!("target produced by a finite stat must be reachable");
+                    };
+                    assert!(model.score(found) as u64 >= target);
+                    assert!(found == 0 || (model.score(found - 1) as u64) < target);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn two_song_diophantine_optimizer_matches_small_exhaustive_search() {
+        for target in 3..=250_u64 {
+            for left_points in 1..target.min(25) {
+                for right_points in (left_points + 1)..target.min(26) {
+                    let mut expected = None;
+                    for left_units in 1..=target / left_points {
+                        let Some(remainder) = target.checked_sub(left_points * left_units) else {
+                            continue;
+                        };
+                        if remainder == 0 || !remainder.is_multiple_of(right_points) {
+                            continue;
+                        }
+                        let right_units = remainder / right_points;
+                        let left = objective_for_units(left_units);
+                        let right = objective_for_units(right_units);
+                        let objective = PlanObjective {
+                            play_count: left.play_count + right.play_count,
+                            total_fire_cost: left.total_fire_cost + right.total_fire_cost,
+                        };
+                        expected =
+                            Some(expected.map_or(objective, |current: PlanObjective| {
+                                current.min(objective)
+                            }));
+                    }
+                    let actual = best_two_song_plan(target, left_points, right_points);
+                    assert_eq!(actual.map(|plan| plan.objective), expected);
+                    if let Some(plan) = actual {
+                        assert_eq!(
+                            plan.left_points * plan.left_units
+                                + plan.right_points * plan.right_units,
+                            target
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn lazy_adjacent_point_batches_retain_indexes_and_match_direct_scoring() {
+        let base_song = fixture_song();
+        let skill = TeamCardSkill {
+            card_id: 1,
+            duration: 5.0,
+            score_up: 1.0,
+            rateup: false,
+        };
+        let songs = vec![SongModel {
+            key: base_song.key(),
+            exact: base_song.compressed_score(skill).unwrap(),
+        }];
+        let request = ScoreRangeRequest {
+            event_type: EventType::Versus,
+            current_pt: 0,
+            target_total_pt: 1,
+            auto_base_multiplier: None,
+            mission_support_pt_bonus: None,
+            max_results: 1,
+        };
+        let required_points = (100..=140).collect::<Vec<_>>();
+        let mut cache = BTreeMap::new();
+        let mut score_lower_bounds = ScoreLowerBoundCache::default();
+        ensure_point_stat_indexes(
+            &request,
+            &required_points[..21],
+            0,
+            &songs,
+            &mut cache,
+            &mut score_lower_bounds,
+        )
+        .unwrap();
+        let first_index = cache[&0][&100].clone();
+        ensure_point_stat_indexes(
+            &request,
+            &required_points[21..],
+            0,
+            &songs,
+            &mut cache,
+            &mut score_lower_bounds,
+        )
+        .unwrap();
+        let indexes = &cache[&0];
+        assert_eq!(indexes.len(), required_points.len());
+        assert_eq!(indexes[&100].union, first_index.union);
+        assert_eq!(score_lower_bounds.batches.len(), required_points.len() + 1);
+        assert!(score_lower_bounds.individual.is_empty());
+        for stat in (0..=300_000).step_by(379) {
+            let score = songs[0].exact.score(stat);
+            let actual_points = crate::points_for_score(EventType::Versus, score, 0, 1).unwrap();
+            for &points in &required_points {
+                let indexed = indexes[&points]
+                    .union
+                    .iter()
+                    .any(|range| range.min_stat <= stat && stat <= range.max_stat);
+                assert_eq!(
+                    indexed,
+                    actual_points == points,
+                    "stat={stat} points={points}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -2720,6 +3467,95 @@ mod tests {
     }
 
     #[test]
+    fn raw_mitm_uses_two_distinct_songs_when_no_one_song_plan_exists() {
+        let mut cards = (1..=5)
+            .map(|id| fixture_card(id, if id == 1 { 1 } else { 2 }, Attribute::Cool))
+            .collect::<Vec<_>>();
+        for card in &mut cards {
+            card.stat = StatValue {
+                performance: 100_000.0,
+                technique: 100_000.0,
+                visual: 100_000.0,
+            };
+            card.skill.duration = 5.0;
+            card.skill.score_up = 1.0;
+            card.score_up.default = 1.0;
+        }
+        let items = vec![SelectedAreaItems {
+            band: String::new(),
+            attribute: String::new(),
+            magazine: Magazine::Performance,
+        }];
+        let domain = super::super::prepare_score_range_team_domain(
+            &cards,
+            &AreaItemPercent::empty(),
+            &items,
+            &BTreeMap::new(),
+        );
+        let nodes = (0..6)
+            .map(|index| ChartNode {
+                node_type: ChartNodeType::Skill,
+                time: index as f64 * 10.0,
+            })
+            .collect::<Vec<_>>();
+        let songs = [5, 30]
+            .into_iter()
+            .enumerate()
+            .map(|(index, level)| {
+                ScoreRangeSong::new(
+                    SongSelection {
+                        song_id: index as u32 + 1,
+                        difficulty: 3,
+                    },
+                    Chart::new(level, nodes.clone()),
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+        let stat = 1_500_000;
+        let points = songs
+            .iter()
+            .map(|song| {
+                let score = song.compressed_score(cards[0].skill).unwrap().score(stat);
+                crate::points_for_score(EventType::Versus, score, 0, 1).unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_ne!(points[0], points[1]);
+        let target = (1..=20)
+            .flat_map(|left_units| (1..=20).map(move |right_units| (left_units, right_units)))
+            .map(|(left_units, right_units)| points[0] * left_units + points[1] * right_units)
+            .find(|target: &u64| points.iter().all(|points| !target.is_multiple_of(*points)))
+            .expect("fixture must expose a strictly two-song target");
+        let request = ScoreRangeRequest {
+            event_type: EventType::Versus,
+            current_pt: 0,
+            target_total_pt: target,
+            auto_base_multiplier: None,
+            mission_support_pt_bonus: None,
+            max_results: 1,
+        };
+
+        let result = search_raw_domain(&request, &domain, &songs, target).unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result[0]
+                .1
+                .iter()
+                .map(|play| (play.song_id, play.difficulty))
+                .collect::<BTreeSet<_>>()
+                .len(),
+            2
+        );
+        assert_eq!(
+            result[0].1.iter().fold(0_u64, |total, play| {
+                total + play.pt * u64::from(play.count)
+            }),
+            target
+        );
+    }
+
+    #[test]
     fn pair_scan_reaches_disjoint_candidate_after_thirty_two_conflicts() {
         let mut cards = (0..37)
             .map(|index| {
@@ -2772,8 +3608,10 @@ mod tests {
             ranked: vec![ValidStatInterval {
                 min_stat: 0,
                 max_stat: 32,
-                song_index: 0,
-                base_points: 100,
+                plan: IntervalPlan::OneSong {
+                    song_index: 0,
+                    base_points: 100,
+                },
             }],
         };
         let request = ScoreRangeRequest {
@@ -2897,7 +3735,7 @@ mod tests {
                         SkillBucketKey::from_skill(team.skill),
                         team.point_bonus_basis_points,
                         team.stat,
-                        song_key,
+                        CandidateSongs::One(song_key),
                     ),
                     Candidate { team, plan },
                 )
@@ -3025,8 +3863,12 @@ mod tests {
                                     items: selected_items.clone(),
                                     recovery_mode: None,
                                 };
-                                let key =
-                                    (SkillBucketKey::from_skill(skill), bonus, stat, song.key());
+                                let key = (
+                                    SkillBucketKey::from_skill(skill),
+                                    bonus,
+                                    stat,
+                                    CandidateSongs::One(song.key()),
+                                );
                                 insert_candidate(&mut result, key, Candidate { team, plan });
                             }
                         }

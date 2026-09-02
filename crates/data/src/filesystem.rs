@@ -1694,11 +1694,19 @@ mod tests {
     #[test]
     #[ignore = "slow; benchmarks score range with the full 1,414-card diagnostic fixture"]
     fn benchmarks_score_range_with_full_diagnostic_fixture() {
-        let diagnostic = full_diagnostic_fixture();
+        let fixture_path = std::env::var("BANGDREAM_OPTIMIZE_DIAGNOSTIC_FIXTURE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+                    "tests/fixtures/bangdream-optimize-diagnostic-0-2026-06-13T13-41-23-273Z.json",
+                )
+            });
+        let diagnostic: ScoreRangeDiagnosticFixture =
+            serde_json::from_slice(&fs::read(fixture_path).unwrap()).unwrap();
         let event_id = diagnostic
             .event_id
             .or(diagnostic.player.current_event)
-            .unwrap_or(diagnostic.result.event_id);
+            .expect("diagnostic fixture must identify an event");
         let root = std::env::var("BANGDREAM_OPTIMIZE_GAME_DATA_ROOT")
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
@@ -1756,7 +1764,10 @@ mod tests {
                 current_pt: 0,
                 target_total_pt: target_pt,
                 auto_base_multiplier: None,
-                mission_support_pt_bonus: None,
+                mission_support_pt_bonus: diagnostic
+                    .calculation_request
+                    .as_ref()
+                    .and_then(|request| request.mission_support_pt_bonus),
                 max_results: 20,
             };
             let results =
@@ -1795,6 +1806,16 @@ mod tests {
         server: Server,
         event_id: Option<u32>,
         result: BuildResult,
+        player: PlayerConfig,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ScoreRangeDiagnosticFixture {
+        server: Server,
+        event_id: Option<u32>,
+        #[serde(default)]
+        calculation_request: Option<ScoreRangeRequest>,
         player: PlayerConfig,
     }
 

@@ -107,7 +107,11 @@ impl AppState {
 
         let bangdream_importer = if env_bool("BANGDREAM_OPTIMIZE_ENABLE_BD_IMPORT", true) {
             let persist_path = persist_path_from_env();
-            Some(BangDreamAccountImporter::new(persist_path).map_err(|err| err.to_string())?)
+            Some(
+                BangDreamAccountImporter::new(persist_path)
+                    .map_err(|err| err.to_string())?
+                    .with_cards_dir(bangdream_import_cards_dir_from_env()),
+            )
         } else {
             None
         };
@@ -335,6 +339,16 @@ fn bestdori_config_from_env() -> Option<BestdoriFilesystemConfig> {
     );
 
     Some(config)
+}
+
+fn bangdream_import_cards_dir_from_env() -> Option<PathBuf> {
+    if let Some(path) = non_empty_env("BANGDREAM_OPTIMIZE_BESTDORI_CARDS_DIR") {
+        return Some(PathBuf::from(path));
+    }
+    if let Some(cache_root) = non_empty_env("BANGDREAM_OPTIMIZE_GAME_DATA_CACHE_ROOT") {
+        return Some(PathBuf::from(cache_root).join("api/cards"));
+    }
+    bestdori_config_from_env().and_then(|config| config.cards_dir)
 }
 
 fn maximizer_from_env() -> Result<Option<Arc<dyn MaximizeInputBuilder>>, String> {

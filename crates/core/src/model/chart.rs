@@ -442,6 +442,10 @@ impl CompressedAutoScore {
 
     pub fn score(&self, stat: i32) -> i32 {
         let no_skill = (stat.max(0) as f64 * self.base_factor).floor();
+        self.score_for_no_skill(no_skill)
+    }
+
+    fn score_for_no_skill(&self, no_skill: f64) -> i32 {
         self.groups
             .iter()
             .fold(0_i64, |total, group| {
@@ -466,6 +470,76 @@ impl CompressedAutoScore {
             return Some(0);
         }
 
+        if !self.base_factor.is_finite() || self.base_factor <= 0.0 {
+            return None;
+        }
+        if self
+            .groups
+            .iter()
+            .any(|group| !group.multiplier.is_finite() || group.multiplier < 1.0)
+        {
+            return self.lower_bound_stat_binary(target);
+        }
+
+        let node_count = self
+            .groups
+            .iter()
+            .fold(0_usize, |count, group| count.saturating_add(group.count));
+        let weighted_multiplier = self.groups.iter().fold(0.0, |total, group| {
+            total + group.multiplier * group.count as f64
+        });
+        if node_count == 0 || !weighted_multiplier.is_finite() || weighted_multiplier <= 0.0 {
+            return None;
+        }
+
+        // For q = floor(stat * base_factor), the compressed score G(q) satisfies
+        // qW - N < G(q) <= qW, where W is the weighted multiplier sum and N is the
+        // node count. Since every multiplier is at least one, W >= N and the exact
+        // inverse lies in an interval only a few q values wide.
+        let mut low_q = (target as f64 / weighted_multiplier).floor().max(0.0) - 2.0;
+        let mut high_q = ((target as f64 + node_count as f64) / weighted_multiplier)
+            .ceil()
+            .max(low_q)
+            + 2.0;
+        low_q = low_q.clamp(0.0, i32::MAX as f64);
+        high_q = high_q.min(i32::MAX as f64);
+        let mut low_q = low_q as i32;
+        let mut high_q = high_q as i32;
+        while self.score_for_no_skill(high_q as f64) < target {
+            if high_q == i32::MAX {
+                return None;
+            }
+            high_q = high_q.saturating_add(1);
+        }
+        while low_q < high_q {
+            let middle = low_q + (high_q - low_q) / 2;
+            if self.score_for_no_skill(middle as f64) >= target {
+                high_q = middle;
+            } else {
+                low_q = middle + 1;
+            }
+        }
+        while low_q > 0 && self.score_for_no_skill((low_q - 1) as f64) >= target {
+            low_q -= 1;
+        }
+
+        let estimate = (low_q as f64 / self.base_factor)
+            .ceil()
+            .clamp(0.0, i32::MAX as f64) as i32;
+        let mut stat = estimate;
+        while self.score(stat) < target {
+            if stat == i32::MAX {
+                return None;
+            }
+            stat = stat.saturating_add(1);
+        }
+        while stat > 0 && self.score(stat - 1) >= target {
+            stat -= 1;
+        }
+        Some(stat)
+    }
+
+    fn lower_bound_stat_binary(&self, target: i32) -> Option<i32> {
         let group_count = self
             .groups
             .iter()
@@ -473,20 +547,16 @@ impl CompressedAutoScore {
         let estimated_no_skill = (target as u64)
             .div_ceil(group_count.max(1) as u64)
             .saturating_add(1);
-        let estimate = if self.base_factor.is_finite() && self.base_factor > 0.0 {
-            (estimated_no_skill as f64 / self.base_factor).ceil()
-        } else {
-            i32::MAX as f64
-        };
-        let mut high = estimate.clamp(1.0, i32::MAX as f64) as i32;
+        let mut high = (estimated_no_skill as f64 / self.base_factor)
+            .ceil()
+            .clamp(1.0, i32::MAX as f64) as i32;
         while self.score(high) < target {
             if high == i32::MAX {
                 return None;
             }
             high = high.saturating_mul(2).max(high.saturating_add(1));
         }
-
-        let mut low = 0_i32;
+        let mut low = 0;
         while low < high {
             let middle = low + (high - low) / 2;
             if self.score(middle) >= target {

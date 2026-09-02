@@ -8,9 +8,10 @@ use bangdream_optimize_core::{
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
+    sync::{Arc, RwLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use thiserror::Error;
@@ -27,6 +28,8 @@ const DEFAULT_PERSIST_PATH: &str = "var/bangdream-account/persist.json";
 #[derive(Debug, Clone)]
 pub struct BangDreamAccountImporter {
     persist_path: PathBuf,
+    cards_dir: Option<PathBuf>,
+    episode_ids_cache: Arc<RwLock<BTreeMap<u64, [u64; 2]>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -91,7 +94,14 @@ impl BangDreamAccountImporter {
     pub fn new(persist_path: impl Into<PathBuf>) -> Result<Self, ImportError> {
         Ok(Self {
             persist_path: persist_path.into(),
+            cards_dir: None,
+            episode_ids_cache: Arc::new(RwLock::new(BTreeMap::new())),
         })
+    }
+
+    pub fn with_cards_dir(mut self, cards_dir: Option<PathBuf>) -> Self {
+        self.cards_dir = cards_dir;
+        self
     }
 
     pub fn persist_path(&self) -> &Path {
@@ -107,7 +117,26 @@ impl BangDreamAccountImporter {
         let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
         let session = self.login(&client, persist)?;
         let suite_user = self.fetch_suite_user(&client, &session, request.user_id)?;
-        suite_user_to_player_config(request.user_id, &suite_user)
+        suite_user_to_player_config(request.user_id, &suite_user, |card_id| {
+            self.episode_ids_for_card(card_id)
+        })
+    }
+
+    fn episode_ids_for_card(&self, card_id: u64) -> Option<[u64; 2]> {
+        if let Ok(cache) = self.episode_ids_cache.read() {
+            if let Some(cached) = cache.get(&card_id) {
+                return Some(*cached);
+            }
+        }
+
+        let episode_ids = self
+            .cards_dir
+            .as_deref()
+            .and_then(|cards_dir| load_card_episode_ids(cards_dir, card_id));
+        if let (Some(episode_ids), Ok(mut cache)) = (episode_ids, self.episode_ids_cache.write()) {
+            cache.insert(card_id, episode_ids);
+        }
+        episode_ids
     }
 
     fn login(&self, client: &Client, persist: Persist) -> Result<LoginSession, ImportError> {
@@ -396,7 +425,14 @@ fn request_id_hint(plain: &[u8]) -> Option<String> {
     None
 }
 
-fn suite_user_to_player_config(user_id: u64, buf: &[u8]) -> Result<PlayerConfig, ImportError> {
+fn suite_user_to_player_config<F>(
+    user_id: u64,
+    buf: &[u8],
+    mut episode_ids_for_card: F,
+) -> Result<PlayerConfig, ImportError>
+where
+    F: FnMut(u64) -> Option<[u64; 2]>,
+{
     let mut player = PlayerConfig {
         mongo_id: None,
         player_id: i64::try_from(user_id).unwrap_or(i64::MAX),
@@ -409,9 +445,21 @@ fn suite_user_to_player_config(user_id: u64, buf: &[u8]) -> Result<PlayerConfig,
         character_bouns: BTreeMap::new(),
     };
 
-    for field in parse_fields(buf)? {
+    let fields = parse_fields(buf)?;
+    let read_episode_ids = fields
+        .iter()
+        .find(|field| field.field == 16)
+        .map(|field| import_read_episode_ids(field.bytes_value()?))
+        .transpose()?;
+
+    for field in fields {
         match field.field {
-            3 => import_user_situations(field.bytes_value()?, &mut player)?,
+            3 => import_user_situations(
+                field.bytes_value()?,
+                &mut player,
+                read_episode_ids.as_ref(),
+                &mut episode_ids_for_card,
+            )?,
             22 => import_area_items(field.bytes_value()?, &mut player)?,
             401 => import_character_potential(field.bytes_value()?, &mut player)?,
             456 => import_character_task_bonus_rates(field.bytes_value()?, &mut player)?,
@@ -422,24 +470,133 @@ fn suite_user_to_player_config(user_id: u64, buf: &[u8]) -> Result<PlayerConfig,
     Ok(player)
 }
 
-fn import_user_situations(buf: &[u8], player: &mut PlayerConfig) -> Result<(), ImportError> {
+fn import_user_situations<F>(
+    buf: &[u8],
+    player: &mut PlayerConfig,
+    read_episode_ids: Option<&BTreeSet<u64>>,
+    episode_ids_for_card: &mut F,
+) -> Result<(), ImportError>
+where
+    F: FnMut(u64) -> Option<[u64; 2]>,
+{
     for row in map_rows(buf)? {
         let Some(card_id) = row.get_u64("f2_2") else {
             continue;
         };
+        let episodes = read_episode_ids
+            .and_then(|read| {
+                episode_ids_for_card(card_id).map(|episode_ids| {
+                    [
+                        read.contains(&episode_ids[0]),
+                        read.contains(&episode_ids[1]),
+                    ]
+                })
+            })
+            .or_else(|| infer_episodes_from_append_parameter(&row))
+            .unwrap_or([false, false]);
         player.card_list.insert(
             card_id.to_string(),
             PlayerCardConfig {
                 level: u8_from(row.get_u64("f2_3")),
                 training: row.get_str("f2_7") == Some("done"),
                 illust_training_status: row.get_str("f2_9") == Some("after_training"),
-                episodes: [true, true],
+                episodes,
                 limit_break_rank: u8_from(row.get_u64("f2_13")),
                 skill_level: u8_from(row.get_u64("f2_11")).max(1),
             },
         );
     }
     Ok(())
+}
+
+fn import_read_episode_ids(buf: &[u8]) -> Result<BTreeSet<u64>, ImportError> {
+    Ok(map_rows(buf)?
+        .into_iter()
+        .filter(|row| row.get_str("f2_3") == Some("already_read"))
+        .filter_map(|row| row.get_u64("f2_2"))
+        .collect())
+}
+
+fn infer_episodes_from_append_parameter(row: &Row) -> Option<[bool; 2]> {
+    let append_parameter = parse_fields(row.get_bytes("f2_12")?).ok()?;
+    let append = [
+        field_u64(&append_parameter, 3)?,
+        field_u64(&append_parameter, 4)?,
+        field_u64(&append_parameter, 5)?,
+    ];
+    if append[0] != append[1] || append[0] != append[2] {
+        return None;
+    }
+
+    let level = row.get_u64("f2_3").unwrap_or_default();
+    let trained = row.get_str("f2_7") == Some("done");
+    let limit_break_rank = row.get_u64("f2_13").unwrap_or_default();
+    let mut possible_states = BTreeSet::new();
+
+    for rarity in 1_u64..=5 {
+        let (max_level, training_bonus, episode_bonus) = match rarity {
+            1 => (20, 0, [100, 200]),
+            2 => (30, 0, [150, 300]),
+            3 => (50, 300, [200, 500]),
+            4 | 5 => (60, 400, [250, 600]),
+            _ => unreachable!(),
+        };
+        if level > max_level || (trained && rarity < 3) {
+            continue;
+        }
+
+        let fixed = (if trained { training_bonus } else { 0 }) + rarity * limit_break_rank * 50;
+        let totals = [
+            ([false, false], fixed),
+            ([true, false], fixed + episode_bonus[0]),
+            ([false, true], fixed + episode_bonus[1]),
+            ([true, true], fixed + episode_bonus[0] + episode_bonus[1]),
+        ];
+        for (state, total) in totals {
+            if append[0] == total {
+                possible_states.insert(state);
+            }
+        }
+    }
+
+    if possible_states.len() != 1 {
+        return None;
+    }
+    possible_states.first().copied()
+}
+
+#[derive(Debug, Deserialize)]
+struct BestdoriCardDetail {
+    episodes: Option<BestdoriEpisodeEntries>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BestdoriEpisodeEntries {
+    #[serde(default)]
+    entries: Vec<BestdoriEpisode>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BestdoriEpisode {
+    episode_id: u64,
+    episode_type: String,
+    situation_id: u64,
+}
+
+fn load_card_episode_ids(cards_dir: &Path, card_id: u64) -> Option<[u64; 2]> {
+    let text = fs::read_to_string(cards_dir.join(format!("{card_id}.json"))).ok()?;
+    let card: BestdoriCardDetail = serde_json::from_str(&text).ok()?;
+    let entries = card.episodes?.entries;
+    let standard = entries
+        .iter()
+        .find(|episode| episode.situation_id == card_id && episode.episode_type == "standard")?
+        .episode_id;
+    let memorial = entries
+        .iter()
+        .find(|episode| episode.situation_id == card_id && episode.episode_type == "memorial")?
+        .episode_id;
+    Some([standard, memorial])
 }
 
 fn import_area_items(buf: &[u8], player: &mut PlayerConfig) -> Result<(), ImportError> {
@@ -622,6 +779,7 @@ struct Row {
 enum RowValue {
     U64(u64),
     String(String),
+    Bytes(Vec<u8>),
 }
 
 impl Row {
@@ -651,6 +809,13 @@ impl Row {
     fn get_str(&self, key: &str) -> Option<&str> {
         match self.values.get(key) {
             Some(RowValue::String(value)) => Some(value),
+            _ => None,
+        }
+    }
+
+    fn get_bytes(&self, key: &str) -> Option<&[u8]> {
+        match self.values.get(key) {
+            Some(RowValue::Bytes(value)) => Some(value),
             _ => None,
         }
     }
@@ -702,7 +867,7 @@ fn flatten_message(prefix: &str, buf: &[u8], row: &mut Row) -> Result<(), Import
                     continue;
                 }
             }
-            // Unknown nested bytes are not needed by the current confirmed field mapping.
+            row.insert(key, RowValue::Bytes(data.to_vec()));
         } else {
             insert_scalar(row, key, &item.value);
         }
@@ -715,7 +880,7 @@ fn insert_scalar(row: &mut Row, key: String, value: &ProtoValue) {
         ProtoValue::Varint(value) => row.insert(key, RowValue::U64(*value)),
         ProtoValue::Fixed32(value) => row.insert(key, RowValue::U64(u64::from(*value))),
         ProtoValue::Fixed64(value) => row.insert(key, RowValue::U64(*value)),
-        ProtoValue::Bytes(_value) => {}
+        ProtoValue::Bytes(value) => row.insert(key, RowValue::Bytes(value.clone())),
     }
 }
 
@@ -848,6 +1013,103 @@ mod tests {
         assert_eq!(level_to_rate(Some(50)), 0.05);
     }
 
+    #[test]
+    fn imports_episode_state_from_real_user_episode_ids() {
+        let situations = user_situation_map_payload(3, 200);
+        let episodes = user_episode_map_payload(&[(5, "already_read")]);
+        let mut payload = Vec::new();
+        // The real response puts userSituationMap before userEpisodeMap. The
+        // importer must therefore collect field 16 before importing field 3.
+        push_bytes_field(&mut payload, 3, &situations);
+        push_bytes_field(&mut payload, 16, &episodes);
+
+        let player = suite_user_to_player_config(1008159056, &payload, |card_id| {
+            (card_id == 3).then_some([5, 6])
+        })
+        .unwrap();
+
+        assert_eq!(player.card_list["3"].episodes, [true, false]);
+    }
+
+    #[test]
+    fn append_parameter_fallback_does_not_mark_unread_episodes_as_read() {
+        let payload = user_situation_map_payload(3, 0);
+        let mut player = empty_player();
+        let mut resolver = |_| None;
+
+        import_user_situations(&payload, &mut player, None, &mut resolver).unwrap();
+
+        assert_eq!(player.card_list["3"].episodes, [false, false]);
+    }
+
+    #[test]
+    fn imports_second_episode_without_first_episode() {
+        let situations = user_situation_map_payload(3, 500);
+        let episodes = user_episode_map_payload(&[(6, "already_read")]);
+        let mut payload = Vec::new();
+        push_bytes_field(&mut payload, 3, &situations);
+        push_bytes_field(&mut payload, 16, &episodes);
+
+        let player = suite_user_to_player_config(1008159056, &payload, |card_id| {
+            (card_id == 3).then_some([5, 6])
+        })
+        .unwrap();
+
+        assert_eq!(player.card_list["3"].episodes, [false, true]);
+
+        let mut fallback_player = empty_player();
+        let mut no_episode_mapping = |_| None;
+        import_user_situations(
+            &situations,
+            &mut fallback_player,
+            None,
+            &mut no_episode_mapping,
+        )
+        .unwrap();
+        assert_eq!(fallback_player.card_list["3"].episodes, [false, true]);
+    }
+
+    #[test]
+    fn reads_only_already_read_user_episode_rows() {
+        let payload = user_episode_map_payload(&[(5, "already_read"), (6, "not_read")]);
+
+        assert_eq!(
+            import_read_episode_ids(&payload).unwrap(),
+            BTreeSet::from([5])
+        );
+    }
+
+    #[test]
+    fn loads_episode_ids_from_bestdori_card_detail() {
+        let cards_dir =
+            std::env::temp_dir().join(format!("bangdream-account-card-episodes-{}", request_id()));
+        fs::create_dir_all(&cards_dir).unwrap();
+        let importer = BangDreamAccountImporter::new(cards_dir.join("persist.json"))
+            .unwrap()
+            .with_cards_dir(Some(cards_dir.clone()));
+
+        // A game-data sync may finish after the importer is constructed. Missing
+        // details must therefore not be cached permanently.
+        assert_eq!(importer.episode_ids_for_card(2055), None);
+        fs::write(
+            cards_dir.join("2055.json"),
+            r#"{
+                "episodes": {
+                    "entries": [
+                        {"episodeId":3321,"episodeType":"standard","situationId":2055},
+                        {"episodeId":3322,"episodeType":"memorial","situationId":2055}
+                    ]
+                }
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(importer.episode_ids_for_card(2055), Some([3321, 3322]));
+
+        fs::remove_file(cards_dir.join("2055.json")).unwrap();
+        fs::remove_dir(cards_dir).unwrap();
+    }
+
     fn empty_player() -> PlayerConfig {
         PlayerConfig {
             mongo_id: None,
@@ -871,6 +1133,53 @@ mod tests {
         let mut entry = Vec::new();
         push_varint_field(&mut entry, 1, 1);
         push_bytes_field(&mut entry, 2, &value);
+
+        let mut payload = Vec::new();
+        push_bytes_field(&mut payload, 1, &entry);
+        payload
+    }
+
+    fn user_situation_map_payload(card_id: u64, append: u64) -> Vec<u8> {
+        let mut append_parameter = Vec::new();
+        push_varint_field(&mut append_parameter, 1, 1008159056);
+        push_varint_field(&mut append_parameter, 2, card_id);
+        push_varint_field(&mut append_parameter, 3, append);
+        push_varint_field(&mut append_parameter, 4, append);
+        push_varint_field(&mut append_parameter, 5, append);
+
+        let mut situation = Vec::new();
+        push_varint_field(&mut situation, 1, 1008159056);
+        push_varint_field(&mut situation, 2, card_id);
+        push_varint_field(&mut situation, 3, 1);
+        push_bytes_field(&mut situation, 7, b"not_doing");
+        push_bytes_field(&mut situation, 9, b"normal");
+        push_varint_field(&mut situation, 11, 1);
+        push_bytes_field(&mut situation, 12, &append_parameter);
+        push_varint_field(&mut situation, 13, 0);
+
+        map_payload(card_id, &situation)
+    }
+
+    fn user_episode_map_payload(rows: &[(u64, &str)]) -> Vec<u8> {
+        let mut payload = Vec::new();
+        for (episode_id, status) in rows {
+            let mut episode = Vec::new();
+            push_varint_field(&mut episode, 1, 1008159056);
+            push_varint_field(&mut episode, 2, *episode_id);
+            push_bytes_field(&mut episode, 3, status.as_bytes());
+
+            let mut entry = Vec::new();
+            push_varint_field(&mut entry, 1, *episode_id);
+            push_bytes_field(&mut entry, 2, &episode);
+            push_bytes_field(&mut payload, 1, &entry);
+        }
+        payload
+    }
+
+    fn map_payload(key: u64, value: &[u8]) -> Vec<u8> {
+        let mut entry = Vec::new();
+        push_varint_field(&mut entry, 1, key);
+        push_bytes_field(&mut entry, 2, value);
 
         let mut payload = Vec::new();
         push_bytes_field(&mut payload, 1, &entry);
