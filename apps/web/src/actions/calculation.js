@@ -2,9 +2,13 @@ import { confirmDialog } from '../ui/confirm.js?v=3';
 import { copyTextToClipboard } from '../ui/clipboard.js?v=3';
 import { totalFireCost } from '../utils.js?v=3';
 import {
+  ptEvaluateLiveVariant,
+  ptEvaluateSupportsAuto,
   ptMaximizeLiveVariant,
+  withPtEvaluateLiveVariant,
   withPtMaximizeLiveVariant,
 } from '../models/player-settings.js?v=3';
+import { validatePtEvaluateTeamSelection } from '../models/pt-evaluate-validation.js?v=1';
 
 export function createCalculationActions({
   state,
@@ -13,6 +17,7 @@ export function createCalculationActions({
   writePlayer,
   savePlayerNow,
   readOptionalInteger,
+  parseEntityId,
   applyEventInputToPlayer,
   editableEventSnapshot,
   normalizeCurrentActivityForMode,
@@ -27,6 +32,13 @@ export function createCalculationActions({
   setStatus,
   setError,
   eventLabel,
+  normalizedPlayer,
+  areaItemGroups,
+  mainBandCardIds,
+  importMainBandCards,
+  importMainBandCharacterBonuses,
+  importEnabledAreaItems,
+  cardCharacterId,
   resultCacheLimit = 20,
   renderResultCache,
   persistResultCache,
@@ -69,6 +81,7 @@ export function createCalculationActions({
       activityMode: player.activityMode,
       scoreRange: player.scoreRange,
       ptMaximize: player.ptMaximize,
+      ptEvaluate: player.ptEvaluate,
       eventId,
       eventSearch: player.eventSearch,
       currentEvent: player.currentEvent,
@@ -192,6 +205,12 @@ export function createCalculationActions({
       }
       return;
     }
+    try {
+      validatePtEvaluateBeforeCalculation();
+    } catch (error) {
+      setError(error);
+      return;
+    }
     isCalculating = true;
     setCalculatingState(true);
     try {
@@ -202,6 +221,7 @@ export function createCalculationActions({
       applyEventInputToPlayer(player);
       applyScoreRangeInputToPlayer(player);
       applyPtMaximizeInputToPlayer(player);
+      applyPtEvaluateInputToPlayer(player);
       const eventId = readCurrentEventId(player, readOptionalInteger(elements.eventId.value));
       const core = await ensureCore({ refreshManifest: true });
       normalizeCurrentActivityForMode(player);
@@ -229,7 +249,10 @@ export function createCalculationActions({
         const ptMaximizeRequest = player.calculationMode === 'ptMaximize'
           ? readPtMaximizeRequest(player, eventId)
           : undefined;
-        calculationRequest = scoreRangeRequest ?? ptMaximizeRequest;
+        const ptEvaluateRequest = player.calculationMode === 'ptEvaluate'
+          ? readPtEvaluateRequest(player, eventId)
+          : undefined;
+        calculationRequest = scoreRangeRequest ?? ptMaximizeRequest ?? ptEvaluateRequest;
         result = player.calculationMode === 'scoreRange'
           ? await calculateScoreRange({
             player,
@@ -244,6 +267,13 @@ export function createCalculationActions({
               core,
               request: ptMaximizeRequest,
             })
+            : player.calculationMode === 'ptEvaluate'
+              ? await calculatePtEvaluate({
+                player,
+                eventId,
+                core,
+                request: ptEvaluateRequest,
+              })
           : await state.runtime.calculate({
             player,
             server: player.server,
@@ -300,11 +330,35 @@ export function createCalculationActions({
     });
   }
 
+  function validatePtEvaluateBeforeCalculation() {
+    const player = readPlayer();
+    if (player.calculationMode !== 'ptEvaluate') {
+      return;
+    }
+    applyEventInputToPlayer(player);
+    applyPtEvaluateInputToPlayer(player);
+    const eventId = readCurrentEventId(player, readOptionalInteger(elements.eventId.value));
+    readPtEvaluateRequest(player, eventId);
+  }
+
   async function calculatePtMaximize({ player, eventId, core, request }) {
     if (typeof state.runtime.ptMaximize !== 'function') {
       throw new Error('当前运行时不支持最大PT（平均）搜索');
     }
     return state.runtime.ptMaximize({
+      player,
+      server: player.server,
+      eventId,
+      request,
+      core,
+    });
+  }
+
+  async function calculatePtEvaluate({ player, eventId, core, request }) {
+    if (typeof state.runtime.ptEvaluate !== 'function') {
+      throw new Error('当前运行时不支持指定队伍计算');
+    }
+    return state.runtime.ptEvaluate({
       player,
       server: player.server,
       eventId,
@@ -586,6 +640,204 @@ export function createCalculationActions({
     }
   }
 
+  function applyPtEvaluateInputToPlayer(player) {
+    player.ptEvaluate = readPtEvaluateForm({
+      strict: false,
+      config: player.ptEvaluate,
+      eventType: ptMaximizeEventType(player),
+      server: player.server,
+    });
+  }
+
+  function readPtEvaluateRequest(player, eventId) {
+    const eventType = ptMaximizeEventType(player, eventId);
+    if (!eventType) {
+      throw new Error('未设置活动类型');
+    }
+    const form = readPtEvaluateForm({
+      strict: true,
+      config: player.ptEvaluate,
+      eventType,
+      server: player.server,
+    });
+    const liveVariant = ptEvaluateLiveVariant(form, eventType);
+    const teamCount = liveVariant === 'medley' ? 3 : 1;
+    const teams = form.teams.slice(0, teamCount).map((cardIds) => ({
+      cardIds,
+      captainCardId: cardIds[2],
+    }));
+    const request = {
+      eventType,
+      liveVariant,
+      songs: player.eventSongs?.[String(eventId)] ?? [],
+      teams,
+      items: form.items,
+      scoreMode: form.scoreMode === 'auto'
+        ? { mode: 'auto', baseMultiplier: form.autoBaseMultiplier }
+        : { mode: 'manual' },
+      missionSupportPtBonus: form.missionSupportPtBonus ?? 100,
+    };
+    if (liveVariant === 'versus') {
+      request.versus = { teamRank: form.versusTeamRank };
+    }
+    validatePtEvaluateTeamSelection(player, request, cardCharacterId);
+    return request;
+  }
+
+  function readPtEvaluateForm({ strict, config, eventType, server }) {
+    const existingTeams = config?.teams ?? [];
+    const inputs = Array.from(elements.ptEvaluateTeams.querySelectorAll('.pt-evaluate-card-input'));
+    const teams = Array.from({ length: 3 }, (_, teamIndex) =>
+      Array.from({ length: 5 }, (_, cardIndex) => {
+        const input = inputs.find((candidate) =>
+          Number(candidate.dataset.teamIndex) === teamIndex
+            && Number(candidate.dataset.cardIndex) === cardIndex,
+        );
+        if (!input) {
+          return Number(existingTeams[teamIndex]?.[cardIndex]) || 0;
+        }
+        const value = String(input.value ?? '').trim();
+        if (!value) {
+          if (strict) {
+            throw new Error(`队伍 ${teamIndex + 1} 的卡位 ${cardIndex + 1} 不能为空`);
+          }
+          return 0;
+        }
+        try {
+          return parseEntityId(value, `队伍 ${teamIndex + 1} 卡位 ${cardIndex + 1}`);
+        } catch (error) {
+          if (strict) {
+            throw error;
+          }
+          return Number(existingTeams[teamIndex]?.[cardIndex]) || 0;
+        }
+      }),
+    );
+    const liveVariant = selectedRadioValue(
+      elements.ptEvaluateLiveVariant,
+      ptEvaluateLiveVariant(config, eventType),
+    );
+    const selectedScoreMode = selectedRadioValue(elements.ptEvaluateScoreMode, 'manual');
+    const scoreMode = ptEvaluateSupportsAuto(liveVariant) ? selectedScoreMode : 'manual';
+    const autoBaseMultiplier = Number(elements.ptEvaluateAutoBaseMultiplier.value);
+    if (strict && scoreMode === 'auto' && ![0.5, 0.75].includes(autoBaseMultiplier)) {
+      throw new Error('Auto 倍率必须为 0.5 或 0.75');
+    }
+    const itemValue = (select, previous) => String(select?.value ?? previous ?? '');
+    const items = {
+      band: itemValue(elements.ptEvaluateBandItem, config?.items?.band),
+      attribute: itemValue(elements.ptEvaluateAttributeItem, config?.items?.attribute),
+      magazine: itemValue(elements.ptEvaluateMagazineItem, config?.items?.magazine),
+    };
+    if (strict && Object.values(items).some((value) => !value)) {
+      throw new Error('必须完整选择乐队、属性和杂志道具');
+    }
+    if (strict && [
+      elements.ptEvaluateBandItem,
+      elements.ptEvaluateAttributeItem,
+      elements.ptEvaluateMagazineItem,
+    ].some((select) => select.selectedOptions?.[0]?.dataset.unavailable === '1')) {
+      throw new Error('所选区域道具组包含 0 级道具');
+    }
+    return {
+      liveVariantByEventType: withPtEvaluateLiveVariant(
+        config,
+        eventType,
+        liveVariant,
+        server,
+      ).liveVariantByEventType,
+      teams,
+      items,
+      scoreMode,
+      autoBaseMultiplier: [0.5, 0.75].includes(autoBaseMultiplier)
+        ? autoBaseMultiplier
+        : server === 'jp' ? 0.75 : 0.5,
+      missionSupportPtBonus: readFormInteger(
+        elements.ptEvaluateMissionSupportPt,
+        '支援乐队 PT 加成',
+        { optional: true, strict },
+      ),
+      versusTeamRank: Number(selectedRadioValue(elements.ptEvaluateVersusRank, '0')) || 0,
+    };
+  }
+
+  function handlePtEvaluateInputChange() {
+    try {
+      const player = readPlayer();
+      applyPtEvaluateInputToPlayer(player);
+      writePlayer(player);
+      renderConfigForms(player);
+    } catch (error) {
+      setError(error);
+    }
+  }
+
+  async function handlePtEvaluateTeamAction(event) {
+    const button = event.target.closest('.pt-evaluate-import-main-band');
+    if (!button) {
+      return;
+    }
+    event.preventDefault();
+    button.disabled = true;
+    try {
+      setStatus('导入主乐队配置');
+      await ensureCore();
+      const current = normalizedPlayer(readPlayer());
+      const profile = await state.runtime.importBestdoriPlayerProfile({
+        playerId: current.playerId,
+        server: current.server,
+        mode: 3,
+      });
+      const cardIds = mainBandCardIds(profile);
+      importMainBandCards(current, profile);
+      importMainBandCharacterBonuses(current, profile);
+      importEnabledAreaItems(current, profile);
+      const teamIndex = Math.max(0, Math.min(2, Number(button.dataset.teamIndex) || 0));
+      current.ptEvaluate.teams[teamIndex] = cardIds;
+      current.ptEvaluate.items = selectedImportedAreaItems(profile, current);
+      writePlayer(current);
+      renderConfigForms(current);
+      setStatus(
+        `主乐队配置已导入：${cardIds.length} 张卡牌，`
+        + `${Object.keys(current.areaItem ?? {}).length} 个区域道具，`
+        + `${Object.keys(current.characterBouns ?? {}).length} 个角色加成`,
+      );
+    } catch (error) {
+      setError(error);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  function selectedImportedAreaItems(profile, player) {
+    const enabledIds = new Set(
+      (profile?.enabledUserAreaItems?.entries ?? [])
+        .map((entry) => String(Number(entry?.areaItemCategory) || ''))
+        .filter(Boolean),
+    );
+    const byCategory = new Map();
+    for (const group of areaItemGroups(player)) {
+      const enabledCount = group.areaItemIds.filter((id) => enabledIds.has(String(id))).length;
+      const score = enabledCount * 1_000
+        + Number(group.rate?.performance ?? 0)
+        + Number(group.rate?.technique ?? 0)
+        + Number(group.rate?.visual ?? 0);
+      const current = byCategory.get(group.category);
+      if (!current || score > current.score) {
+        byCategory.set(group.category, { group, score });
+      }
+    }
+    const value = (category, fallback) => {
+      const key = byCategory.get(category)?.group?.key;
+      return key ? key.split(':').slice(1).join(':') : fallback;
+    };
+    return {
+      band: value('band', player.ptEvaluate?.items?.band ?? ''),
+      attribute: value('attribute', player.ptEvaluate?.items?.attribute ?? ''),
+      magazine: value('magazine', player.ptEvaluate?.items?.magazine ?? 'performance'),
+    };
+  }
+
   async function handleResultCacheAction(event) {
     const button = event.target.closest('[data-result-cache-action]');
     if (!button) {
@@ -783,6 +1035,8 @@ export function createCalculationActions({
     handleClearResultCache,
     handleScoreRangeInputChange,
     handlePtMaximizeInputChange,
+    handlePtEvaluateInputChange,
+    handlePtEvaluateTeamAction,
   };
 }
 

@@ -37,14 +37,15 @@ export function createResultCacheView({ elements }) {
       stats.className = 'result-cache-stats';
       const scoreRange = entry.calculationMode === 'scoreRange';
       const ptMaximize = entry.calculationMode === 'ptMaximize';
+      const ptEvaluate = entry.calculationMode === 'ptEvaluate';
       stats.textContent = compactJoin(scoreRange ? [
         '目标 PT',
         entry.server ? `服务器 ${entry.server}` : '',
         entry.targetDeltaPt == null ? '' : `增量 ${formatInteger(entry.targetDeltaPt)}`,
         entry.playCount == null ? '' : `${entry.playCount} 局`,
         entry.totalFireCost == null ? '' : `火耗 ${entry.totalFireCost}`,
-      ] : ptMaximize ? [
-        '最大PT（平均）',
+      ] : ptMaximize || ptEvaluate ? [
+        ptEvaluate ? '指定队伍' : '最大PT（平均）',
         entry.server ? `服务器 ${entry.server}` : '',
         entry.averagePt == null ? '' : `平均 PT ${formatInteger(Math.round(entry.averagePt))}`,
         entry.averageScore == null

@@ -7,7 +7,7 @@
     <link rel="icon" type="image/png" href="./icon.png?v=3" />
     <link rel="apple-touch-icon" href="./icon.png?v=3" />
     <meta name="theme-color" content="#d9467c" />
-    <link rel="stylesheet" href="./styles.css?v=8" />
+    <link rel="stylesheet" href="./styles.css?v=12" />
     <link
       rel="preconnect"
       href="https://fonts.googleapis.com"
@@ -22,7 +22,7 @@
       rel="stylesheet"
     />
     <script src="./config.js?v=3"></script>
-    <script type="module" src="./src/main.js?v=7"></script>
+    <script type="module" src="./src/main.js?v=13"></script>
   </head>
   <body>
     <main class="app-shell">
@@ -232,6 +232,10 @@
                           <span>最大PT（平均）</span>
                         </label>
                         <label>
+                          <input type="radio" name="calculation-mode" value="ptEvaluate" />
+                          <span>指定队伍</span>
+                        </label>
+                        <label>
                           <input type="radio" name="calculation-mode" value="maximize" checked />
                           <span>最高得分</span>
                         </label>
@@ -427,6 +431,45 @@
                       </div>
                     </section>
 
+                    <section class="pt-evaluate-controls" id="pt-evaluate-controls" hidden>
+                      <fieldset class="pt-choice-field pt-live-variant-field">
+                        <legend>演出模式</legend>
+                        <div id="pt-evaluate-live-variant" class="segmented-control"></div>
+                      </fieldset>
+
+                      <div class="pt-evaluate-options-grid">
+                        <fieldset class="pt-choice-field">
+                          <legend>演奏方式</legend>
+                          <div id="pt-evaluate-score-mode" class="segmented-control fixed-width-segments">
+                            <label><input type="radio" name="pt-evaluate-score-mode" value="manual" checked /><span>手动演奏</span></label>
+                            <label><input type="radio" name="pt-evaluate-score-mode" value="auto" /><span>自动演出</span></label>
+                          </div>
+                        </fieldset>
+                        <label id="pt-evaluate-auto-multiplier-field" hidden>
+                          <span>Auto 倍率</span>
+                          <select id="pt-evaluate-auto-base-multiplier">
+                            <option value="0.5">0.5 倍（非日服）</option>
+                            <option value="0.75">0.75 倍（日服）</option>
+                          </select>
+                        </label>
+                        <label id="pt-evaluate-mission-support-field" hidden>
+                          <span>支援乐队 PT 加成</span>
+                          <input id="pt-evaluate-mission-support-pt" type="number" min="0" step="1" value="100" />
+                        </label>
+                        <fieldset id="pt-evaluate-versus-rank-field" class="pt-choice-field" hidden>
+                          <legend>排名</legend>
+                          <div id="pt-evaluate-versus-rank" class="segmented-control rank-segments">
+                            <label><input type="radio" name="pt-evaluate-versus-rank" value="0" checked /><span>1</span></label>
+                            <label><input type="radio" name="pt-evaluate-versus-rank" value="1" /><span>2</span></label>
+                            <label><input type="radio" name="pt-evaluate-versus-rank" value="2" /><span>3</span></label>
+                            <label><input type="radio" name="pt-evaluate-versus-rank" value="3" /><span>4</span></label>
+                            <label><input type="radio" name="pt-evaluate-versus-rank" value="4" /><span>5</span></label>
+                          </div>
+                        </fieldset>
+                      </div>
+
+                    </section>
+
                     <div class="event-summary" id="event-summary"></div>
                   </div>
                 </section>
@@ -522,6 +565,61 @@
                   </div>
                   <div class="config-content">
                     <div class="activity-song-list" id="song-rows"></div>
+                  </div>
+                </section>
+
+                <section class="panel activity-card pt-evaluate-item-panel" id="pt-evaluate-item-panel" hidden>
+                  <div class="panel-header">
+                    <h3>道具选择</h3>
+                  </div>
+                  <div class="config-content">
+                    <div class="pt-evaluate-item-grid">
+                      <div class="pt-evaluate-item-field">
+                        <span class="pt-evaluate-item-category">乐队道具</span>
+                        <button type="button" class="pt-evaluate-item-cycle" id="pt-evaluate-band-item-cycle">
+                          <span class="pt-evaluate-item-preview" id="pt-evaluate-band-item-preview" aria-hidden="true"></span>
+                          <span class="pt-evaluate-item-copy">
+                            <span class="pt-evaluate-item-name" id="pt-evaluate-band-item-name"></span>
+                            <span class="pt-evaluate-item-rate" id="pt-evaluate-band-item-rate"></span>
+                          </span>
+                        </button>
+                        <select id="pt-evaluate-band-item" hidden tabindex="-1" aria-hidden="true"></select>
+                      </div>
+                      <div class="pt-evaluate-item-field">
+                        <span class="pt-evaluate-item-category">属性道具</span>
+                        <button type="button" class="pt-evaluate-item-cycle" id="pt-evaluate-attribute-item-cycle">
+                          <span class="pt-evaluate-item-preview" id="pt-evaluate-attribute-item-preview" aria-hidden="true"></span>
+                          <span class="pt-evaluate-item-copy">
+                            <span class="pt-evaluate-item-name" id="pt-evaluate-attribute-item-name"></span>
+                            <span class="pt-evaluate-item-rate" id="pt-evaluate-attribute-item-rate"></span>
+                          </span>
+                        </button>
+                        <select id="pt-evaluate-attribute-item" hidden tabindex="-1" aria-hidden="true"></select>
+                      </div>
+                      <div class="pt-evaluate-item-field">
+                        <span class="pt-evaluate-item-category">杂志道具</span>
+                        <button type="button" class="pt-evaluate-item-cycle" id="pt-evaluate-magazine-item-cycle">
+                          <span class="pt-evaluate-item-preview" id="pt-evaluate-magazine-item-preview" aria-hidden="true"></span>
+                          <span class="pt-evaluate-item-copy">
+                            <span class="pt-evaluate-item-name" id="pt-evaluate-magazine-item-name"></span>
+                            <span class="pt-evaluate-item-rate" id="pt-evaluate-magazine-item-rate"></span>
+                          </span>
+                        </button>
+                        <select id="pt-evaluate-magazine-item" hidden tabindex="-1" aria-hidden="true"></select>
+                      </div>
+                    </div>
+                    <small>左键切换下一项，右键返回上一项；任一所选道具组含 0 级道具时不能计算。</small>
+                  </div>
+                </section>
+
+                <section class="panel activity-card pt-evaluate-team-panel" id="pt-evaluate-team-panel" hidden>
+                  <div class="panel-header pt-evaluate-team-heading">
+                    <div>
+                      <h3>指定队伍</h3>
+                    </div>
+                  </div>
+                  <div class="config-content">
+                    <div id="pt-evaluate-teams" class="pt-evaluate-team-list"></div>
                   </div>
                 </section>
               </section>

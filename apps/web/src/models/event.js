@@ -17,6 +17,10 @@ const CALCULATION_EVENT_TYPES = {
     medley: ['medley'],
     single: ['challenge', 'versus', 'live_try', 'festival', 'mission_live'],
   },
+  ptEvaluate: {
+    medley: ['medley'],
+    single: ['challenge', 'versus', 'live_try', 'festival', 'mission_live'],
+  },
 };
 const DEFAULT_EVENT_TYPE = 'challenge';
 const HIDDEN_EVENT_IDS = new Set([5001]);
@@ -168,7 +172,9 @@ export function activityModeForEvent(event) {
 }
 
 export function normalizedCalculationMode(value) {
-  return ['maximize', 'scoreRange', 'ptMaximize'].includes(value) ? value : 'ptMaximize';
+  return ['maximize', 'scoreRange', 'ptMaximize', 'ptEvaluate'].includes(value)
+    ? value
+    : 'ptMaximize';
 }
 
 export function normalizedActivityMode(value) {

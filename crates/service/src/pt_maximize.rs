@@ -1,4 +1,6 @@
-use bangdream_optimize_core::{PlayerConfig, PtMaximizeRequest, PtMaximizeResult, Server};
+use bangdream_optimize_core::{
+    PlayerConfig, PtEvaluateRequest, PtEvaluateResult, PtMaximizeRequest, PtMaximizeResult, Server,
+};
 use bangdream_optimize_data::{DataError, PlayerConfigStore, PtMaximizeInputBuilder};
 use std::sync::Arc;
 
@@ -50,6 +52,34 @@ impl PtMaximizeService {
     ) -> Result<PtMaximizeResult, DataError> {
         self.searcher
             .pt_maximize(player, server, event_id, request)
+            .await
+    }
+
+    pub async fn pt_evaluate_for_player(
+        &self,
+        player_id: i64,
+        server: Server,
+        event_id: Option<u32>,
+        request: PtEvaluateRequest,
+    ) -> Result<PtEvaluateResult, DataError> {
+        let player = self
+            .player_store
+            .get_player_config(player_id)
+            .await?
+            .ok_or(DataError::PlayerNotFound { player_id })?;
+        self.pt_evaluate_for_config(player, server, event_id, request)
+            .await
+    }
+
+    pub async fn pt_evaluate_for_config(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        request: PtEvaluateRequest,
+    ) -> Result<PtEvaluateResult, DataError> {
+        self.searcher
+            .pt_evaluate(player, server, event_id, request)
             .await
     }
 }

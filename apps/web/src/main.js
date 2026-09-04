@@ -6,14 +6,15 @@ import {
   formatAreaItemRate,
 } from './domain/area.js?v=3';
 import { attributeSwatch } from './ui/attribute.js?v=3';
-import { createActivityActions } from './actions/activity.js?v=3';
-import { createAppLifecycle } from './app/lifecycle.js?v=5';
+import { createActivityActions } from './actions/activity.js?v=4';
+import { createAppLifecycle } from './app/lifecycle.js?v=7';
 import { createInitialState } from './app/state.js?v=3';
 import {
   createBestdoriProfileImporter,
+  mainBandCardIds,
   parseBestdoriProfileExport,
 } from './data/bestdori.js?v=3';
-import { createCalculationActions } from './actions/calculation.js?v=4';
+import { createCalculationActions } from './actions/calculation.js?v=5';
 import {
   characterBonusWithRates as buildCharacterBonusWithRates,
   createCharacterBonusHelpers,
@@ -45,7 +46,7 @@ import {
   readOptionalInteger,
 } from './utils.js?v=3';
 import { createCardView } from './views/card.js?v=3';
-import { createEventView } from './views/event.js?v=3';
+import { createEventView } from './views/event.js?v=5';
 import { createFormCells } from './ui/form.js?v=3';
 import { createGameMeta } from './domain/meta.js?v=3';
 import {
@@ -54,7 +55,7 @@ import {
   normalizedServer as normalizeServerValue,
   readFiniteInput,
 } from './models/player.js?v=3';
-import { createPageController } from './app/page.js?v=4';
+import { createPageController } from './app/page.js?v=6';
 import { createPlayerStore } from './app/player.js?v=3';
 import { createPlayerView } from './views/player.js?v=3';
 import { createProfileActions } from './actions/profile.js?v=3';
@@ -67,7 +68,7 @@ import { createReferenceData } from './data/reference.js?v=3';
 import {
   renderMetrics as renderMetricsView,
   renderResultSummary as renderResultSummaryView,
-} from './views/result.js?v=3';
+} from './views/result.js?v=4';
 import {
   RESULT_CACHE_LIMIT,
   createResultCacheStorage,
@@ -469,6 +470,7 @@ const calculationActions = createCalculationActions({
   writePlayer,
   savePlayerNow,
   readOptionalInteger,
+  parseEntityId,
   applyEventInputToPlayer,
   editableEventSnapshot,
   normalizeCurrentActivityForMode,
@@ -483,6 +485,13 @@ const calculationActions = createCalculationActions({
   setStatus: status.setStatus,
   setError: status.setError,
   eventLabel,
+  normalizedPlayer,
+  areaItemGroups,
+  mainBandCardIds,
+  importMainBandCards,
+  importMainBandCharacterBonuses,
+  importEnabledAreaItems,
+  cardCharacterId,
   resultCacheLimit: RESULT_CACHE_LIMIT,
   renderResultCache: deferred.renderResultCache,
   persistResultCache: resultCacheStorage.saveResultCache,
@@ -690,6 +699,14 @@ const pageController = createPageController({
   renderCards: cardView.renderCards,
   renderAreaItems: playerView.renderAreaItems,
   renderCharacterBonuses: playerView.renderCharacterBonuses,
+  areaItemGroups,
+  areaItemGroupIconUrls,
+  formatAreaItemRate,
+  cardAttribute,
+  cardIconUrls,
+  cardLabel,
+  cardName,
+  cardRarity,
   safeReadPlayer,
 });
 

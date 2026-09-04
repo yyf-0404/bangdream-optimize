@@ -2,6 +2,7 @@ pub mod event_pt;
 pub mod maximize;
 pub mod medley;
 pub mod model;
+pub mod pt_evaluate;
 pub mod pt_maximize;
 pub mod score_range;
 pub mod single;
@@ -77,6 +78,11 @@ pub use model::preparation::{
     PreparedCard, ScoreUp, SkillDefinition, StatValue,
 };
 pub use model::schema::*;
+pub use pt_evaluate::{
+    evaluate_specified_teams, evaluate_specified_teams_with_elapsed, supports_pt_evaluate_auto,
+    supports_pt_evaluate_variant, PtEvaluateError, PtEvaluateMetrics, PtEvaluateRequest,
+    PtEvaluateResult, PtEvaluateScoreMode, SpecifiedTeam, FIXED_CAPTAIN_INDEX,
+};
 pub use pt_maximize::{
     evaluate_cooperative_team, evaluate_full_team, event_bonus_application, search_medley,
     search_medley_with_metrics, search_single_song, search_single_song_with_metrics,

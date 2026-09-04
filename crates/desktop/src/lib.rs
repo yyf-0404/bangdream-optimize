@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use bangdream_optimize_core::{
-    BuildResult, ItemSearchOptions, PlayerConfig, PtMaximizeRequest, PtMaximizeResult,
-    ScoreRangeRequest, ScoreRangeResult, Server,
+    BuildResult, ItemSearchOptions, PlayerConfig, PtEvaluateRequest, PtEvaluateResult,
+    PtMaximizeRequest, PtMaximizeResult, ScoreRangeRequest, ScoreRangeResult, Server,
 };
 use bangdream_optimize_data::{
     update_published_score_range_chart_meta, BestdoriCachedFilesystemCalculator,
@@ -332,6 +332,17 @@ impl DesktopOptimizer {
             .pt_maximize_sync(player, server, event_id, request)
     }
 
+    pub fn pt_evaluate_for_config(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        request: PtEvaluateRequest,
+    ) -> Result<PtEvaluateResult, DataError> {
+        self.calculator
+            .pt_evaluate_sync(player, server, event_id, request)
+    }
+
     pub async fn calculate_for_player_async(
         &self,
         player_id: i64,
@@ -414,6 +425,26 @@ impl DesktopCalculator {
                     calculator.clear_loaded_calculator()?;
                 }
                 calculator.pt_maximize_sync(player, server, event_id, request)
+            }
+        }
+    }
+
+    fn pt_evaluate_sync(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        request: PtEvaluateRequest,
+    ) -> Result<PtEvaluateResult, DataError> {
+        match self {
+            Self::Filesystem { root, calculator } => pt_evaluate_from_cached_filesystem(
+                root, calculator, player, server, event_id, request,
+            ),
+            Self::Remote { calculator, .. } => {
+                if ensure_embedded_fix_files(calculator.cache_root())? {
+                    calculator.clear_loaded_calculator()?;
+                }
+                calculator.pt_evaluate_sync(player, server, event_id, request)
             }
         }
     }
@@ -534,6 +565,16 @@ impl PtMaximizeInputBuilder for DesktopCalculator {
     ) -> Result<PtMaximizeResult, DataError> {
         self.pt_maximize_sync(player, server, event_id, request)
     }
+
+    async fn pt_evaluate(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        request: PtEvaluateRequest,
+    ) -> Result<PtEvaluateResult, DataError> {
+        self.pt_evaluate_sync(player, server, event_id, request)
+    }
 }
 
 fn calculate_from_cached_filesystem(
@@ -597,6 +638,26 @@ fn pt_maximize_from_cached_filesystem(
         .as_ref()
         .expect("filesystem calculator was loaded")
         .pt_maximize_sync(player, server, event_id, request)
+}
+
+fn pt_evaluate_from_cached_filesystem(
+    root: &Path,
+    calculator: &Mutex<Option<BestdoriFilesystemCalculator>>,
+    player: PlayerConfig,
+    server: Server,
+    event_id: Option<u32>,
+    request: PtEvaluateRequest,
+) -> Result<PtEvaluateResult, DataError> {
+    let mut calculator = calculator_lock(calculator)?;
+    if calculator.is_none() {
+        *calculator = Some(BestdoriFilesystemCalculator::load(
+            BestdoriFilesystemConfig::from_root(root.to_path_buf()),
+        )?);
+    }
+    calculator
+        .as_ref()
+        .expect("filesystem calculator was loaded")
+        .pt_evaluate_sync(player, server, event_id, request)
 }
 
 fn calculator_lock(

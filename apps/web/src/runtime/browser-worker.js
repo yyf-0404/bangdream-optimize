@@ -4,7 +4,7 @@ let wasmPromise = null;
 
 self.onmessage = async (event) => {
   const { id, type, payloadJson } = event.data ?? {};
-  if (type !== 'calculate' && type !== 'scoreRange' && type !== 'ptMaximize') {
+  if (type !== 'calculate' && type !== 'scoreRange' && type !== 'ptMaximize' && type !== 'ptEvaluate') {
     return;
   }
 
@@ -14,7 +14,9 @@ self.onmessage = async (event) => {
       ? wasm.scoreRangeFromStaticData(payloadJson)
       : type === 'ptMaximize'
         ? wasm.ptMaximizeFromStaticData(payloadJson)
-        : wasm.calculateFromStaticData(payloadJson);
+        : type === 'ptEvaluate'
+          ? wasm.ptEvaluateFromStaticData(payloadJson)
+          : wasm.calculateFromStaticData(payloadJson);
     self.postMessage({ id, ok: true, resultJson });
   } catch (error) {
     self.postMessage({

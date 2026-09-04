@@ -1,7 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use bangdream_optimize_core::{
-    BuildResult, ItemSearchOptions, PlayerConfig, PtMaximizeRequest, PtMaximizeResult,
+    BuildResult, ItemSearchOptions, PlayerConfig, PtEvaluateRequest, PtEvaluateResult,
+    PtMaximizeRequest, PtMaximizeResult,
     ScoreRangeRequest, ScoreRangeResult, Server,
 };
 use bangdream_optimize_desktop::{
@@ -223,6 +224,20 @@ async fn pt_maximize_for_config(
 }
 
 #[tauri::command]
+async fn pt_evaluate_for_config(
+    state: State<'_, AppState>,
+    player: PlayerConfig,
+    server: Server,
+    event_id: Option<u32>,
+    request: PtEvaluateRequest,
+) -> Result<PtEvaluateResult, String> {
+    run_optimizer_task(state, move |optimizer| {
+        optimizer.pt_evaluate_for_config(player, server, event_id, request)
+    })
+    .await
+}
+
+#[tauri::command]
 async fn save_json_file(file_name: String, text: String) -> Result<bool, String> {
     run_blocking_task(move || {
         let Some(path) = rfd::FileDialog::new()
@@ -297,6 +312,7 @@ fn main() {
             calculate_for_config,
             score_range_for_config,
             pt_maximize_for_config,
+            pt_evaluate_for_config,
             save_json_file,
         ])
         .run(tauri::generate_context!())

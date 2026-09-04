@@ -6,6 +6,7 @@ import {
   eventTypeLabel,
   formatNumberInput,
 } from '../utils.js?v=3';
+import { nextCyclicValue } from '../ui/cycle-select.js?v=2';
 
 export function createEventView({
   elements,
@@ -170,7 +171,7 @@ export function createEventView({
         disabled: !editable,
         label: '切换属性加成',
         onClick: () => updateEventAttribute(index, {
-          attribute: nextAttribute(bonus.attribute),
+          attribute: nextCyclicValue(ATTRIBUTE_VALUES, bonus.attribute),
         }),
       });
       const attributeCellElement = attributeCell(bonus.attribute, () => {}, { disabled: true });
@@ -261,11 +262,6 @@ export function createEventView({
       element.addEventListener('click', onClick);
     }
     return element;
-  }
-
-  function nextAttribute(attribute) {
-    const index = ATTRIBUTE_VALUES.indexOf(attribute);
-    return ATTRIBUTE_VALUES[(index + 1) % ATTRIBUTE_VALUES.length] ?? ATTRIBUTE_VALUES[0];
   }
 
   function bonusPercentControl(value, onChange, { disabled = false } = {}) {

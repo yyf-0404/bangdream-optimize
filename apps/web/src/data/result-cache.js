@@ -53,7 +53,7 @@ function normalizeEntry(entry) {
   if (!key || (cacheVersion !== 2 && cacheVersion !== CACHE_SCHEMA_VERSION)) {
     return undefined;
   }
-  const calculationMode = ['scoreRange', 'ptMaximize'].includes(entry.calculationMode)
+  const calculationMode = ['scoreRange', 'ptMaximize', 'ptEvaluate'].includes(entry.calculationMode)
     ? entry.calculationMode
     : 'maximize';
   const result = cloneJson(entry.result);

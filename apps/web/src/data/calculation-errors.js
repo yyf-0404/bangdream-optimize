@@ -41,6 +41,60 @@ export function explainCalculationError(error, {
       '补充其他角色的卡牌，或检查玩家档案是否漏掉已持有卡牌。',
     );
   }
+  if (/team \d+ contains duplicate cards/i.test(message)) {
+    return issue(
+      CONFIGURATION,
+      'duplicate-team-card',
+      '队伍包含重复卡牌',
+      '同一支指定队伍的五个卡位不能使用相同卡牌。',
+      '重新选择队伍卡牌后计算。',
+    );
+  }
+  if (/team \d+ contains duplicate characters/i.test(message)) {
+    return issue(
+      CONFIGURATION,
+      'duplicate-team-character',
+      '队伍包含重复角色',
+      '同一支指定队伍必须由五个不同角色组成。',
+      '替换重复角色的卡牌后计算。',
+    );
+  }
+  if (/team \d+ captain \d+ must match third slot card \d+/i.test(message)) {
+    return issue(
+      CONFIGURATION,
+      'fixed-team-captain-position',
+      '队长位置无效',
+      '指定队伍的队长必须是第三个卡位。',
+      '重新选择第三个卡位，或重新导入主乐队。',
+    );
+  }
+  if (/Medley teams must not reuse the same physical card/i.test(message)) {
+    return issue(
+      CONFIGURATION,
+      'medley-card-conflict',
+      '巡回演出队伍卡牌冲突',
+      '三支队伍不能重复使用同一张物理卡牌。',
+      '调整三支队伍；同一角色的不同卡牌仍可跨队使用。',
+    );
+  }
+  if (/selected .* area-item group .* missing or contains a level-0 item/i.test(message)) {
+    return issue(
+      CONFIGURATION,
+      'fixed-team-area-item-unavailable',
+      '所选区域道具不可用',
+      '所选乐队、属性或杂志道具不存在，或整组中含有 0 级组件。',
+      '在玩家配置中提升整组道具等级，或选择另一组完整道具。',
+    );
+  }
+  if (/card \d+ in team \d+ is missing from the player configuration/i.test(message)) {
+    return issue(
+      CONFIGURATION,
+      'fixed-team-card-missing',
+      '指定卡牌不在档案中',
+      '队伍中存在未导入或已从玩家档案移除的卡牌。',
+      '重新导入主乐队，或先在卡牌页补全这些卡牌。',
+    );
+  }
   if (
     /minimumPersonalStat .*non-negative/i.test(message)
     || /最低综合力需为非负整数/.test(message)

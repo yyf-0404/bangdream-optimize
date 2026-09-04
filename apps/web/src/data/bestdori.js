@@ -595,3 +595,28 @@ function mainDeckEntries(profile) {
   const entries = profile?.mainDeckUserSituations?.entries;
   return Array.isArray(entries) ? entries : [];
 }
+
+export function mainBandCardIds(profile) {
+  const deck = profile?.mainUserDeck;
+  const orderedFields = ['member3', 'member1', 'leader', 'member2', 'member4'];
+  if (!deck || typeof deck !== 'object') {
+    throw new Error('玩家资料缺少主乐队编成');
+  }
+  const cardIds = orderedFields.map((field) => {
+    const cardId = positiveIntegerOrUndefined(deck[field]);
+    if (cardId == null) {
+      throw new Error(`玩家主乐队缺少 ${field} 卡位`);
+    }
+    return cardId;
+  });
+  const entriesByCardId = new Map(mainDeckEntries(profile).map((entry) => [
+    positiveIntegerOrUndefined(entry?.situationId),
+    entry,
+  ]));
+  for (const cardId of cardIds) {
+    if (!entriesByCardId.has(cardId)) {
+      throw new Error(`玩家主乐队缺少卡牌 ${cardId} 的详细配置`);
+    }
+  }
+  return cardIds;
+}

@@ -7,6 +7,7 @@ pub mod event;
 pub mod filesystem;
 pub mod maximize;
 pub mod preparation;
+pub mod pt_evaluate;
 pub mod pt_maximize;
 pub mod score_range;
 pub mod snapshot;

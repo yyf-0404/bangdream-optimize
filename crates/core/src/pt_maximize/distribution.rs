@@ -705,6 +705,55 @@ pub(crate) fn full_team_score_distributions(
     full_team_score_distributions_with_scratch(chart, team, stat, is_medley, &mut scratch)
 }
 
+pub(crate) fn fixed_captain_score_distribution(
+    chart: &Chart,
+    team: &[TeamCardSkill; 5],
+    stat: i32,
+    is_medley: bool,
+    captain_index: usize,
+) -> Result<CaptainScoreDistribution, PtMaximizeError> {
+    if captain_index >= team.len() {
+        return Err(PtMaximizeError::InvalidCaptainIndex { captain_index });
+    }
+    let mut scratch = FullTeamScoreScratch::default();
+    if let Some(matrix) =
+        chart.independent_skill_score_matrix(team, stat, is_medley, &mut scratch.exact)?
+    {
+        return Ok(CaptainScoreDistribution {
+            captain_index,
+            captain_card_id: team[captain_index].card_id,
+            distribution: independent_score_histogram(&matrix, captain_index, &mut scratch),
+        });
+    }
+
+    let mut histogram = BTreeMap::new();
+    for_each_permutation([0, 1, 2, 3, 4], |order| {
+        let skills = [
+            team[order[0]],
+            team[order[1]],
+            team[order[2]],
+            team[order[3]],
+            team[order[4]],
+            team[captain_index],
+        ];
+        let score = chart.get_score_for_six_skills(&skills, stat, is_medley)?;
+        *histogram.entry(score).or_insert(0) += 1;
+        Ok::<(), PtMaximizeError>(())
+    })?;
+    Ok(CaptainScoreDistribution {
+        captain_index,
+        captain_card_id: team[captain_index].card_id,
+        distribution: score_histogram(histogram),
+    })
+}
+
+pub(crate) fn evaluate_fixed_distribution(
+    distribution: CaptainScoreDistribution,
+    scenario: FixedTeamPtScenario,
+) -> Result<FixedTeamPtEvaluation, PtMaximizeError> {
+    evaluate_distribution(distribution, scenario)
+}
+
 fn full_team_score_distributions_with_scratch(
     chart: &Chart,
     team: &[TeamCardSkill; 5],

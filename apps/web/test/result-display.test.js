@@ -24,6 +24,52 @@ test('PT maximize summary shows integer averages without ranges or sample counts
   assert.doesNotMatch(resultViewSource, /resultStat\('样本数'/);
 });
 
+test('specified-team song metrics use four columns and fold on narrow screens', () => {
+  assert.match(
+    resultViewSource,
+    /details\.classList\.toggle\('has-detailed-score'/,
+  );
+  assert.match(
+    stylesSource,
+    /\.result-song-details\.has-detailed-score\s*\{[\s\S]*?grid-template-columns:\s*repeat\(4,/,
+  );
+  assert.match(
+    stylesSource,
+    /\.result-song-details\.has-detailed-score\s*>\s*\.result-item:first-child\s*\{[\s\S]*?border-left:\s*0/,
+  );
+  assert.match(
+    stylesSource,
+    /@media \(max-width:\s*620px\)[\s\S]*?\.result-song-details\.has-detailed-score\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,/,
+  );
+  assert.match(
+    stylesSource,
+    /\.result-song-details\.has-detailed-score\s*>\s*\.result-item:nth-child\(odd\)\s*\{[\s\S]*?border-left:\s*0/,
+  );
+});
+
+test('grid separators never draw on the first visual column', () => {
+  assert.match(
+    stylesSource,
+    /\.result-overview\s*>\s*\.result-stat:not\(:nth-child\(3n \+ 1\)\)/,
+  );
+  assert.match(
+    stylesSource,
+    /\.result-overview\s*>\s*\.result-stat:nth-child\(even\),[\s\S]*?\.result-items\s*>\s*\.result-item:nth-child\(odd\)\s*\{[\s\S]*?border-left:\s*0/,
+  );
+  assert.doesNotMatch(
+    stylesSource,
+    /\.activity-bonus-card \.config-content\s*\{[^}]*border-(?:left|right):/,
+  );
+  assert.doesNotMatch(
+    stylesSource,
+    /\.activity-song-card \.config-content\s*\{[^}]*border-(?:left|right):/,
+  );
+  assert.match(
+    stylesSource,
+    /@container \(max-width:\s*929px\)[\s\S]*?\.activity-song-item:nth-child\(odd\)\s*\{[\s\S]*?border-left:\s*0/,
+  );
+});
+
 test('PT maximize songs reuse score result cards while labeling cards as a team', () => {
   assert.match(resultViewSource, /renderPtMaximizeSongSection/);
   assert.match(resultViewSource, /renderSongResult\(song, index, maxScore, deps/);

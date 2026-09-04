@@ -1,4 +1,4 @@
-mod distribution;
+pub(crate) mod distribution;
 mod medley;
 mod model;
 mod search;

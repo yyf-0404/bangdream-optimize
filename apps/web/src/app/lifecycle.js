@@ -1,5 +1,7 @@
 import { parseEntityId } from '../utils.js';
 
+import { installCyclingSelect } from '../ui/cycle-select.js?v=2';
+
 const DATALIST_INPUT_KEYS = [
   'eventSearch',
   'newEventCharacterId',
@@ -27,6 +29,14 @@ const CHANGE_BINDINGS = [
   ['ptMaximizeFestivalTeammateMode', 'handlePtMaximizeInputChange'],
   ['ptMaximizeFestivalRank', 'handlePtMaximizeInputChange'],
   ['ptMaximizeFestivalWon', 'handlePtMaximizeInputChange'],
+  ['ptEvaluateLiveVariant', 'handlePtEvaluateInputChange'],
+  ['ptEvaluateScoreMode', 'handlePtEvaluateInputChange'],
+  ['ptEvaluateAutoBaseMultiplier', 'handlePtEvaluateInputChange'],
+  ['ptEvaluateMissionSupportPt', 'handlePtEvaluateInputChange'],
+  ['ptEvaluateVersusRank', 'handlePtEvaluateInputChange'],
+  ['ptEvaluateBandItem', 'handlePtEvaluateInputChange'],
+  ['ptEvaluateAttributeItem', 'handlePtEvaluateInputChange'],
+  ['ptEvaluateMagazineItem', 'handlePtEvaluateInputChange'],
   ['eventSearch', 'handleEventSearchChange'],
   ['eventCombinedPercent', 'handleEventScalarChange'],
   ['eventCharacterParamPerformance', 'handleEventCharacterParamChange'],
@@ -158,6 +168,13 @@ export function createAppLifecycle({
     }
 
     bindAll('change', CHANGE_BINDINGS);
+    for (const [trigger, select] of [
+      [elements.ptEvaluateBandItemCycle, elements.ptEvaluateBandItem],
+      [elements.ptEvaluateAttributeItemCycle, elements.ptEvaluateAttributeItem],
+      [elements.ptEvaluateMagazineItemCycle, elements.ptEvaluateMagazineItem],
+    ]) {
+      installCyclingSelect(trigger, select);
+    }
     const ptHandler = requiredHandler('handlePtMaximizeInputChange');
     for (const collection of [
       elements.ptMaximizeTeammateStats,
@@ -172,6 +189,14 @@ export function createAppLifecycle({
     for (const input of elements.eventTypeFilters) {
       input.addEventListener('change', renderReferenceOptions);
     }
+    elements.ptEvaluateTeams.addEventListener(
+      'change',
+      requiredHandler('handlePtEvaluateInputChange'),
+    );
+    elements.ptEvaluateTeams.addEventListener(
+      'click',
+      requiredHandler('handlePtEvaluateTeamAction'),
+    );
     elements.toggleEventTypeFilters.addEventListener('click', () => {
       const available = Array.from(elements.eventTypeFilters)
         .filter((input) => !input.disabled);

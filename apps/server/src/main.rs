@@ -13,7 +13,8 @@ use bangdream_optimize_bangdream_account::{
 };
 use bangdream_optimize_core::{
     calculate_from_candidates, BuildResult, CalculationMetrics, CandidateBuildRequest, EventType,
-    ItemSearchOptions, PlayerConfig, PtMaximizeRequest, ScoreRangeRequest, Server,
+    ItemSearchOptions, PlayerConfig, PtEvaluateRequest, PtMaximizeRequest, ScoreRangeRequest,
+    Server,
 };
 use bangdream_optimize_data::{
     BestdoriCachedFilesystemCalculator, BestdoriFilesystemCalculator, BestdoriFilesystemConfig,
@@ -1248,6 +1249,26 @@ struct PtMaximizeFromConfigApiRequest {
     request: PtMaximizeRequest,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PtEvaluateApiRequest {
+    player_id: i64,
+    server: Server,
+    #[serde(default)]
+    event_id: Option<u32>,
+    request: PtEvaluateRequest,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PtEvaluateFromConfigApiRequest {
+    player: PlayerConfig,
+    server: Server,
+    #[serde(default)]
+    event_id: Option<u32>,
+    request: PtEvaluateRequest,
+}
+
 fn default_score_range_max_results() -> usize {
     20
 }
@@ -1349,6 +1370,8 @@ fn build_app(
             .route("/v1/score-range/from-config", post(score_range_from_config))
             .route("/v1/pt-maximize", post(pt_maximize_result))
             .route("/v1/pt-maximize/from-config", post(pt_maximize_from_config))
+            .route("/v1/pt-evaluate", post(pt_evaluate_result))
+            .route("/v1/pt-evaluate/from-config", post(pt_evaluate_from_config))
             .route("/v1/calc-result", post(maximize_result))
             .route(
                 "/v1/maximize/from-candidates",
@@ -1818,6 +1841,48 @@ async fn pt_maximize_from_config(
     }
 }
 
+async fn pt_evaluate_result(
+    State(state): State<AppState>,
+    Json(request): Json<PtEvaluateApiRequest>,
+) -> impl IntoResponse {
+    let Some(service) = state.pt_maximize_service.as_ref() else {
+        return service_unavailable("PT evaluation service is not configured");
+    };
+    match service
+        .pt_evaluate_for_player(
+            request.player_id,
+            request.server,
+            request.event_id,
+            request.request,
+        )
+        .await
+    {
+        Ok(result) => ok_response(result),
+        Err(err) => data_error_response(err),
+    }
+}
+
+async fn pt_evaluate_from_config(
+    State(state): State<AppState>,
+    Json(request): Json<PtEvaluateFromConfigApiRequest>,
+) -> impl IntoResponse {
+    let Some(searcher) = state.pt_maximize_searcher.as_ref() else {
+        return service_unavailable("PT evaluation builder is not configured");
+    };
+    match searcher
+        .pt_evaluate(
+            request.player,
+            request.server,
+            request.event_id,
+            request.request,
+        )
+        .await
+    {
+        Ok(result) => ok_response(result),
+        Err(err) => data_error_response(err),
+    }
+}
+
 async fn maximize_from_candidates(
     State(state): State<AppState>,
     Json(request): Json<CandidateBuildRequest>,
@@ -1881,7 +1946,8 @@ fn data_error_response(err: DataError) -> axum::response::Response {
         | DataError::Preparation(_)
         | DataError::Maximize(_)
         | DataError::ScoreRange(_)
-        | DataError::PtMaximize(_) => StatusCode::BAD_REQUEST,
+        | DataError::PtMaximize(_)
+        | DataError::PtEvaluate(_) => StatusCode::BAD_REQUEST,
     };
 
     (

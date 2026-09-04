@@ -704,6 +704,9 @@ pub enum PtMaximizeError {
 
     #[error("Medley solver failed: {0}")]
     MedleySolver(String),
+
+    #[error("captain index {captain_index} is outside the five-card team")]
+    InvalidCaptainIndex { captain_index: usize },
 }
 
 #[cfg(test)]

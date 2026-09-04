@@ -63,7 +63,8 @@ globalThis.BANGDREAM_OPTIMIZE_CONFIG = {
 - `BANGDREAM_OPTIMIZE_GAME_DATA_SYNC_CONFIG`：读取同步配置文件（JSON）。
 - `BANGDREAM_OPTIMIZE_GAME_DATA_SYNC_COMMAND`：指定用于执行同步的可执行文件，未配置时会尝试自动发现。
 - `BANGDREAM_OPTIMIZE_ENABLE_CALC_ROUTES=false`：关闭
-  `/v1/maximize`、`/v1/score-range`、`/v1/calc-result` 与候选计算路由，仅保留
+  `/v1/maximize`、`/v1/score-range`、`/v1/pt-maximize`、`/v1/pt-evaluate`、
+  `/v1/calc-result` 与候选计算路由，仅保留
   `/bestdori/player/...`、`/game-data`、`/api/feedback` 与站点根目录；若同时开启
   国服游戏账号导入，也会保留
   `/bangdream/user-data/import`。该模式适用于仅作导入/静态代理且不对外暴露计算 API
@@ -335,6 +336,42 @@ POST /v1/maximize
   "captainCardId": 2190
 }
 ```
+
+## 指定队伍 PT 计算
+
+```http
+POST /v1/pt-evaluate
+POST /v1/pt-evaluate/from-config
+```
+
+两个入口分别使用 `playerId` 读取已存储档案，或直接接收 `player`。
+通用字段是 `server`、可选 `eventId` 和 `request`。`request` 示例：
+
+```json
+{
+  "eventType": "challenge",
+  "liveVariant": "solo",
+  "songs": [{ "songId": 1, "difficulty": 3 }],
+  "teams": [{
+    "cardIds": [101, 102, 103, 104, 105],
+    "captainCardId": 103
+  }],
+  "items": {
+    "band": "1",
+    "attribute": "happy",
+    "magazine": "performance"
+  },
+  "scoreMode": { "mode": "manual" },
+  "missionSupportPtBonus": 100
+}
+```
+
+Auto 模式使用 `{"mode":"auto","baseMultiplier":0.5}`（日服为
+`0.75`）。竞演演出需另传 `versus: {"teamRank": 0}`。巡回演出传入
+3 首歌和 3 支队伍。每支队伍的第三张卡固定为队长。
+
+详细计分、校验与主乐队导入见
+[`docs/pt-evaluate-design.md`](pt-evaluate-design.md)。
 
 ## 目标 PT 区间搜索
 

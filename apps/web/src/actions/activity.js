@@ -195,7 +195,9 @@ export function createActivityActions({
         ? '已切换到目标 PT'
         : calculationMode === 'ptMaximize'
           ? '已切换到最大PT（平均）'
-          : '已切换到最高得分');
+          : calculationMode === 'ptEvaluate'
+            ? '已切换到指定队伍'
+            : '已切换到最高得分');
     } catch (error) {
       renderConfigForms(readPlayer());
       setError(error);

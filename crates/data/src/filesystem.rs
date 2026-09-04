@@ -7,9 +7,9 @@ use crate::{
 use async_trait::async_trait;
 use bangdream_optimize_core::{
     AreaItemDefinition, BuildResult, CardDefinition, EventType, ItemSearchOptions,
-    PlayerCardConfig, PlayerConfig, PreferredItemTarget, PtMaximizeRequest, PtMaximizeResult,
-    ScoreRangeChartMeta, ScoreRangeChartMetaFile, ScoreRangeRequest, ScoreRangeResult, Server,
-    SongSelection, SCORE_RANGE_CHART_META_PATH,
+    PlayerCardConfig, PlayerConfig, PreferredItemTarget, PtEvaluateRequest, PtEvaluateResult,
+    PtMaximizeRequest, PtMaximizeResult, ScoreRangeChartMeta, ScoreRangeChartMetaFile,
+    ScoreRangeRequest, ScoreRangeResult, Server, SongSelection, SCORE_RANGE_CHART_META_PATH,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
@@ -297,6 +297,25 @@ impl BestdoriFilesystemCalculationInputBuilder {
             .ok_or(DataError::MissingCurrentEvent)?;
         let snapshot = self.snapshot_for(&player, event_id, &request.songs, server)?;
         SnapshotPtMaximizeInputBuilder::new(snapshot).pt_maximize_sync(
+            player,
+            server,
+            Some(event_id),
+            request,
+        )
+    }
+
+    pub fn pt_evaluate_sync(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        request: PtEvaluateRequest,
+    ) -> Result<PtEvaluateResult, DataError> {
+        let event_id = event_id
+            .or(player.current_event)
+            .ok_or(DataError::MissingCurrentEvent)?;
+        let snapshot = self.snapshot_for(&player, event_id, &request.songs, server)?;
+        SnapshotPtMaximizeInputBuilder::new(snapshot).pt_evaluate_sync(
             player,
             server,
             Some(event_id),
@@ -592,6 +611,16 @@ impl PtMaximizeInputBuilder for BestdoriFilesystemCalculationInputBuilder {
         request: PtMaximizeRequest,
     ) -> Result<PtMaximizeResult, DataError> {
         self.pt_maximize_sync(player, server, event_id, request)
+    }
+
+    async fn pt_evaluate(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        request: PtEvaluateRequest,
+    ) -> Result<PtEvaluateResult, DataError> {
+        self.pt_evaluate_sync(player, server, event_id, request)
     }
 }
 
@@ -1362,6 +1391,140 @@ mod tests {
             bangdream_optimize_core::LiveVariant::Medley
         );
         assert_eq!(result.medley.unwrap().teams.len(), 3);
+    }
+
+    #[test]
+    #[ignore = "uses the full diagnostic fixture and local Bestdori game data"]
+    fn evaluates_specified_medley_teams_from_full_diagnostic_fixture() {
+        use bangdream_optimize_core::{
+            LiveVariant, PtEvaluateScoreMode, SpecifiedTeam, FIXED_CAPTAIN_INDEX,
+        };
+
+        let diagnostic = full_diagnostic_fixture();
+        let event_id = diagnostic
+            .event_id
+            .or(diagnostic.player.current_event)
+            .unwrap_or(diagnostic.result.event_id);
+        let root = std::env::var("BANGDREAM_OPTIMIZE_GAME_DATA_ROOT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../var/game-data")
+            });
+        let builder = BestdoriFilesystemCalculationInputBuilder::load(
+            BestdoriFilesystemConfig::from_bestdori_api_root(&root),
+        )
+        .unwrap();
+        let songs = diagnostic
+            .result
+            .songs
+            .iter()
+            .map(|song| SongSelection {
+                song_id: song.song_id,
+                difficulty: song.difficulty,
+            })
+            .collect::<Vec<_>>();
+        let teams = diagnostic
+            .result
+            .songs
+            .iter()
+            .map(|song| {
+                let mut ids = song.team_card_ids.clone();
+                let captain_index = ids
+                    .iter()
+                    .position(|&card_id| card_id == song.captain_card_id)
+                    .expect("fixture captain belongs to its team");
+                let captain = ids.remove(captain_index);
+                ids.insert(FIXED_CAPTAIN_INDEX, captain);
+                let card_ids: [u32; 5] = ids.try_into().expect("fixture team has five cards");
+                SpecifiedTeam {
+                    card_ids,
+                    captain_card_id: captain,
+                }
+            })
+            .collect();
+        let result = builder
+            .pt_evaluate_sync(
+                diagnostic.player,
+                diagnostic.server,
+                Some(event_id),
+                PtEvaluateRequest {
+                    event_type: EventType::Medley,
+                    live_variant: LiveVariant::Medley,
+                    songs,
+                    teams,
+                    items: diagnostic.result.items.expect("fixture has selected items"),
+                    score_mode: PtEvaluateScoreMode::Manual,
+                    mission_support_pt_bonus: None,
+                    versus: None,
+                },
+            )
+            .unwrap();
+
+        let medley = result.medley.expect("specified Medley returns three teams");
+        assert_eq!(medley.teams.len(), 3);
+        assert!(medley.sample_count > 0);
+        assert!(medley.min_pt <= medley.max_pt);
+        assert!(medley.teams.iter().all(|team| {
+            team.team_card_ids.get(FIXED_CAPTAIN_INDEX) == Some(&team.captain_card_id)
+        }));
+    }
+
+    #[test]
+    #[ignore = "uses the full diagnostic fixture and local Bestdori game data"]
+    fn evaluates_specified_single_team_from_full_diagnostic_fixture() {
+        use bangdream_optimize_core::{
+            LiveVariant, PtEvaluateScoreMode, SpecifiedTeam, FIXED_CAPTAIN_INDEX,
+        };
+
+        let diagnostic = full_diagnostic_fixture();
+        let song = diagnostic.result.songs.first().expect("fixture has a song");
+        let mut ids = song.team_card_ids.clone();
+        let captain_index = ids
+            .iter()
+            .position(|&card_id| card_id == song.captain_card_id)
+            .expect("fixture captain belongs to its team");
+        let captain = ids.remove(captain_index);
+        ids.insert(FIXED_CAPTAIN_INDEX, captain);
+        let card_ids: [u32; 5] = ids.try_into().expect("fixture team has five cards");
+        let root = std::env::var("BANGDREAM_OPTIMIZE_GAME_DATA_ROOT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../var/game-data")
+            });
+        let builder = BestdoriFilesystemCalculationInputBuilder::load(
+            BestdoriFilesystemConfig::from_bestdori_api_root(&root),
+        )
+        .unwrap();
+        let result = builder
+            .pt_evaluate_sync(
+                diagnostic.player,
+                diagnostic.server,
+                Some(306),
+                PtEvaluateRequest {
+                    event_type: EventType::Challenge,
+                    live_variant: LiveVariant::Solo,
+                    songs: vec![SongSelection {
+                        song_id: song.song_id,
+                        difficulty: song.difficulty,
+                    }],
+                    teams: vec![SpecifiedTeam {
+                        card_ids,
+                        captain_card_id: captain,
+                    }],
+                    items: diagnostic.result.items.expect("fixture has selected items"),
+                    score_mode: PtEvaluateScoreMode::Manual,
+                    mission_support_pt_bonus: None,
+                    versus: None,
+                },
+            )
+            .unwrap();
+
+        let team = result.team.expect("specified single song returns one team");
+        assert_eq!(team.team_card_ids[FIXED_CAPTAIN_INDEX], captain);
+        assert_eq!(team.evaluation.captain_index, FIXED_CAPTAIN_INDEX);
+        assert_eq!(team.evaluation.captain_card_id, captain);
+        assert_eq!(team.evaluation.score_distribution.sample_count, 120);
+        assert!(team.evaluation.min_pt <= team.evaluation.max_pt);
     }
 
     #[test]

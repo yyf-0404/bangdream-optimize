@@ -7,6 +7,15 @@ const PT_MAXIMIZE_LIVE_VARIANTS_BY_EVENT_TYPE = {
   medley: ['medley'],
 };
 
+const PT_EVALUATE_LIVE_VARIANTS_BY_EVENT_TYPE = {
+  mission_live: ['solo'],
+  live_try: ['solo'],
+  challenge: ['solo', 'challenge_cp'],
+  versus: ['solo', 'versus'],
+  festival: ['solo'],
+  medley: ['medley'],
+};
+
 export const PLAYER_CONFIG_SCHEMA_VERSION = 1;
 
 const COOPERATIVE_LEADER_MODES = new Set([
@@ -104,6 +113,71 @@ export function normalizePtMaximizeConfig(value = {}) {
   };
 }
 
+export function createDefaultPtEvaluateConfig(server = 'cn') {
+  return {
+    liveVariantByEventType: Object.fromEntries(
+      Object.entries(PT_EVALUATE_LIVE_VARIANTS_BY_EVENT_TYPE)
+        .map(([eventType, variants]) => [eventType, variants[0]]),
+    ),
+    teams: Array.from({ length: 3 }, () => Array(5).fill(0)),
+    items: { band: '', attribute: '', magazine: 'performance' },
+    scoreMode: 'manual',
+    autoBaseMultiplier: server === 'jp' ? 0.75 : 0.5,
+    missionSupportPtBonus: 100,
+    versusTeamRank: 0,
+  };
+}
+
+export function normalizePtEvaluateConfig(value = {}, server = 'cn') {
+  const defaults = createDefaultPtEvaluateConfig(server);
+  const sourceTeams = Array.isArray(value?.teams) ? value.teams : [];
+  const multiplier = Number(value?.autoBaseMultiplier);
+  return {
+    liveVariantByEventType: normalizeVariants(
+      value?.liveVariantByEventType,
+      PT_EVALUATE_LIVE_VARIANTS_BY_EVENT_TYPE,
+    ),
+    teams: Array.from({ length: 3 }, (_, teamIndex) =>
+      Array.from({ length: 5 }, (_, cardIndex) =>
+        nonNegativeIntegerOrDefault(sourceTeams[teamIndex]?.[cardIndex], 0))),
+    items: {
+      band: String(value?.items?.band ?? ''),
+      attribute: String(value?.items?.attribute ?? ''),
+      magazine: ['performance', 'technique', 'visual'].includes(value?.items?.magazine)
+        ? value.items.magazine
+        : defaults.items.magazine,
+    },
+    scoreMode: value?.scoreMode === 'auto' ? 'auto' : 'manual',
+    autoBaseMultiplier: [0.5, 0.75].includes(multiplier)
+      ? multiplier
+      : defaults.autoBaseMultiplier,
+    missionSupportPtBonus: nonNegativeIntegerOrDefault(
+      value?.missionSupportPtBonus,
+      defaults.missionSupportPtBonus,
+    ),
+    versusTeamRank: boundedPlayerIndex(value?.versusTeamRank, 0),
+  };
+}
+
+export function ptEvaluateLiveVariant(config, eventType) {
+  const variants = PT_EVALUATE_LIVE_VARIANTS_BY_EVENT_TYPE[eventType];
+  const selected = config?.liveVariantByEventType?.[eventType];
+  return variants?.includes(selected) ? selected : variants?.[0] ?? 'solo';
+}
+
+export function ptEvaluateSupportsAuto(liveVariant) {
+  return liveVariant === 'solo' || liveVariant === 'medley';
+}
+
+export function withPtEvaluateLiveVariant(config, eventType, liveVariant, server = 'cn') {
+  const normalized = normalizePtEvaluateConfig(config, server);
+  const variants = PT_EVALUATE_LIVE_VARIANTS_BY_EVENT_TYPE[eventType];
+  if (variants?.includes(liveVariant)) {
+    normalized.liveVariantByEventType[eventType] = liveVariant;
+  }
+  return normalized;
+}
+
 export function ptMaximizeLiveVariant(config, eventType) {
   const variants = PT_MAXIMIZE_LIVE_VARIANTS_BY_EVENT_TYPE[eventType];
   if (!variants) {
@@ -132,11 +206,13 @@ function createDefaultTeammate() {
 }
 
 function normalizeLiveVariants(value) {
-  const source = value && typeof value === 'object' && !Array.isArray(value)
-    ? value
-    : {};
+  return normalizeVariants(value, PT_MAXIMIZE_LIVE_VARIANTS_BY_EVENT_TYPE);
+}
+
+function normalizeVariants(value, variantsByEventType) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   return Object.fromEntries(
-    Object.entries(PT_MAXIMIZE_LIVE_VARIANTS_BY_EVENT_TYPE)
+    Object.entries(variantsByEventType)
       .map(([eventType, variants]) => [
         eventType,
         variants.includes(source[eventType]) ? source[eventType] : variants[0],

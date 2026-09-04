@@ -79,6 +79,14 @@ export function renderResultSummary(resultElement, result, deps, { diagnostic } 
     renderScoreRangeSummary(resultElement, result, deps, diagnostic);
     return;
   }
+  if (result.scoreMode && result.team?.evaluation?.averagePt) {
+    renderPtEvaluateSummary(resultElement, result, deps);
+    return;
+  }
+  if (result.scoreMode && result.medley?.averagePt) {
+    renderPtEvaluateMedleySummary(resultElement, result, deps);
+    return;
+  }
   if (result.team?.evaluation?.averagePt) {
     renderPtMaximizeSummary(resultElement, result, deps);
     return;
@@ -211,6 +219,138 @@ function renderPtMaximizeMedleySummary(resultElement, result, deps) {
   resultElement.append(renderPtMaximizeSongSection(result.songs, teams, deps));
 }
 
+function renderPtEvaluateSummary(resultElement, result, deps) {
+  const team = result.team;
+  const evaluation = team.evaluation;
+  const averagePtStat = resultStat('平均活动 PT', '-', 'strong');
+  const minPtStat = resultStat('最低活动 PT', '-');
+  const maxPtStat = resultStat('最高活动 PT', '-');
+  const overview = document.createElement('section');
+  overview.className = 'result-overview';
+  overview.append(
+    averagePtStat,
+    minPtStat,
+    maxPtStat,
+    resultStat('平均分数', formatScoreDistributionAverage(evaluation.scoreDistribution)),
+    resultStat('最低分数', formatInteger(evaluation.scoreDistribution?.minScore)),
+    resultStat('最高分数', formatInteger(evaluation.scoreDistribution?.maxScore)),
+    resultStat('综合力', formatInteger(team.totalStat)),
+  );
+  if (Number(team.pointBonusBasisPoints) > 0) {
+    overview.append(
+      resultStat('活动加成', `${formatBasisPoints(team.pointBonusBasisPoints)}%`),
+    );
+  }
+  let averageCpGainStat;
+  if (evaluation.averageCpGain) {
+    averageCpGainStat = resultStat('平均 CP 获取', '-');
+    overview.append(averageCpGainStat);
+  }
+  let challengeCpCostStat;
+  if (evaluation.challengeCpCost != null) {
+    challengeCpCostStat = resultStat('CP 消耗', '-');
+    overview.append(challengeCpCostStat);
+  }
+  const multiplierSelector = renderPtMultiplierSelector(result.liveVariant, ({ resource, multiplier }) => {
+    setResultStatValue(averagePtStat, formatScaledAverageInteger(
+      evaluation.averagePt.ptSum,
+      evaluation.averagePt.sampleCount,
+      multiplier,
+    ));
+    setResultStatValue(minPtStat, formatInteger(Number(evaluation.minPt) * multiplier));
+    setResultStatValue(maxPtStat, formatInteger(Number(evaluation.maxPt) * multiplier));
+    if (averageCpGainStat) {
+      setResultStatValue(averageCpGainStat, formatScaledAverageFixed(
+        evaluation.averageCpGain.ptSum,
+        evaluation.averageCpGain.sampleCount,
+        multiplier,
+        4,
+      ));
+    }
+    if (challengeCpCostStat) {
+      setResultStatValue(challengeCpCostStat, `${formatInteger(resource)} CP`);
+    }
+  });
+  resultElement.append(
+    renderPtScenario(result),
+    multiplierSelector,
+    overview,
+    renderScoreMode(result.scoreMode),
+    renderSelectedItems(team.items, deps),
+    renderPtMaximizeSongSection(result.songs, [team], deps, { detailedScore: true }),
+  );
+}
+
+function renderPtEvaluateMedleySummary(resultElement, result, deps) {
+  const medley = result.medley;
+  const averagePtStat = resultStat('平均活动 PT', '-', 'strong');
+  const minPtStat = resultStat('最低活动 PT', '-');
+  const maxPtStat = resultStat('最高活动 PT', '-');
+  const overview = document.createElement('section');
+  overview.className = 'result-overview';
+  overview.append(
+    averagePtStat,
+    minPtStat,
+    maxPtStat,
+    resultStat('平均分数', formatAverageInteger(medley.totalScoreSum, medley.sampleCount)),
+    resultStat(
+      '最低分数',
+      formatInteger(medley.teams.reduce(
+        (sum, team) => sum + Number(team.scoreDistribution?.minScore ?? 0),
+        0,
+      )),
+    ),
+    resultStat(
+      '最高分数',
+      formatInteger(medley.teams.reduce(
+        (sum, team) => sum + Number(team.scoreDistribution?.maxScore ?? 0),
+        0,
+      )),
+    ),
+  );
+  const multiplierSelector = renderPtMultiplierSelector(result.liveVariant, ({ multiplier }) => {
+    setResultStatValue(averagePtStat, formatScaledAverageInteger(
+      medley.averagePt.ptSum,
+      medley.averagePt.sampleCount,
+      multiplier,
+    ));
+    setResultStatValue(minPtStat, formatInteger(Number(medley.minPt) * multiplier));
+    setResultStatValue(maxPtStat, formatInteger(Number(medley.maxPt) * multiplier));
+  });
+  resultElement.append(
+    renderPtScenario(result),
+    multiplierSelector,
+    overview,
+    renderScoreMode(result.scoreMode),
+  );
+  if (medley.teams[0]?.items) {
+    resultElement.append(renderSelectedItems(medley.teams[0].items, deps));
+  }
+  resultElement.append(renderPtMaximizeSongSection(
+    result.songs,
+    medley.teams,
+    deps,
+    { detailedScore: true },
+  ));
+}
+
+function renderScoreMode(scoreMode) {
+  const section = document.createElement('section');
+  section.className = 'result-section result-diagnostic';
+  const title = document.createElement('h3');
+  title.textContent = '计分方式';
+  const details = document.createElement('dl');
+  details.className = 'result-diagnostic-grid';
+  details.append(diagnosticItem(
+    '演奏',
+    scoreMode?.mode === 'auto'
+      ? `自动演出 · ${scoreMode.baseMultiplier} 倍`
+      : '手动演奏 · 全 Perfect',
+  ));
+  section.append(title, details);
+  return section;
+}
+
 function renderPtMultiplierSelector(liveVariant, onChange) {
   const challenge = liveVariant === 'challenge_cp';
   const medley = liveVariant === 'medley';
@@ -305,7 +445,7 @@ function ptLiveVariantLabel(value) {
   }[value] ?? String(value ?? '-');
 }
 
-function renderPtMaximizeSongSection(songs, teams, deps) {
+function renderPtMaximizeSongSection(songs, teams, deps, { detailedScore = false } = {}) {
   const section = document.createElement('section');
   section.className = 'result-section';
   const title = document.createElement('h3');
@@ -328,6 +468,8 @@ function renderPtMaximizeSongSection(songs, teams, deps) {
       stat: team.totalStat,
       teamCardIds: team.teamCardIds,
       captainCardId: team.captainCardId,
+      scoreDistribution,
+      detailedScore,
     }];
   });
   const maxScore = songResults.reduce(
@@ -659,9 +801,19 @@ function renderSongResult(song, index, maxScore, deps, {
 
   const details = document.createElement('div');
   details.className = 'result-song-details';
+  details.classList.toggle('has-detailed-score', Boolean(
+    song.detailedScore && song.scoreDistribution,
+  ));
   details.append(
     resultItem('综合力', formatInteger(song.stat)),
   );
+  if (song.detailedScore && song.scoreDistribution) {
+    details.append(
+      resultItem('最低分数', formatInteger(song.scoreDistribution.minScore)),
+      resultItem('平均分数', formatScoreDistributionAverage(song.scoreDistribution)),
+      resultItem('最高分数', formatInteger(song.scoreDistribution.maxScore)),
+    );
+  }
 
   card.append(header, bar, details, renderSkillOrder(song, deps, {
     sectionTitle: skillTitle,

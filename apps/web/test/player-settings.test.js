@@ -3,11 +3,16 @@ import test from 'node:test';
 
 import {
   PLAYER_CONFIG_SCHEMA_VERSION,
+  createDefaultPtEvaluateConfig,
   createDefaultPtMaximizeConfig,
   createDefaultScoreRangeConfig,
+  normalizePtEvaluateConfig,
   normalizePtMaximizeConfig,
   normalizeScoreRangeConfig,
+  ptEvaluateLiveVariant,
+  ptEvaluateSupportsAuto,
   ptMaximizeLiveVariant,
+  withPtEvaluateLiveVariant,
   withPtMaximizeLiveVariant,
 } from '../src/models/player-settings.js';
 import { samplePlayerConfig } from '../src/storage/user.js';
@@ -17,12 +22,53 @@ test('sample config and persisted setting defaults share one source', () => {
   assert.equal(sample.playerConfigVersion, PLAYER_CONFIG_SCHEMA_VERSION);
   assert.deepEqual(sample.scoreRange, createDefaultScoreRangeConfig('cn'));
   assert.deepEqual(sample.ptMaximize, createDefaultPtMaximizeConfig());
+  assert.deepEqual(sample.ptEvaluate, createDefaultPtEvaluateConfig('cn'));
   assert.equal(sample.server, 'cn');
   assert.equal(sample.calculationMode, 'ptMaximize');
   assert.equal(sample.currentEvent, undefined);
   assert.deepEqual(sample.eventSongs, {});
   assert.equal(sample.ptMaximize.festivalWon, true);
   assert.equal(sample.ptMaximize.festivalTeammateScores[0], 4000000);
+});
+
+test('specified-team defaults and variants follow server and event type', () => {
+  assert.equal(createDefaultPtEvaluateConfig('jp').autoBaseMultiplier, 0.75);
+  assert.equal(createDefaultPtEvaluateConfig('cn').autoBaseMultiplier, 0.5);
+
+  let config = createDefaultPtEvaluateConfig('cn');
+  config = withPtEvaluateLiveVariant(config, 'challenge', 'challenge_cp', 'cn');
+  config = withPtEvaluateLiveVariant(config, 'versus', 'versus', 'cn');
+  assert.equal(ptEvaluateLiveVariant(config, 'challenge'), 'challenge_cp');
+  assert.equal(ptEvaluateLiveVariant(config, 'versus'), 'versus');
+  assert.equal(ptEvaluateLiveVariant(config, 'medley'), 'medley');
+  assert.equal(ptEvaluateLiveVariant(config, 'festival'), 'solo');
+});
+
+test('specified-team Auto is limited to free and medley live variants', () => {
+  assert.equal(ptEvaluateSupportsAuto('solo'), true);
+  assert.equal(ptEvaluateSupportsAuto('medley'), true);
+  assert.equal(ptEvaluateSupportsAuto('challenge_cp'), false);
+  assert.equal(ptEvaluateSupportsAuto('versus'), false);
+});
+
+test('specified-team persisted values are normalized without sharing team arrays', () => {
+  const normalized = normalizePtEvaluateConfig({
+    teams: [[3, 1, 9, 2, 4]],
+    scoreMode: 'auto',
+    autoBaseMultiplier: 0.75,
+    items: { band: '1', attribute: 'happy', magazine: 'visual' },
+  }, 'cn');
+
+  assert.deepEqual(normalized.teams[0], [3, 1, 9, 2, 4]);
+  assert.equal(normalized.scoreMode, 'auto');
+  assert.equal(normalized.autoBaseMultiplier, 0.75);
+  assert.deepEqual(normalized.items, {
+    band: '1',
+    attribute: 'happy',
+    magazine: 'visual',
+  });
+  normalized.teams[0][0] = 100;
+  assert.equal(normalized.teams[1][0], 0);
 });
 
 test('incomplete PT maximize configs are completed without sharing teammate objects', () => {

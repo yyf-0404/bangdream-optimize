@@ -5,8 +5,9 @@ use crate::{
 };
 use async_trait::async_trait;
 use bangdream_optimize_core::{
-    BuildResult, ItemSearchOptions, PlayerConfig, PtMaximizeRequest, PtMaximizeResult,
-    ScoreRangeRequest, ScoreRangeResult, Server, SongSelection,
+    BuildResult, ItemSearchOptions, PlayerConfig, PtEvaluateRequest, PtEvaluateResult,
+    PtMaximizeRequest, PtMaximizeResult, ScoreRangeRequest, ScoreRangeResult, Server,
+    SongSelection,
 };
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
@@ -163,6 +164,22 @@ impl BestdoriCachedFilesystemCalculationInputBuilder {
             self.clear_loaded_calculator()?;
         }
         self.pt_maximize_from_cache(player, server, Some(selected_event_id), request)
+    }
+
+    pub fn pt_evaluate_sync(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        request: PtEvaluateRequest,
+    ) -> Result<PtEvaluateResult, DataError> {
+        let selected_event_id = event_id
+            .or(player.current_event)
+            .ok_or(DataError::MissingCurrentEvent)?;
+        if self.sync_for_inner(selected_event_id, &request.songs, Some(&player))? {
+            self.clear_loaded_calculator()?;
+        }
+        self.pt_evaluate_from_cache(player, server, Some(selected_event_id), request)
     }
 
     fn sync_score_range_for_inner(
@@ -660,6 +677,25 @@ impl BestdoriCachedFilesystemCalculationInputBuilder {
             .pt_maximize_sync(player, server, event_id, request)
     }
 
+    fn pt_evaluate_from_cache(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        request: PtEvaluateRequest,
+    ) -> Result<PtEvaluateResult, DataError> {
+        let mut calculator = self.calculator_lock()?;
+        if calculator.is_none() {
+            *calculator = Some(BestdoriFilesystemCalculationInputBuilder::load(
+                BestdoriFilesystemConfig::from_bestdori_api_root(self.config.cache_root.clone()),
+            )?);
+        }
+        calculator
+            .as_ref()
+            .expect("calculator was loaded")
+            .pt_evaluate_sync(player, server, event_id, request)
+    }
+
     fn calculator_lock(
         &self,
     ) -> Result<
@@ -744,6 +780,16 @@ impl PtMaximizeInputBuilder for BestdoriCachedFilesystemCalculationInputBuilder 
         request: PtMaximizeRequest,
     ) -> Result<PtMaximizeResult, DataError> {
         self.pt_maximize_sync(player, server, event_id, request)
+    }
+
+    async fn pt_evaluate(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        request: PtEvaluateRequest,
+    ) -> Result<PtEvaluateResult, DataError> {
+        self.pt_evaluate_sync(player, server, event_id, request)
     }
 }
 

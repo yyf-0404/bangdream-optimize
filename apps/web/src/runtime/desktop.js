@@ -82,6 +82,13 @@ export async function createDesktopRuntime() {
         eventId,
         request,
       }),
+    ptEvaluate: ({ player, server, eventId, request }) =>
+      invokeJson(invoke, 'pt_evaluate_for_config', {
+        player,
+        server,
+        eventId,
+        request,
+      }),
   };
 }
 

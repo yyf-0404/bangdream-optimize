@@ -19,6 +19,10 @@ impl SnapshotPtMaximizeInputBuilder {
         Self { data }
     }
 
+    pub(crate) fn snapshot(&self) -> &GameDataSnapshot {
+        &self.data
+    }
+
     pub fn pt_maximize_sync(
         &self,
         player: PlayerConfig,
@@ -108,5 +112,15 @@ impl PtMaximizeInputBuilder for SnapshotPtMaximizeInputBuilder {
         request: PtMaximizeRequest,
     ) -> Result<PtMaximizeResult, DataError> {
         self.pt_maximize_sync(player, server, event_id, request)
+    }
+
+    async fn pt_evaluate(
+        &self,
+        player: PlayerConfig,
+        server: Server,
+        event_id: Option<u32>,
+        request: bangdream_optimize_core::PtEvaluateRequest,
+    ) -> Result<bangdream_optimize_core::PtEvaluateResult, DataError> {
+        self.pt_evaluate_sync(player, server, event_id, request)
     }
 }

@@ -67,6 +67,9 @@ pub enum DataError {
     #[error("PT-maximize error: {0}")]
     PtMaximize(#[from] bangdream_optimize_core::PtMaximizeError),
 
+    #[error("PT-evaluate error: {0}")]
+    PtEvaluate(#[from] bangdream_optimize_core::PtEvaluateError),
+
     #[error("data preparation is not implemented yet")]
     NotImplemented,
 }

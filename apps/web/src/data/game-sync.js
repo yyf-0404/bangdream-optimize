@@ -224,6 +224,10 @@ export class GameDataClient {
     };
   }
 
+  async buildPtEvaluatePayload(args) {
+    return this.buildPtMaximizePayload(args);
+  }
+
   async calculationEvent(selectedEventId, player, core) {
     const key = String(selectedEventId);
     const isCustomEvent = Number(selectedEventId) === CUSTOM_EVENT_ID;

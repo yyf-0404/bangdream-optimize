@@ -77,6 +77,21 @@ test('classifies invalid fire multipliers as configuration errors', () => {
   assert.equal(explanation.code, 'invalid-fire-multiplier');
 });
 
+test('classifies specified-team captain and area-item validation failures', () => {
+  assert.equal(
+    explainCalculationError(
+      new Error('team 0 captain 101 must match third slot card 103'),
+    ).code,
+    'fixed-team-captain-position',
+  );
+  assert.equal(
+    explainCalculationError(
+      new Error('selected band area-item group 1 is missing or contains a level-0 item'),
+    ).code,
+    'fixed-team-area-item-unavailable',
+  );
+});
+
 test('empty score-range result explains a possibly too-small PT increment', () => {
   const explanation = scoreRangeEmptyExplanation({
     currentPt: 1000,

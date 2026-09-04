@@ -1,6 +1,7 @@
 import {
   PLAYER_CONFIG_SCHEMA_VERSION,
   createDefaultPtMaximizeConfig,
+  createDefaultPtEvaluateConfig,
   createDefaultScoreRangeConfig,
 } from '../models/player-settings.js?v=3';
 
@@ -107,6 +108,7 @@ export function samplePlayerConfig() {
     activityMode: 'single',
     scoreRange: createDefaultScoreRangeConfig('cn'),
     ptMaximize: createDefaultPtMaximizeConfig(),
+    ptEvaluate: createDefaultPtEvaluateConfig('cn'),
     eventSongs: {},
     eventPresets: {},
     eventOverrides: {},

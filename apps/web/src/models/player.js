@@ -10,6 +10,7 @@ import { CUSTOM_EVENT_ID } from './event.js?v=3';
 import {
   PLAYER_CONFIG_SCHEMA_VERSION,
   normalizePtMaximizeConfig,
+  normalizePtEvaluateConfig,
   normalizeScoreRangeConfig,
 } from './player-settings.js?v=3';
 
@@ -42,6 +43,7 @@ export function createPlayerModel({
       activityMode: normalizedActivityMode(player.activityMode),
       scoreRange: normalizeScoreRangeConfig(player.scoreRange, server),
       ptMaximize: normalizePtMaximizeConfig(player.ptMaximize),
+      ptEvaluate: normalizePtEvaluateConfig(player.ptEvaluate, server),
       eventSongs: player.eventSongs ?? {},
       eventPresets: normalizedEventPresets(player.eventPresets),
       eventOverrides: normalizedEventOverrides(player.eventOverrides, calculationMode),
