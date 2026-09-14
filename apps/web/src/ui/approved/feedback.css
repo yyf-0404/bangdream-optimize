@@ -1,0 +1,36 @@
+#feedback-dialog{box-sizing:border-box;width:min(600px,calc(100vw - 28px));max-height:calc(100dvh - 28px);padding:0;border:1px solid #e1dfe8;border-radius:8px;background:#fff;color:#34363f;box-shadow:0 20px 70px #30284229;font:13px/1.65 Inter,"Noto Sans SC","Microsoft YaHei",sans-serif;overflow:auto}
+#feedback-dialog::backdrop{background:#2523354d}
+#feedback-dialog *{box-sizing:border-box}
+#feedback-dialog h2,#feedback-dialog h3,#feedback-dialog p{margin:0}
+#feedback-dialog .pf-top{position:sticky;top:0;z-index:1;background:#fff;display:flex;align-items:center;justify-content:space-between;padding:15px 22px;border-bottom:1px solid #e8e6ed}
+#feedback-dialog .pf-top>div{display:flex;align-items:center;gap:9px;color:#78608d}
+#feedback-dialog .pf-top svg{width:19px;height:19px}
+#feedback-dialog h2{font-size:17px;font-weight:600}
+#feedback-dialog .pf-top>button{font-size:24px;min-width:36px;padding:0;color:#7a7784}
+#feedback-dialog button{border:0;background:transparent;color:#656072;min-height:38px;padding:8px 13px;font:inherit;border-radius:4px;cursor:pointer}
+#feedback-dialog button:hover{background:#f3f0f7}
+#feedback-dialog button:disabled{opacity:.55;cursor:default}
+#feedback-dialog :is(button,input,select,textarea):focus-visible{outline:2px solid #a07faa;outline-offset:2px}
+#feedback-dialog .pf-body{display:grid;gap:16px;padding:20px 22px}
+#feedback-dialog .pf-intro{font-size:12px;color:#777481}
+#feedback-dialog label{display:block;color:#6d6878;font-size:12px;min-width:0}
+#feedback-dialog .pf-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+#feedback-dialog :is(input:not([type=checkbox]):not([type=file]),textarea,select){width:100%;display:block;margin-top:6px;padding:9px 10px;border:1px solid #d7d4df;border-radius:4px;background:#fff;color:#34363f;font:inherit;font-size:13px;min-height:39px}
+#feedback-dialog textarea{resize:vertical;min-height:100px}
+#feedback-dialog small,#feedback-dialog .pf-note{font-size:11px;color:#88828f}
+#feedback-dialog .pf-file{display:table;position:relative;margin:8px 0;border:1px dashed #bcb4c6;border-radius:4px;padding:8px 13px;min-height:38px;cursor:pointer}
+#feedback-dialog .pf-file input{position:absolute;inset:0;opacity:0;width:100%;cursor:pointer}
+#feedback-dialog .pf-file:focus-within{outline:2px solid #a07faa;outline-offset:2px}
+#feedback-dialog #pf-files{font-size:11px;overflow-wrap:anywhere;color:#736d7e}
+#feedback-dialog #pf-file-error,#feedback-dialog .pf-error{color:#a7405c;font-size:12px}
+#feedback-dialog :is(#pf-files,#pf-file-error,#pf-diagnostic-note,#pf-status):empty{display:none}
+#feedback-dialog .pf-options{display:flex;gap:14px;flex-wrap:wrap}
+#feedback-dialog .pf-options label{display:flex;gap:7px;align-items:center;min-height:30px;font-size:11px}
+#feedback-dialog input[type=checkbox]{width:15px;height:15px;margin:0;accent-color:#986792}
+#feedback-dialog .pf-bottom{position:sticky;bottom:0;background:#fff;border-top:1px solid #e8e6ed;padding:12px 22px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+#feedback-dialog .pf-bottom>div{display:flex;gap:10px}
+#feedback-dialog button.pf-submit{background:#96668f;color:#fff}
+#feedback-dialog button.pf-submit:hover{background:#825779}
+#feedback-dialog .pf-success{justify-items:center;text-align:center;padding:40px 22px;gap:9px}
+#feedback-dialog .pf-success>span{font-size:28px;color:#538174}
+@media(max-width:600px){#feedback-dialog .pf-row{grid-template-columns:1fr;gap:16px}#feedback-dialog :is(.pf-body,.pf-top,.pf-bottom){padding-left:16px;padding-right:16px}#feedback-dialog .pf-bottom{flex-wrap:wrap}#feedback-dialog .pf-bottom>small{width:100%}#feedback-dialog .pf-bottom>div{margin-left:auto}#feedback-dialog :is(input:not([type=checkbox]):not([type=file]),textarea,select){font-size:16px}#feedback-dialog button{min-height:42px}}

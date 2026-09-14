@@ -1,0 +1,17 @@
+{
+  "boundary-design/activity.html": "a9d451312e9c9e69a5365eed5ca15a8331d166d878bac4b6e47ea6c1ae67d165",
+  "boundary-design/cards.html": "431b1a1ebc0d6848dcbf7e203d799a7c30bf2752a283968d576166933a9274ab",
+  "boundary-design/player.html": "9af74b0ae0a18c206bd6e68bc5648cf93ca979f35d84f58848d60ea6301a7cea",
+  "boundary-design/archive.html": "46e68e3d7b997654fa4ee616bf517bb680d561603589ffbb6dc8d140c2279a05",
+  "boundary-design/result.html": "03b75bc18b306dc55da6ccb9f9f9041f61f09e869ba20f362445ce1023ebbb81",
+  "shared-design/shared.js": "a441ebda8522a43d10f0623de04aa83adc868b36cc69c3a609bcc11191bf852a",
+  "preview-feedback.js": "d70377ec4b3df1334d92bab7fb387a326b47bf533da3c1c39d231d4f2816286f",
+  "preview-feedback.css": "ef015b22e83eda1dd2f66daf15ec0e552e0caab9e307c549dc4c4c5d23d5b82b",
+  "unified-design/result-decoration.js": "7b1d0ec3d5032b6af613fc2208b8989642e967b41bf304e8f0894a21f7a75821",
+  "preview-conditions.js": "b229b5b53df70198c9118e3d4560c54bab2bd5b2db67d34be542b9357a92c3dd",
+  "preview-teams.js": "928254113bb5fdafd33dc561f790e2a503d3103728a9c3ce27738f4f46fda024",
+  "card-library-unified/bulk.mjs": "af9fe21351431ce50af30d3bdf7bcd9fcae4a577d9bc7c0486745b94a917176c",
+  "unified-design/shell.js": "24dfe2e7b5bd85ace3b431befe8238e1a74d6021d6302d97783ff1fda29e5e40",
+  "unified-design/sidebar.css": "c866d330f70c29e71b8d14261c274f92305f7320a54f48888f9eedd9c92e475f",
+  "preview-calculation-settings.js": "84bfc7a63e20a89e2e132c3cf3e9544bcccf3752de71a8d254305d901da3a7f7"
+}

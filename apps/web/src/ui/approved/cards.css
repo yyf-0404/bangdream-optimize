@@ -1,0 +1,549 @@
+/* Accepted source: card-library-unified/toolbar.css */
+:is(#card-library-unified,.accepted-card-picker){--list-gutter:24px}
+@media (min-width:1500px){:is(#card-library-unified,.accepted-card-picker){--list-gutter:32px}}
+@media (max-width:950px){:is(#card-library-unified,.accepted-card-picker){--list-gutter:18px}}
+@media (max-width:650px){:is(#card-library-unified,.accepted-card-picker){--list-gutter:14px}}
+:is(#card-library-unified,.accepted-card-picker) .results{container:card-results / inline-size;--list-accent:#665477;--list-accent-soft:#eee8f2}
+:is(#card-library-unified,.accepted-card-picker) .results-dock{--dock-left:calc(var(--sidebar-base-padding,var(--list-gutter)) + var(--sidebar-content-inset,0px));position:sticky;top:var(--cards-review-height,0px);z-index:6;margin-left:calc(-1 * var(--dock-left));margin-right:calc(-1 * var(--list-gutter));margin-bottom:9px;padding-left:var(--dock-left);padding-right:var(--list-gutter);background:#fff}
+:is(#card-library-unified,.accepted-card-picker) .results-dock .results-toolbar{position:relative;top:auto;z-index:auto}
+:is(#card-library-unified,.accepted-card-picker) .results-toolbar{display:grid;grid-template-columns:minmax(180px,1fr) auto;align-items:center;gap:16px 28px;padding:18px 0 16px;border:0;background:#fff;box-shadow:none}
+:is(#card-library-unified,.accepted-card-picker) .results-count{display:flex;align-items:center;justify-content:flex-start;gap:22px;width:auto;min-width:0}
+:is(#card-library-unified,.accepted-card-picker) .count-stack{display:grid;gap:2px;min-width:0}
+:is(#card-library-unified,.accepted-card-picker) .match-context{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+:is(#card-library-unified,.accepted-card-picker) :is(#match-count,[data-design-id="match-count"]){display:flex;align-items:baseline;gap:7px;font-weight:500;white-space:nowrap;line-height:1.2;color:var(--list-accent)}
+:is(#card-library-unified,.accepted-card-picker) .match-value{font-size:28px;font-weight:600;letter-spacing:-.7px;font-variant-numeric:tabular-nums}
+:is(#card-library-unified,.accepted-card-picker) .match-unit{font-size:12px;font-weight:500;letter-spacing:0;color:#626677}
+:is(#card-library-unified,.accepted-card-picker) :is(#match-detail,[data-design-id="match-detail"]){font-size:11px;color:var(--muted);line-height:1.6}
+:is(#card-library-unified,.accepted-card-picker) .back-to-filters{position:static;margin:0;gap:5px;min-height:28px;padding:3px 0;color:var(--list-accent);font-size:11px;white-space:nowrap}
+:is(#card-library-unified,.accepted-card-picker) .back-to-filters:hover{color:var(--brand)}
+:is(#card-library-unified,.accepted-card-picker) .view-controls{display:flex;align-items:flex-end;justify-content:flex-end;gap:22px;width:auto;margin:0;min-width:0}
+:is(#card-library-unified,.accepted-card-picker) .view-settings{display:flex;align-items:flex-end;gap:14px;min-width:0}
+:is(#card-library-unified,.accepted-card-picker) .view-controls label{display:flex;flex-direction:column;align-items:stretch;gap:5px;min-width:0;max-width:none;flex:none;color:var(--muted);font-size:11px}
+:is(#card-library-unified,.accepted-card-picker) .control-label{display:flex;align-items:center;gap:5px;min-height:18px}
+:is(#card-library-unified,.accepted-card-picker) .control-label [data-icon] svg{width:13px;height:13px}
+:is(#card-library-unified,.accepted-card-picker) .view-controls select{height:36px;border-color:#e2e3e9;background:#fcfcfe;border-radius:4px;padding:4px 25px 4px 10px;font-size:12px;width:108px}
+:is(#card-library-unified,.accepted-card-picker) .sort-control{position:relative;min-width:0}
+:is(#card-library-unified,.accepted-card-picker) :is(#sort,[data-design-id="sort"]){width:204px}
+:is(#card-library-unified,.accepted-card-picker) .results-toolbar .bulk-toggle{display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:none;white-space:nowrap;height:36px;padding:5px 12px;border:1px solid #d7cbdc;border-radius:4px;background:#f9f6fb;color:#765b84;font-size:12px}
+:is(#card-library-unified,.accepted-card-picker) .results-toolbar .bulk-toggle svg{width:15px;height:15px;flex:none}
+:is(#card-library-unified,.accepted-card-picker) .results-toolbar .bulk-toggle:hover,:is(#card-library-unified,.accepted-card-picker) .results-toolbar .bulk-toggle[aria-pressed=true]{background:#eee5f3;border-color:#bc9bc9;color:#704d83}
+:is(#card-library-unified,.accepted-card-picker) .list-meta{display:flex;align-items:center;justify-content:flex-start;gap:16px;padding:8px 0 12px;margin:0;border:0;flex-wrap:nowrap}
+:is(#card-library-unified,.accepted-card-picker) .jump-caption{font-size:11px;color:var(--muted);white-space:nowrap;flex:none}
+:is(#card-library-unified,.accepted-card-picker) .group-jumps{display:flex;align-items:center;gap:12px;flex-wrap:wrap;min-width:0}
+:is(#card-library-unified,.accepted-card-picker) .group-jumps a{position:relative;display:flex;align-items:center;justify-content:center;gap:8px;min-width:67px;min-height:42px;padding:3px 5px 9px;border:0;border-radius:0;background:none;color:var(--list-accent);font-size:13px;font-variant-numeric:tabular-nums;text-decoration:none}
+:is(#card-library-unified,.accepted-card-picker) .group-jumps img{width:25px;height:25px;object-fit:contain}
+:is(#card-library-unified,.accepted-card-picker) .jump-count{min-width:22px}
+:is(#card-library-unified,.accepted-card-picker) .jump-share{position:absolute;bottom:2px;inset-inline:5px;height:3px;background:#f0f2f5;border-radius:2px;overflow:hidden}
+:is(#card-library-unified,.accepted-card-picker) .jump-share>span{display:block;height:100%;background:#9db9ce;border-radius:2px;min-width:2px}
+:is(#card-library-unified,.accepted-card-picker) .group-jumps a:hover{background:#f4f7fa;color:var(--brand)}
+:is(#card-library-unified,.accepted-card-picker) .group-jumps a:hover .jump-share>span{background:#b58bad}
+:is(#card-library-unified,.accepted-card-picker) .group-jumps select{height:36px;min-width:150px;border-color:#e2e3e9}
+:is(#card-library-unified,.accepted-card-picker) .release-help{position:absolute;right:0;top:0;z-index:2}
+:is(#card-library-unified,.accepted-card-picker) .release-help>summary{list-style:none;display:flex;align-items:center;justify-content:center;width:24px;height:22px;cursor:pointer;color:#8a8293;border-radius:3px}
+:is(#card-library-unified,.accepted-card-picker) .release-help>summary::-webkit-details-marker{display:none}
+:is(#card-library-unified,.accepted-card-picker) .release-help>summary:hover,:is(#card-library-unified,.accepted-card-picker) .release-help[open]>summary{color:#795b8b;background:#f3edf6}
+:is(#card-library-unified,.accepted-card-picker) .release-help>summary [data-icon] svg{width:14px;height:14px}
+:is(#card-library-unified,.accepted-card-picker) .release-popover{position:absolute;top:27px;right:0;width:250px;padding:14px 16px;background:#fff;border:1px solid #e5dfe9;border-radius:6px;box-shadow:0 8px 28px #43324e18;font-size:11px;line-height:1.8;color:#746a7c}
+:is(#card-library-unified,.accepted-card-picker) .release-popover strong{display:block;color:#56495f;font-size:12px;font-weight:600;margin-bottom:4px}
+:is(#card-library-unified,.accepted-card-picker) .release-popover .release-order{color:#5c5067;margin-bottom:5px}
+:is(#card-library-unified,.accepted-card-picker) .results .card-group{scroll-margin-top:calc(var(--cards-review-height,0px) + var(--list-toolbar-height,84px) + 12px)}
+@container  card-results (max-width:790px){:is(#card-library-unified,.accepted-card-picker) .results-toolbar{grid-template-columns:minmax(0,1fr);gap:14px;padding:16px 0 12px}
+:is(#card-library-unified,.accepted-card-picker) .results-count{justify-content:space-between;gap:14px}
+:is(#card-library-unified,.accepted-card-picker) .view-controls{justify-content:space-between;gap:16px}
+:is(#card-library-unified,.accepted-card-picker) .view-settings{flex:1}
+:is(#card-library-unified,.accepted-card-picker) .sort-control{flex:1;max-width:290px}
+:is(#card-library-unified,.accepted-card-picker) :is(#sort,[data-design-id="sort"]){width:100%}
+:is(#card-library-unified,.accepted-card-picker) .group-jumps{flex:1;gap:6px;flex-wrap:nowrap}
+:is(#card-library-unified,.accepted-card-picker) .group-jumps a{flex:1;min-width:0;gap:5px;padding-inline:3px}
+:is(#card-library-unified,.accepted-card-picker) .group-jumps img{width:23px;height:23px}
+:is(#card-library-unified,.accepted-card-picker) .jump-count{min-width:0}}
+@container  card-results (max-width:440px){:is(#card-library-unified,.accepted-card-picker) .results-toolbar{position:relative;top:auto;padding-top:13px}
+:is(#card-library-unified,.accepted-card-picker) .match-value{font-size:26px}
+:is(#card-library-unified,.accepted-card-picker) .results-count{padding-right:108px;gap:12px}
+:is(#card-library-unified,.accepted-card-picker) .back-to-filters{font-size:11px}
+:is(#card-library-unified,.accepted-card-picker) .view-controls{display:block}
+:is(#card-library-unified,.accepted-card-picker) .view-settings{gap:12px}
+:is(#card-library-unified,.accepted-card-picker) .view-controls select{height:40px;width:94px}
+:is(#card-library-unified,.accepted-card-picker) .sort-control{max-width:none}
+:is(#card-library-unified,.accepted-card-picker) .results-toolbar .bulk-toggle{position:absolute;right:0;top:17px;height:36px;min-height:36px;padding-inline:10px;font-size:11px}
+:is(#card-library-unified,.accepted-card-picker) .list-meta{align-items:flex-start;gap:5px;flex-direction:column;padding-top:8px;padding-bottom:10px}
+:is(#card-library-unified,.accepted-card-picker) .group-jumps{width:100%;gap:4px;flex-wrap:nowrap}
+:is(#card-library-unified,.accepted-card-picker) .group-jumps a{min-width:0;flex:1;gap:5px;font-size:12px;min-height:44px;padding-inline:1px}
+:is(#card-library-unified,.accepted-card-picker) .group-jumps img{width:23px;height:23px}
+:is(#card-library-unified,.accepted-card-picker) .jump-count{min-width:0}
+:is(#card-library-unified,.accepted-card-picker) .release-popover{width:min(250px,calc(100vw - 50px))}}
+/* Accepted source: card-library-unified/shared.css */
+:is(#card-library-unified,.accepted-card-picker) .shared-card-library .filter-actions{display:inline-flex;align-items:center;flex-shrink:0}
+:is(#card-library-unified,.accepted-card-picker) .shared-card-library .filter-action{display:inline-flex;align-items:center;justify-content:center;min-width:52px;height:38px;padding:5px 10px;border:1px solid var(--line);border-radius:5px;background:#f7f7f9;font-family:inherit;font-size:12px;font-weight:500;line-height:1.5;color:var(--muted);white-space:nowrap;cursor:pointer}
+:is(#card-library-unified,.accepted-card-picker) .shared-card-library .filter-action[data-complete=true]{border-color:#e9c0d3;background:#fff7fa;color:var(--brand)}
+:is(#card-library-unified,.accepted-card-picker) .shared-card-library .filter-action:hover{border-color:#cf76a0;color:var(--brand)}
+:is(#card-library-unified,.accepted-card-picker) .shared-card-library .filter-action:focus-visible{outline:2px solid var(--brand);outline-offset:3px}
+:is(#card-library-unified,.accepted-card-picker) .shared-card-library .options,:is(#card-library-unified,.accepted-card-picker) .shared-card-library .pt-filter-set{flex-wrap:wrap}
+@media (max-width:650px){:is(#card-library-unified,.accepted-card-picker) .shared-card-library .filter-action{height:40px}}
+:is(#card-library-unified,.accepted-card-picker){--brand:#b52d71;--pink:#c20a56;--muted:#767281;--line:#e8e6ed}
+:is(#card-library-unified,.accepted-card-picker) .band-row{ display:flex; align-items:center; gap:8px; min-width:0; }
+:is(#card-library-unified,.accepted-card-picker) .band-button{ position:relative; display:flex; align-items:center; justify-content:center; width:88px; height:44px; border:1px solid transparent; border-radius:5px; background:#f7f7f9; flex-shrink:0; }
+:is(#card-library-unified,.accepted-card-picker) .band-button img{ width:69px; height:29px; object-fit:contain; }
+:is(#card-library-unified,.accepted-card-picker) .band-button::after{ content:""; position:absolute; right:3px; bottom:3px; width:4px; height:4px; border-radius:50%; background:#a7a8b3; }
+:is(#card-library-unified,.accepted-card-picker) .band-button[aria-checked=true]::after{ background:var(--pink); }
+:is(#card-library-unified,.accepted-card-picker) .band-button[aria-checked=mixed]::after{ width:9px; height:3px; border-radius:1px; background:var(--brand); }
+:is(#card-library-unified,.accepted-card-picker) .band-button[aria-checked=false] img{ opacity:.5; filter:grayscale(1); }
+:is(#card-library-unified,.accepted-card-picker) .band-button:hover{ border-color:#dfa4bf; }
+:is(#card-library-unified,.accepted-card-picker) .members{ display:flex; align-items:center; justify-content:space-between; gap:3px; flex:1; min-width:0; max-width:280px; }
+:is(#card-library-unified,.accepted-card-picker) .character-button{ position:relative; width:44px; height:44px; padding:3px; border:1px solid #e7e8ed; border-radius:50%; background:#fafafd; flex-shrink:0; }
+:is(#card-library-unified,.accepted-card-picker) .character-button img{ width:100%; height:100%; object-fit:contain; border-radius:50%; }
+:is(#card-library-unified,.accepted-card-picker) .character-button[aria-checked=true]{ border-color:#d4d5df; }
+:is(#card-library-unified,.accepted-card-picker) .character-button[aria-checked=true]::after{ content:"✓"; position:absolute; display:grid; place-items:center; right:0; bottom:0; width:12px; height:12px; border-radius:50%; background:#c20a56; color:white; font:9px/1 sans-serif; border:1px solid white; }
+:is(#card-library-unified,.accepted-card-picker) .character-button[aria-checked=false] img{ opacity:.35; filter:grayscale(1); }
+:is(#card-library-unified,.accepted-card-picker) .character-button:hover{ border-color:var(--brand); background:#fff2f8; }
+:is(#card-library-unified,.accepted-card-picker) .filter-option{ position:relative; display:flex; align-items:center; justify-content:center; gap:5px; min-width:40px; height:38px; padding:5px; border:1px solid transparent; border-radius:5px; background:#f7f7f9; font-size:12px; }
+:is(#card-library-unified,.accepted-card-picker) .filter-option img{ width:27px; height:25px; object-fit:contain; }
+:is(#card-library-unified,.accepted-card-picker) .filter-option[aria-checked=true]{ border-color:#e9c0d3; background:#fff7fa; }
+:is(#card-library-unified,.accepted-card-picker) .filter-option[aria-checked=false] img{ opacity:.45; filter:grayscale(.7); }
+:is(#card-library-unified,.accepted-card-picker) .filter-option:hover{ border-color:#cf76a0; }
+:is(#card-library-unified,.accepted-card-picker) .filter-option[data-key=rarity] img{ width:30px; height:27px; }
+:is(#card-library-unified,.accepted-card-picker) .filter-option[data-key=server] img{ width:25px; height:20px; }
+:is(#card-library-unified,.accepted-card-picker) .filter-option[data-key=ownership]{ min-width:90px; padding:5px 10px; color:var(--muted); }
+:is(#card-library-unified,.accepted-card-picker) .filter-option[data-key=ownership][aria-checked=true]{ color:var(--brand); }
+:is(#card-library-unified,.accepted-card-picker) .filter-option[data-key=ownership][aria-checked=false] .ownership-indicator{ color:#b1b2be; }
+:is(#card-library-unified,.accepted-card-picker) .card-group{ scroll-margin-top:76px; padding-top:15px; }
+:is(#card-library-unified,.accepted-card-picker) .group-heading{ display:flex; align-items:center; gap:9px; border-bottom:1px solid var(--line); margin-bottom:13px; padding-bottom:9px; }
+:is(#card-library-unified,.accepted-card-picker) .group-heading img{ width:30px; height:28px; object-fit:contain; }
+:is(#card-library-unified,.accepted-card-picker) .group-heading h3{ font-size:14px; font-weight:600; }
+:is(#card-library-unified,.accepted-card-picker) .group-heading .group-amount{ font:12px Consolas,monospace; color:var(--muted); }
+:is(#card-library-unified,.accepted-card-picker) .group-heading .group-owned{ margin-left:auto; font-size:11px; color:var(--muted); }
+:is(#card-library-unified,.accepted-card-picker) .card-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(70px,1fr)); gap:13px 9px; align-items:start; padding-bottom:15px; }
+:is(#card-library-unified,.accepted-card-picker)[data-density=standard] .card-grid,:is(#card-library-unified,.accepted-card-picker) [data-density=standard] .card-grid{ grid-template-columns:repeat(auto-fill,minmax(104px,1fr)); gap:16px 12px; }
+:is(#card-library-unified,.accepted-card-picker) .card{ display:block; min-width:0; padding:0; border:0; background:transparent; text-align:left; border-radius:5px; }
+:is(#card-library-unified,.accepted-card-picker) .art-wrap{ display:block; position:relative; aspect-ratio:1; border-radius:5px; background:#f1eff4; box-shadow:0 0 0 1px #24263812; }
+:is(#card-library-unified,.accepted-card-picker) .card-art{ width:100%; aspect-ratio:1; object-fit:cover; border-radius:5px; }
+:is(#card-library-unified,.accepted-card-picker) .card:hover .art-wrap{ box-shadow:0 0 0 2px #dfacc6; }
+:is(#card-library-unified,.accepted-card-picker) .card:focus-visible{ outline-offset:4px; }
+:is(#card-library-unified,.accepted-card-picker) .card[data-owned=false] .card-art{ filter:grayscale(.6); opacity:.5; }
+:is(#card-library-unified,.accepted-card-picker) .card-attribute{ position:absolute; top:3px; left:3px; width:20px; height:20px; object-fit:contain; filter:drop-shadow(0 1px 2px #2224); }
+:is(#card-library-unified,.accepted-card-picker) .card-rarity{ position:absolute; left:3px; bottom:3px; width:24px; height:23px; object-fit:contain; filter:drop-shadow(0 1px 2px #1116); }
+:is(#card-library-unified,.accepted-card-picker) .card-stats{ display:flex; align-items:center; justify-content:space-between; gap:1px; margin-top:5px; color:#6c6f7d; font:11px/1.3 Consolas,monospace; white-space:nowrap; }
+:is(#card-library-unified,.accepted-card-picker) .skill.max{ color:#976ab0; }
+:is(#card-library-unified,.accepted-card-picker) .card[data-owned=false] .card-stats{ color:#868a97; font-size:10px; }
+:is(#card-library-unified,.accepted-card-picker) .image-fallback{ position:absolute; inset:0; display:grid; place-items:center; padding:4px; text-align:center; font-size:10px; color:#777384; }
+:is(#card-library-unified,.accepted-card-picker) .ownership-indicator svg{width:16px;height:16px}
+:is(#card-library-unified,.accepted-card-picker) .image-fallback[hidden]{display:none}
+:is(#card-library-unified,.accepted-card-picker) .card-art[hidden]{display:none}
+:is(#card-library-unified,.accepted-card-picker) .shared-card-library .card-picture-label{position:absolute;right:3px;bottom:3px;display:grid;place-items:center;min-width:15px;height:15px;padding:0 2px;background:#302b3b94;color:white;font:9px/1 "Microsoft YaHei",sans-serif;border-radius:2px}
+:is(#card-library-unified,.accepted-card-picker) .shared-card-library .card-identity{display:none;min-width:0;margin:7px 0 5px}
+:is(#card-library-unified,.accepted-card-picker) .shared-card-library[data-density=standard] .card-identity,:is(#card-library-unified,.accepted-card-picker) .shared-card-library [data-density=standard] .card-identity{display:grid;gap:3px}
+:is(#card-library-unified,.accepted-card-picker) .shared-card-library .card-caption{font-size:11px;line-height:1.5;color:#44414c;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+:is(#card-library-unified,.accepted-card-picker) .shared-card-library .card-number{font-size:10px;line-height:1.4;color:#77717e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+:is(#card-library-unified,.accepted-card-picker) .card-growth-summary{display:flex;justify-content:space-between;align-items:center;gap:2px;min-width:0;margin-top:4px;color:#726778;font:9px/1.6 "Microsoft YaHei",sans-serif;white-space:nowrap}
+:is(#card-library-unified,.accepted-card-picker) .card-episode-marks{display:inline-flex;align-items:center;gap:2px}
+:is(#card-library-unified,.accepted-card-picker) .episode-mark{display:inline-block;width:5px;height:5px;border:1px solid #927da0;border-radius:50%;box-sizing:border-box}
+:is(#card-library-unified,.accepted-card-picker) .episode-mark.read{background:#927da0}
+:is(#card-library-unified,.accepted-card-picker) .episode-mark.unavailable{border:0;height:1px;background:#b3adb8;border-radius:0}
+:is(#card-library-unified,.accepted-card-picker) .shared-card-library .card-add-note{display:block;margin-top:4px;font-size:9px;line-height:1.6;color:#8a8390}
+:is(#card-library-unified,.accepted-card-picker) .shared-card-library[data-density=standard] .card-growth-summary{font-size:10px}
+:is(#card-library-unified,.accepted-card-picker) .shared-card-library .card-growth-host{display:block;min-width:0}
+:is(#card-library-unified,.accepted-card-picker) .card-growth-legend{font-size:11px;line-height:1.8;color:#77717e;margin:0 0 14px}
+/* Accepted source: card-library-unified/unified.css */
+:is(#card-library-unified,.accepted-card-picker){ color-scheme: light; font-family: Inter,"Noto Sans SC","Microsoft YaHei",sans-serif; font-size: 14px; color: #292a32; background: #fff; }
+:is(#card-library-unified,.accepted-card-picker) *{ box-sizing: border-box; }
+:is(#card-library-unified,.accepted-card-picker){ margin: 0; }
+:is(#card-library-unified,.accepted-card-picker) button,:is(#card-library-unified,.accepted-card-picker) input,:is(#card-library-unified,.accepted-card-picker) select{ font: inherit; color: inherit; }
+:is(#card-library-unified,.accepted-card-picker) button{ cursor: pointer; }
+:is(#card-library-unified,.accepted-card-picker) button:disabled{ cursor: default; opacity: .45; }
+:is(#card-library-unified,.accepted-card-picker) button,:is(#card-library-unified,.accepted-card-picker) a,:is(#card-library-unified,.accepted-card-picker) input,:is(#card-library-unified,.accepted-card-picker) select{ -webkit-tap-highlight-color: transparent; }
+:is(#card-library-unified,.accepted-card-picker) :focus-visible{ outline: 2px solid #9a4d92; outline-offset: 3px; }
+:is(#card-library-unified,.accepted-card-picker) [hidden]{ display: none !important; }
+:is(#card-library-unified,.accepted-card-picker) h1,:is(#card-library-unified,.accepted-card-picker) h2,:is(#card-library-unified,.accepted-card-picker) h3,:is(#card-library-unified,.accepted-card-picker) p{ margin: 0; }
+:is(#card-library-unified,.accepted-card-picker) img{ display: block; }
+:is(#card-library-unified,.accepted-card-picker) a{ color: inherit; }
+:is(#card-library-unified,.accepted-card-picker){ --ink:#292a32; --muted:#6b6e7a; --line:#e7e8ed; --brand:#c20a56; --pink:#f01468; --aurora:.045; display: grid; grid-template-columns:178px minmax(0,1fr); min-height:100vh; line-height:1.5; }
+:is(#card-library-unified,.accepted-card-picker) [data-icon]{ display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
+:is(#card-library-unified,.accepted-card-picker) [data-icon] svg{ width:16px; height:16px; }
+:is(#card-library-unified,.accepted-card-picker) .sidebar{ position:sticky; top:0; height:100vh; display:flex; flex-direction:column; padding:25px 15px 22px; background:#f7f7f9; border-right:1px solid var(--line); }
+:is(#card-library-unified,.accepted-card-picker) .brand{ display:flex; align-items:center; gap:9px; }
+:is(#card-library-unified,.accepted-card-picker) .brand-mark{ display:grid; place-items:center; width:31px; height:35px; border-radius:9px; background:linear-gradient(140deg,#e32979,#a05dde); color:#fff; font-size:20px; }
+:is(#card-library-unified,.accepted-card-picker) .brand h1{ font-size:15px; font-weight:600; letter-spacing:-.5px; }
+:is(#card-library-unified,.accepted-card-picker) .brand p{ margin-top:2px; font-size:9px; letter-spacing:.5px; color:var(--muted); }
+:is(#card-library-unified,.accepted-card-picker) .nav-caption{ margin:29px 10px 10px; font-size:11px; color:var(--muted); letter-spacing:1px; }
+:is(#card-library-unified,.accepted-card-picker) .sidebar nav{ display:grid; gap:6px; }
+:is(#card-library-unified,.accepted-card-picker) .sidebar nav>div{ display:flex; align-items:center; gap:10px; min-height:44px; padding:10px; font-size:13px; color:var(--muted); }
+:is(#card-library-unified,.accepted-card-picker) .sidebar nav>div[aria-current]{ box-shadow:inset 3px 0 var(--pink); color:var(--brand); font-weight:600; }
+:is(#card-library-unified,.accepted-card-picker) .sidebar-foot{ margin-top:auto; display:grid; gap:21px; padding-top:32px; color:var(--muted); font-size:12px; }
+:is(#card-library-unified,.accepted-card-picker) .sidebar-foot>span{ display:flex; align-items:center; gap:8px; margin-left:10px; }
+:is(#card-library-unified,.accepted-card-picker) .status-dot{ display:block; width:6px; height:6px; border-radius:50%; background:#828493; }
+:is(#card-library-unified,.accepted-card-picker) .primary{ display:flex; align-items:center; justify-content:center; gap:8px; padding:9px 13px; border:0; border-radius:6px; background:linear-gradient(110deg,#cf216a,#9160c9); color:#fff; font-size:12px; min-height:38px; }
+:is(#card-library-unified,.accepted-card-picker) main{ min-width:0; }
+:is(#card-library-unified,.accepted-card-picker) .topbar{ display:flex; align-items:center; gap:12px; height:49px; padding:0 24px; border-bottom:1px solid var(--line); font-size:12px; color:var(--muted); }
+:is(#card-library-unified,.accepted-card-picker) .topbar b{ color:var(--ink); font-weight:500; }
+:is(#card-library-unified,.accepted-card-picker) .topbar small{ margin-left:auto; font-size:11px; }
+:is(#card-library-unified,.accepted-card-picker) .profile{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; min-height:45px; padding:8px 24px; border-bottom:1px solid var(--line); font-size:12px; }
+:is(#card-library-unified,.accepted-card-picker) .profile b{ font-weight:500; }
+:is(#card-library-unified,.accepted-card-picker) .muted{ color:var(--muted); }
+:is(#card-library-unified,.accepted-card-picker) .profile-server{ display:flex; align-items:center; gap:5px; padding:2px 7px; border-radius:4px; background:#f2f3f6; }
+:is(#card-library-unified,.accepted-card-picker) .profile-server img{ width:20px; height:16px; object-fit:contain; }
+:is(#card-library-unified,.accepted-card-picker) .demo-note{ margin-left:auto; color:var(--muted); font-size:11px; }
+:is(#card-library-unified,.accepted-card-picker) .heading{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:20px 24px 16px; background:radial-gradient(ellipse 400px 150px at 70% 0%,rgb(168 85 247 / var(--aurora)),transparent 85%),radial-gradient(ellipse 280px 100px at 100% 0%,rgb(34 211 238 / var(--aurora)),transparent 90%),#fff; }
+:is(#card-library-unified,.accepted-card-picker) .heading h2{ font-size:24px; font-weight:600; letter-spacing:-.5px; }
+:is(#card-library-unified,.accepted-card-picker) .heading h2 span{ font:400 14px Consolas,monospace; color:var(--muted); margin-left:6px; }
+:is(#card-library-unified,.accepted-card-picker) .heading p{ font-size:12px; color:var(--muted); margin-top:3px; }
+:is(#card-library-unified,.accepted-card-picker) .density{ display:flex; gap:1px; padding:3px; border-radius:6px; background:#f3f3f6; }
+:is(#card-library-unified,.accepted-card-picker) .density button{ border:0; border-radius:4px; background:transparent; color:var(--muted); min-height:30px; padding:4px 10px; font-size:12px; }
+:is(#card-library-unified,.accepted-card-picker) .density button[aria-pressed=true]{ background:#fff; color:var(--brand); box-shadow:0 1px 3px #20222c12; }
+:is(#card-library-unified,.accepted-card-picker) .content{ padding:0 24px 22px; }
+:is(#card-library-unified,.accepted-card-picker) .filters{ scroll-margin-top:12px; }
+:is(#card-library-unified,.accepted-card-picker) .search-row{ display:flex; align-items:center; gap:18px; margin-bottom:16px; }
+:is(#card-library-unified,.accepted-card-picker) .search{ display:flex; align-items:center; gap:8px; flex:1; min-width:0; border:1px solid #dcdde5; border-radius:6px; padding:0 11px; color:var(--muted); }
+:is(#card-library-unified,.accepted-card-picker) .search input{ width:100%; min-width:0; border:0; outline:0; background:transparent; height:38px; font-size:12px; }
+:is(#card-library-unified,.accepted-card-picker) .search:focus-within{ outline:2px solid #9a4d92; outline-offset:2px; }
+:is(#card-library-unified,.accepted-card-picker) .text-button{ display:inline-flex; justify-content:center; align-items:center; gap:5px; background:none; border:0; padding:3px 0; font-size:12px; line-height:1.5; color:var(--muted); min-height:28px; white-space:nowrap; }
+:is(#card-library-unified,.accepted-card-picker) .text-button:hover{ color:var(--brand); text-decoration:underline; text-underline-offset:3px; }
+:is(#card-library-unified,.accepted-card-picker) .reset{ color:var(--brand); }
+:is(#card-library-unified,.accepted-card-picker) .character-head{ display:flex; align-items:center; gap:14px; margin-bottom:6px; }
+:is(#card-library-unified,.accepted-card-picker) .character-head h3,:is(#card-library-unified,.accepted-card-picker) .filter-row h3{ font-size:12px; font-weight:500; flex-shrink:0; }
+:is(#card-library-unified,.accepted-card-picker) .character-head small{ margin-left:7px; font:12px Consolas,monospace; color:var(--muted); }
+:is(#card-library-unified,.accepted-card-picker) .character-head p{ font-size:11px; color:var(--muted); }
+:is(#card-library-unified,.accepted-card-picker) .row-actions{ display:flex; align-items:center; gap:14px; margin-left:auto; }
+:is(#card-library-unified,.accepted-card-picker) .character-filters{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:24px; row-gap:6px; margin-bottom:16px; }
+:is(#card-library-unified,.accepted-card-picker) .filter-matrix{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:24px; padding:8px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+:is(#card-library-unified,.accepted-card-picker) .filter-row{ display:flex; align-items:center; gap:9px; min-height:49px; min-width:0; }
+:is(#card-library-unified,.accepted-card-picker) .filter-row h3{ width:43px; color:#666975; }
+:is(#card-library-unified,.accepted-card-picker) .options{ display:flex; align-items:center; gap:5px; flex:1; min-width:0; }
+:is(#card-library-unified,.accepted-card-picker) .row-all{ font-size:11px; }
+:is(#card-library-unified,.accepted-card-picker) .filter-footer{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 0 13px; font-size:11px; color:var(--muted); }
+:is(#card-library-unified,.accepted-card-picker) .filter-footer a{ display:flex; align-items:center; gap:3px; text-decoration:none; white-space:nowrap; }
+:is(#card-library-unified,.accepted-card-picker) .filter-footer a:hover{ color:var(--brand); }
+:is(#card-library-unified,.accepted-card-picker) .filter-footer [data-icon] svg{ width:13px; height:13px; }
+:is(#card-library-unified,.accepted-card-picker) .results{ scroll-margin-top:0; }
+:is(#card-library-unified,.accepted-card-picker) .results-toolbar{ position:sticky; top:0; z-index:5; background:rgb(255 255 255 / .98); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 18px; padding:12px 0; border-top:1px solid #dfe1e8; border-bottom:1px solid var(--line); }
+:is(#card-library-unified,.accepted-card-picker) .results-count{ display:flex; align-items:baseline; gap:9px; }
+:is(#card-library-unified,.accepted-card-picker) .results-count strong{ font-size:14px; font-weight:600; }
+:is(#card-library-unified,.accepted-card-picker) .results-count>span{ color:var(--muted); font-size:11px; }
+:is(#card-library-unified,.accepted-card-picker) .view-controls{ display:flex; align-items:center; gap:15px; }
+:is(#card-library-unified,.accepted-card-picker) .view-controls label{ display:flex; align-items:center; gap:7px; font-size:11px; color:var(--muted); }
+:is(#card-library-unified,.accepted-card-picker) .view-controls select,:is(#card-library-unified,.accepted-card-picker) .group-jumps select{ border:1px solid #e2e3e9; background:#fff; border-radius:4px; height:32px; max-width:100%; padding:3px 22px 3px 7px; color:var(--ink); font-size:12px; }
+:is(#card-library-unified,.accepted-card-picker) .list-meta{ display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px 12px; padding:10px 0 3px; }
+:is(#card-library-unified,.accepted-card-picker) .date-hint{ color:#747784; font-size:10px; }
+:is(#card-library-unified,.accepted-card-picker) .group-jumps{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+:is(#card-library-unified,.accepted-card-picker) .group-jumps a{ display:flex; align-items:center; gap:5px; text-decoration:none; padding:3px 7px; min-height:30px; border:1px solid var(--line); border-radius:4px; font-size:11px; color:var(--muted); }
+:is(#card-library-unified,.accepted-card-picker) .group-jumps a:hover{ border-color:#dc9dbb; color:var(--brand); }
+:is(#card-library-unified,.accepted-card-picker) .group-jumps img{ width:21px; height:20px; object-fit:contain; }
+:is(#card-library-unified,.accepted-card-picker) .group-jumps select{ max-width:220px; }
+:is(#card-library-unified,.accepted-card-picker) .end-note{ text-align:center; margin:12px 0 24px; font-size:11px; color:var(--muted); }
+:is(#card-library-unified,.accepted-card-picker) .empty{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; min-height:280px; color:var(--muted); }
+:is(#card-library-unified,.accepted-card-picker) .empty>[data-icon] svg{ width:30px; height:30px; }
+:is(#card-library-unified,.accepted-card-picker) .empty h3{ font-size:15px; font-weight:500; }
+:is(#card-library-unified,.accepted-card-picker) .empty p{ font-size:12px; text-align:center; }
+:is(#card-library-unified,.accepted-card-picker) .empty-actions{ display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap; }
+:is(#card-library-unified,.accepted-card-picker) .page-footer{ display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; border-top:1px solid var(--line); padding-top:14px; font-size:10px; color:#747784; }
+:is(#card-library-unified,.accepted-card-picker) .back-to-filters{ display:flex; align-items:center; gap:5px; margin-left:12px; color:var(--muted); font-size:11px; text-decoration:none; }
+:is(#card-library-unified,.accepted-card-picker) .back-to-filters:hover{ color:var(--brand); }
+:is(#card-library-unified,.accepted-card-picker) dialog{ width:min(470px,calc(100% - 28px)); padding:0; border:1px solid #e1dfe7; border-radius:10px; color:var(--ink); box-shadow:0 20px 80px #2820342b; }
+:is(#card-library-unified,.accepted-card-picker) dialog::backdrop{ background:#25233840; }
+:is(#card-library-unified,.accepted-card-picker) .editor-header{ display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--line); padding:10px 16px; }
+:is(#card-library-unified,.accepted-card-picker) .editor-header h3{ font-size:14px; font-weight:500; }
+:is(#card-library-unified,.accepted-card-picker) .icon-button{ width:36px; height:36px; display:grid; place-items:center; border:0; border-radius:5px; background:transparent; color:var(--muted); }
+:is(#card-library-unified,.accepted-card-picker) .icon-button:hover{ background:#f6f3f8; }
+:is(#card-library-unified,.accepted-card-picker) .editor-card{ display:flex; gap:16px; align-items:center; padding:20px; }
+:is(#card-library-unified,.accepted-card-picker) .editor-image{ position:relative; width:96px; height:96px; flex-shrink:0; background:#f1eff4; border-radius:5px; }
+:is(#card-library-unified,.accepted-card-picker) .editor-image img{ width:100%; height:100%; object-fit:contain; border-radius:5px; }
+:is(#card-library-unified,.accepted-card-picker) .editor-card h3{ font-size:14px; font-weight:600; margin-bottom:8px; }
+:is(#card-library-unified,.accepted-card-picker) .editor-card p{ font-size:11px; color:var(--muted); margin-top:3px; }
+:is(#card-library-unified,.accepted-card-picker) .editor-fields{ display:grid; grid-template-columns:1fr 1fr; gap:16px; padding:0 20px; }
+:is(#card-library-unified,.accepted-card-picker) .editor-fields label{ display:grid; gap:6px; color:var(--muted); font-size:12px; }
+:is(#card-library-unified,.accepted-card-picker) .editor-fields input,:is(#card-library-unified,.accepted-card-picker) .editor-fields select{ width:100%; height:38px; padding:6px 8px; border:1px solid #dcdee6; background:#fff; border-radius:5px; }
+:is(#card-library-unified,.accepted-card-picker) .owned-field{ display:flex; align-items:center; gap:7px; padding:18px 20px; font-size:12px; }
+:is(#card-library-unified,.accepted-card-picker) input[type=checkbox]{ accent-color:var(--brand); width:16px; height:16px; }
+:is(#card-library-unified,.accepted-card-picker) .editor-footer{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 20px; border-top:1px solid var(--line); }
+:is(#card-library-unified,.accepted-card-picker) .editor-footer span{ font-size:11px; color:var(--muted); }
+:is(#card-library-unified,.accepted-card-picker) #editor{width:min(580px,calc(100% - 24px));max-height:calc(100dvh - 24px);border-radius:5px;overflow:hidden}
+:is(#card-library-unified,.accepted-card-picker) #editor[open]{display:flex;flex-direction:column}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-header,:is(#card-library-unified,.accepted-card-picker) #editor .editor-footer{flex-shrink:0;background:#fff}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-header{padding:9px 20px}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-header h2{font-size:15px;font-weight:600}
+:is(#card-library-unified,.accepted-card-picker) #editor .icon-button{font-size:23px;font-weight:300;width:44px;height:44px}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-scroll{overflow-y:auto;overscroll-behavior:contain;min-height:0}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-card{padding:22px 24px 18px;gap:18px;align-items:start}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-image{width:100px;height:100px;border-radius:4px}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-identity{min-width:0;flex:1}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-card h3{font-size:16px;line-height:1.5;margin-bottom:5px;text-wrap:balance}
+:is(#card-library-unified,.accepted-card-picker) #editor #editor-character{font-size:12px;color:#625d6d}
+:is(#card-library-unified,.accepted-card-picker) #editor #editor-game-meta{display:flex;align-items:center;gap:9px;margin-top:9px;min-height:25px}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-band{width:72px;height:25px;object-fit:contain}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-attribute{width:22px;height:22px;object-fit:contain}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-rarity{width:29px;height:25px;object-fit:contain}
+:is(#card-library-unified,.accepted-card-picker) #editor #editor-meta{margin-top:7px;font-size:11px;line-height:1.6}
+:is(#card-library-unified,.accepted-card-picker) #editor #editor-art-note{font-size:10px;color:#987137}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-ownership{display:flex;gap:12px;align-items:center;justify-content:space-between;margin:0 24px;padding:3px 0 13px;border-bottom:1px solid #eee9f0}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-ownership label{display:flex;gap:8px;align-items:center;min-height:40px;font-size:12px;color:#6f4b79}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-ownership>span{font-size:10px;color:#817886}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-growth-section{padding:19px 24px 17px}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-growth-section>h3{font-size:13px;font-weight:500;margin:0 0 13px;color:#6c536f}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-fields{padding:0;grid-template-columns:repeat(3,minmax(0,1fr));gap:15px}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-fields label{font-size:11px;color:#6e6975}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-fields input,:is(#card-library-unified,.accepted-card-picker) #editor .editor-fields select,:is(#card-library-unified,.accepted-card-picker) #editor .editor-illustration select{font-family:inherit;font-size:14px;line-height:1.5;border:1px solid #ded9e3;border-radius:3px;height:42px;background:white;color:#403748;padding:7px 9px;min-width:0;width:100%}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-status-grid{display:grid;grid-template-columns:1fr 1fr;gap:17px 24px;margin-top:20px;align-items:start}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-check{display:flex;align-items:center;gap:8px;min-height:42px;font-size:12px}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-status-grid small{display:block;color:#8b808e;font-size:10px;line-height:1.6}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-check:has(input:disabled){color:#918795}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-illustration{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:5px 10px;font-size:12px}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-illustration small{grid-column:1/-1}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-illustration select:disabled{background:#f7f5f8;color:#928994}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-growth-description{font-size:10px;color:#8b808e;line-height:1.6;margin:15px 0 0}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-release{margin:0 24px 18px;border-top:1px solid #eee9f0;padding-top:11px}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-release summary{display:flex;gap:10px;align-items:center;min-height:36px;cursor:pointer;font-size:11px;color:#6e6975}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-release summary::before{content:"＋";color:#92799a}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-release[open] summary::before{content:"−"}
+:is(#card-library-unified,.accepted-card-picker) #editor #editor-date{margin-left:auto;font-size:10px;color:#8a818f}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-release-row{display:flex;align-items:center;gap:8px;min-height:33px;color:#756b7c;font-size:11px}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-release-row img{width:19px;height:16px;object-fit:contain}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-release-row time{margin-left:auto;font:11px Consolas,monospace}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-footer{padding:12px 24px;gap:12px}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-footer>div{display:flex;gap:18px;align-items:center}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-footer .primary{border-radius:3px;min-height:42px}
+@media (max-width:420px){:is(#card-library-unified,.accepted-card-picker) #editor .editor-card{padding:16px 16px 10px;gap:13px}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-image{width:76px;height:76px}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-card h3{font-size:14px}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-ownership{margin:0 16px;display:block;padding-bottom:10px}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-ownership>span{display:block;margin-left:24px}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-growth-section{padding:16px}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-fields{gap:9px}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-status-grid{gap:15px 12px}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-illustration{grid-template-columns:1fr}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-release{margin:0 16px 14px}
+:is(#card-library-unified,.accepted-card-picker) #editor #editor-date{max-width:160px;text-align:right}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-footer{padding:10px 16px}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-footer>span{max-width:90px;font-size:10px}
+:is(#card-library-unified,.accepted-card-picker) #editor .editor-footer>div{gap:10px}}
+:is(#card-library-unified,.accepted-card-picker) .toast{ position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:20; padding:10px 16px; border:1px solid #e2d5e0; border-radius:6px; background:#fff8fc; box-shadow:0 4px 16px #36203412; color:#72455e; font-size:12px; max-width:calc(100vw - 35px); }
+@media (min-width:1500px) {:is(#card-library-unified,.accepted-card-picker) .content,:is(#card-library-unified,.accepted-card-picker) .heading{ padding-left:32px; padding-right:32px; }
+:is(#card-library-unified,.accepted-card-picker) .members{ max-width:320px; }
+:is(#card-library-unified,.accepted-card-picker) .band-button{ width:112px; }
+:is(#card-library-unified,.accepted-card-picker) .band-button img{ width:85px; }}
+@media (max-width:1100px) {:is(#card-library-unified,.accepted-card-picker) .view-controls{ margin-left:auto; }
+:is(#card-library-unified,.accepted-card-picker) .results-count{ width:100%; }
+:is(#card-library-unified,.accepted-card-picker) .band-button{ width:76px; }
+:is(#card-library-unified,.accepted-card-picker) .band-button img{ width:60px; }
+:is(#card-library-unified,.accepted-card-picker) .character-filters,:is(#card-library-unified,.accepted-card-picker) .filter-matrix{ column-gap:18px; }
+:is(#card-library-unified,.accepted-card-picker) .members{ gap:1px; }
+:is(#card-library-unified,.accepted-card-picker) .filter-option{ min-width:36px; }
+:is(#card-library-unified,.accepted-card-picker) .filter-row{ gap:6px; }
+:is(#card-library-unified,.accepted-card-picker) .options{ gap:4px; }}
+@media (max-width:950px) {:is(#card-library-unified,.accepted-card-picker){ grid-template-columns:145px minmax(0,1fr); }
+:is(#card-library-unified,.accepted-card-picker) .sidebar{ padding-left:9px; padding-right:9px; }
+:is(#card-library-unified,.accepted-card-picker) .brand{ gap:6px; }
+:is(#card-library-unified,.accepted-card-picker) .brand h1{ font-size:13px; }
+:is(#card-library-unified,.accepted-card-picker) .brand p{ font-size:8px; }
+:is(#card-library-unified,.accepted-card-picker) .brand-mark{ width:28px; }
+:is(#card-library-unified,.accepted-card-picker) .content{ padding:0 18px 20px; }
+:is(#card-library-unified,.accepted-card-picker) .heading,:is(#card-library-unified,.accepted-card-picker) .profile,:is(#card-library-unified,.accepted-card-picker) .topbar{ padding-left:18px; padding-right:18px; }
+:is(#card-library-unified,.accepted-card-picker) .character-filters{ grid-template-columns:1fr; }
+:is(#card-library-unified,.accepted-card-picker) .band-button{ width:100px; }
+:is(#card-library-unified,.accepted-card-picker) .band-button img{ width:78px; }
+:is(#card-library-unified,.accepted-card-picker) .members{ max-width:360px; }
+:is(#card-library-unified,.accepted-card-picker) .filter-matrix{ grid-template-columns:1fr; }
+:is(#card-library-unified,.accepted-card-picker) .filter-row h3{ width:50px; }
+:is(#card-library-unified,.accepted-card-picker) .filter-option{ min-width:44px; height:40px; }
+:is(#card-library-unified,.accepted-card-picker) .options{ gap:9px; }
+:is(#card-library-unified,.accepted-card-picker) .row-all{ margin-left:auto; }}
+@media (max-width:650px) {:is(#card-library-unified,.accepted-card-picker){ display:block; }
+:is(#card-library-unified,.accepted-card-picker) .sidebar{ display:none; }
+:is(#card-library-unified,.accepted-card-picker) .topbar{ height:42px; }
+:is(#card-library-unified,.accepted-card-picker) .profile{ gap:8px; }
+:is(#card-library-unified,.accepted-card-picker) .profile .demo-note{ width:100%; margin-left:0; }
+:is(#card-library-unified,.accepted-card-picker) .heading{ padding-top:18px; }
+:is(#card-library-unified,.accepted-card-picker) .heading h2{ font-size:22px; }
+:is(#card-library-unified,.accepted-card-picker) .heading p{ font-size:11px; }
+:is(#card-library-unified,.accepted-card-picker) .content{ padding:0 14px 22px; }
+:is(#card-library-unified,.accepted-card-picker) .heading,:is(#card-library-unified,.accepted-card-picker) .profile,:is(#card-library-unified,.accepted-card-picker) .topbar{ padding-left:14px; padding-right:14px; }
+:is(#card-library-unified,.accepted-card-picker) .search-row{ flex-wrap:wrap; gap:5px; margin-bottom:7px; }
+:is(#card-library-unified,.accepted-card-picker) .search{ flex-basis:100%; }
+:is(#card-library-unified,.accepted-card-picker) .search input{ height:40px; }
+:is(#card-library-unified,.accepted-card-picker) .reset{ margin-left:auto; }
+:is(#card-library-unified,.accepted-card-picker) .character-head{ gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+:is(#card-library-unified,.accepted-card-picker) .character-head p{ order:3; width:100%; }
+:is(#card-library-unified,.accepted-card-picker) .character-filters{ gap:6px; margin-bottom:12px; }
+:is(#card-library-unified,.accepted-card-picker) .band-row{ gap:6px; }
+:is(#card-library-unified,.accepted-card-picker) .band-button{ width:75px; }
+:is(#card-library-unified,.accepted-card-picker) .band-button img{ width:62px; }
+:is(#card-library-unified,.accepted-card-picker) .members{ max-width:none; gap:0; }
+:is(#card-library-unified,.accepted-card-picker) .character-button{ width:42px; height:44px; padding:3px 2px; }
+:is(#card-library-unified,.accepted-card-picker) .filter-row h3{ width:41px; }
+:is(#card-library-unified,.accepted-card-picker) .filter-row{ gap:5px; min-height:49px; }
+:is(#card-library-unified,.accepted-card-picker) .options{ gap:4px; }
+:is(#card-library-unified,.accepted-card-picker) .filter-option{ min-width:40px; height:40px; }
+:is(#card-library-unified,.accepted-card-picker) .filter-option[data-key=ownership]{ min-width:88px; }
+:is(#card-library-unified,.accepted-card-picker) .filter-footer{ align-items:flex-start; }
+:is(#card-library-unified,.accepted-card-picker) .filter-footer>span{ max-width:76%; }
+:is(#card-library-unified,.accepted-card-picker) .results-toolbar{ gap:9px; padding:10px 0; }
+:is(#card-library-unified,.accepted-card-picker) .view-controls{ gap:10px; width:100%; justify-content:space-between; }
+:is(#card-library-unified,.accepted-card-picker) .view-controls label{ flex-direction:column; align-items:flex-start; gap:3px; }
+:is(#card-library-unified,.accepted-card-picker) .view-controls label:last-child{ flex:1; max-width:210px; }
+:is(#card-library-unified,.accepted-card-picker) .view-controls select{ width:100%; height:36px; }
+:is(#card-library-unified,.accepted-card-picker) .results-count{ justify-content:space-between; }
+:is(#card-library-unified,.accepted-card-picker) .list-meta{ gap:8px; padding-top:12px; }
+:is(#card-library-unified,.accepted-card-picker) .date-hint{ font-size:10px; }
+:is(#card-library-unified,.accepted-card-picker) .card-grid{ grid-template-columns:repeat(4,minmax(0,1fr)); gap:13px 8px; }
+:is(#card-library-unified,.accepted-card-picker) [data-density=standard] .card-grid{ grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px 10px; }
+:is(#card-library-unified,.accepted-card-picker) .card-group{ scroll-margin-top:116px; }
+:is(#card-library-unified,.accepted-card-picker) .group-heading .group-owned{ font-size:10px; }
+:is(#card-library-unified,.accepted-card-picker) .back-to-filters{ right:14px; bottom:14px; }
+:is(#card-library-unified,.accepted-card-picker) .page-footer{ padding-bottom:40px; }
+:is(#card-library-unified,.accepted-card-picker) .text-button{ min-height:34px; }}
+@media (prefers-reduced-motion:no-preference) {:is(#card-library-unified,.accepted-card-picker) button{ transition:border-color .15s,background-color .15s; }}
+:is(#card-library-unified,.accepted-card-picker) .heading .cover-settings{ position:absolute;z-index:3;right:24px;top:12px;display:flex;align-items:center;gap:6px;min-height:34px;padding:5px 10px;border:1px solid #ffffffb3;border-radius:6px;background:#ffffffdb;color:#6b6176;font-size:12px;box-shadow:0 1px 5px #30243909; }
+:is(#card-library-unified,.accepted-card-picker) .cover-settings:hover{ color:var(--brand);border-color:#d5a8bf; }
+:is(#card-library-unified,.accepted-card-picker) #cover-dialog{ width:min(800px,calc(100% - 28px));max-height:calc(100dvh - 40px);overflow:hidden; }
+:is(#card-library-unified,.accepted-card-picker) #cover-dialog[open]{ display:flex;flex-direction:column; }
+:is(#card-library-unified,.accepted-card-picker) #cover-dialog .editor-header,:is(#card-library-unified,.accepted-card-picker) #cover-dialog .editor-footer{ flex-shrink:0; }
+:is(#card-library-unified,.accepted-card-picker) .cover-body{ min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:16px 20px 20px;scroll-padding:12px; }
+:is(#card-library-unified,.accepted-card-picker) #cover-sample{ border:1px solid #e9e6ee;border-radius:7px;padding:18px 22px; }
+:is(#card-library-unified,.accepted-card-picker) #cover-sample .preview-cover-scene{ right:0; }
+:is(#card-library-unified,.accepted-card-picker) #cover-sample .preview-cover-frame{ right:14px; }
+:is(#card-library-unified,.accepted-card-picker) #cover-sample .preview-hero-copy h2{ font-size:22px; }
+:is(#card-library-unified,.accepted-card-picker) .cover-caption{ display:grid;gap:3px;margin:9px 0 18px;min-height:36px; }
+:is(#card-library-unified,.accepted-card-picker) .cover-caption strong{ font-size:12px;font-weight:500; }
+:is(#card-library-unified,.accepted-card-picker) .cover-caption>span,:is(#card-library-unified,.accepted-card-picker) .cover-hint{ font-size:11px;color:var(--muted); }
+:is(#card-library-unified,.accepted-card-picker) .cover-options{ display:flex;align-items:center;flex-wrap:wrap;gap:10px 22px;padding:0;border:0;margin:0 0 8px; }
+:is(#card-library-unified,.accepted-card-picker) .cover-options legend{ float:left;margin-right:22px;font-size:12px;color:var(--muted);padding:8px 0; }
+:is(#card-library-unified,.accepted-card-picker) .cover-options label{ display:flex;align-items:center;gap:6px;font-size:12px;min-height:36px;cursor:pointer; }
+:is(#card-library-unified,.accepted-card-picker) .cover-options input{ accent-color:var(--brand);width:15px;height:15px;margin:0; }
+:is(#card-library-unified,.accepted-card-picker) .cover-options label:has(input:disabled){ opacity:.5;cursor:default; }
+:is(#card-library-unified,.accepted-card-picker) #cover-rule{ margin:-5px 0 12px; }
+:is(#card-library-unified,.accepted-card-picker) #cover-picker{ border-top:1px solid var(--line);padding-top:14px;margin-top:10px; }
+:is(#card-library-unified,.accepted-card-picker) #cover-grid-count{ margin:9px 0 10px; }
+:is(#card-library-unified,.accepted-card-picker) .cover-grid{ display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:12px 9px; }
+:is(#card-library-unified,.accepted-card-picker) .cover-choice{ border:0;padding:0;background:none;min-width:0;text-align:left;border-radius:5px; }
+:is(#card-library-unified,.accepted-card-picker) .cover-choice .art-wrap{ overflow:hidden; }
+:is(#card-library-unified,.accepted-card-picker) .cover-choice[aria-pressed=true] .art-wrap{ outline:2px solid var(--brand);outline-offset:2px; }
+:is(#card-library-unified,.accepted-card-picker) .cover-choice[aria-pressed=true] .art-wrap::after{ content:"已选";position:absolute;right:0;bottom:0;background:var(--brand);color:white;font-size:10px;padding:2px 4px;border-radius:4px 0 0 0; }
+:is(#card-library-unified,.accepted-card-picker) .cover-choice:hover .art-wrap{ box-shadow:0 0 0 2px #dfa4bf; }
+:is(#card-library-unified,.accepted-card-picker) .cover-choice-name{ display:block;margin-top:6px;font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+:is(#card-library-unified,.accepted-card-picker) #cover-more{ display:flex;margin:14px auto 0;padding:5px 14px;min-height:36px; }
+:is(#card-library-unified,.accepted-card-picker) .cover-footer-actions{ display:flex;align-items:center;gap:20px; }
+@media (max-width:650px) {:is(#card-library-unified,.accepted-card-picker) .heading .cover-settings{ right:14px;top:10px;min-height:36px; }
+:is(#card-library-unified,.accepted-card-picker) #cover-dialog{ max-height:calc(100dvh - 24px); }
+:is(#card-library-unified,.accepted-card-picker) .cover-body{ padding:12px; }
+:is(#card-library-unified,.accepted-card-picker) #cover-sample{ padding:16px;height:124px;min-height:124px; }
+:is(#card-library-unified,.accepted-card-picker) .cover-options{ gap:2px 14px; }
+:is(#card-library-unified,.accepted-card-picker) .cover-options legend{ margin-right:14px; }
+:is(#card-library-unified,.accepted-card-picker) .cover-options .cover-hint{ flex-basis:100%; }
+:is(#card-library-unified,.accepted-card-picker) .cover-grid{ grid-template-columns:repeat(4,minmax(0,1fr)); }
+:is(#card-library-unified,.accepted-card-picker) #cover-dialog .editor-footer{ padding:12px 14px; }}
+/* Accepted source: card-body-study/study.css */
+:is(#card-library-unified,.accepted-card-picker) #cards-review-bar{position:sticky;top:0;z-index:120;padding:12px 24px;background:#fff;box-shadow:0 2px 12px #32243d0a;font:13px/1.5 "Segoe UI","Microsoft YaHei",sans-serif;color:#38323f}
+:is(#card-library-unified,.accepted-card-picker) .cards-review-top{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+:is(#card-library-unified,.accepted-card-picker) .cards-review-top>strong{font-size:14px;font-weight:650}
+:is(#card-library-unified,.accepted-card-picker) .cards-review-switch{display:flex;gap:4px;padding:3px;background:#f3f1f5;border-radius:6px}
+:is(#card-library-unified,.accepted-card-picker) #cards-review-bar button{font:inherit;cursor:pointer;border:0;background:transparent;color:#65586d;min-height:36px;padding:5px 14px;border-radius:4px}
+:is(#card-library-unified,.accepted-card-picker) #cards-review-bar button[aria-pressed=true]{background:#fff;color:#9c3f70;box-shadow:0 1px 3px #38234110;font-weight:650}
+:is(#card-library-unified,.accepted-card-picker) #cards-review-bar button:hover{background:#f6f2f7}
+:is(#card-library-unified,.accepted-card-picker) #cards-review-bar button:focus-visible{outline:2px solid #905aa3;outline-offset:3px}
+:is(#card-library-unified,.accepted-card-picker) #cards-review-bar nav{margin-left:auto;display:flex;gap:4px}
+:is(#card-library-unified,.accepted-card-picker) #cards-review-bar p{margin:7px 0 0;color:#73687a;font-size:12px}
+:is(#card-library-unified,.accepted-card-picker){--cards-gutter:24px}
+:is(#card-library-unified,.accepted-card-picker) .sidebar{top:var(--cards-review-height,86px);height:calc(100dvh - var(--cards-review-height,86px))}
+:is(#card-library-unified,.accepted-card-picker) :is(#filters,[data-design-id="filters"]){scroll-margin-top:calc(var(--cards-review-height,86px) + 12px)}
+:is(#card-library-unified,.accepted-card-picker) :is(#results,[data-design-id="results"]){scroll-margin-top:var(--cards-review-height,86px)}
+:is(#card-library-unified,.accepted-card-picker) .results-toolbar{top:var(--cards-review-height,86px)}
+:is(#card-library-unified,.accepted-card-picker) .card-group{scroll-margin-top:calc(var(--cards-review-height,86px) + 120px)}
+:is(#card-library-unified,.accepted-card-picker) :is(#filters,[data-design-id="filters"]){position:relative;isolation:isolate;padding-top:18px;padding-bottom:4px}
+:is(#card-library-unified,.accepted-card-picker) .search{background:#fff}
+:is(#card-library-unified,.accepted-card-picker) .character-head h3{color:var(--ink);font-weight:600}
+:is(#card-library-unified,.accepted-card-picker) .filter-row h3{color:var(--muted)}
+:is(#card-library-unified,.accepted-card-picker) .band-row{--band-wash:#f0f1f4}
+:is(#card-library-unified,.accepted-card-picker) .band-row[data-band="1"]{--band-wash:#fae1ed}
+:is(#card-library-unified,.accepted-card-picker) .band-row[data-band="2"]{--band-wash:#f9e4e7}
+:is(#card-library-unified,.accepted-card-picker) .band-row[data-band="3"]{--band-wash:#faf0d6}
+:is(#card-library-unified,.accepted-card-picker) .band-row[data-band="4"]{--band-wash:#e0f4ec}
+:is(#card-library-unified,.accepted-card-picker) .band-row[data-band="5"]{--band-wash:#e6e3f6}
+:is(#card-library-unified,.accepted-card-picker) .band-row[data-band="18"]{--band-wash:#dcf2f1}
+:is(#card-library-unified,.accepted-card-picker) .band-row[data-band="21"]{--band-wash:#e1f0fa}
+:is(#card-library-unified,.accepted-card-picker) .band-row[data-band="45"]{--band-wash:#e0ebf1}
+:is(#card-library-unified,.accepted-card-picker) .band-button{background:linear-gradient(115deg,var(--band-wash),#ffffffb3)}
+:is(#card-library-unified,.accepted-card-picker) .band-button[aria-checked=false]{background:#f0eff3}
+:is(#card-library-unified,.accepted-card-picker) .results{--list-accent:#45667e;--list-accent-soft:#e7f0f6}
+:is(#card-library-unified,.accepted-card-picker) .card-group{position:relative;isolation:isolate}
+:is(#card-library-unified,.accepted-card-picker) .card-group::before{content:"";position:absolute;inset:0 calc(-1 * var(--cards-gutter)) auto;height:112px;max-height:100%;pointer-events:none;z-index:-1;background:linear-gradient(105deg,#edf3f8,rgba(237,243,248,.45) 55%,transparent 100%);mask-image:linear-gradient(#000 0%,#000 25%,transparent 100%)}
+:is(#card-library-unified,.accepted-card-picker) .group-heading{border-bottom-color:transparent}
+:is(#card-library-unified,.accepted-card-picker) .group-heading h3{color:#45667e}
+@media (min-width:1500px){:is(#card-library-unified,.accepted-card-picker){--cards-gutter:32px}}
+@media (max-width:950px){:is(#card-library-unified,.accepted-card-picker){--cards-gutter:18px}}
+@media (max-width:650px){:is(#card-library-unified,.accepted-card-picker) #cards-review-bar{padding:10px 14px;position:relative}
+:is(#card-library-unified,.accepted-card-picker) .cards-review-top{gap:8px}
+:is(#card-library-unified,.accepted-card-picker) .cards-review-top>strong{font-size:13px}
+:is(#card-library-unified,.accepted-card-picker) #cards-review-bar button{min-height:44px;padding-inline:10px}
+:is(#card-library-unified,.accepted-card-picker) #cards-review-bar nav{margin-left:0}
+:is(#card-library-unified,.accepted-card-picker){--cards-gutter:14px;--cards-review-height:0px!important}
+:is(#card-library-unified,.accepted-card-picker) .sidebar{height:auto;top:auto}
+:is(#card-library-unified,.accepted-card-picker) .card-group{scroll-margin-top:120px}
+:is(#card-library-unified,.accepted-card-picker) :is(#filters,[data-design-id="filters"]){padding-top:16px}}
+/* Accepted source: card-library-unified/bulk.css */
+:is(#card-library-unified,.accepted-card-picker) .bulk-toggle{height:32px;padding:4px 10px;border:1px solid #d9d3e0;border-radius:4px;background:white;color:#745a83;font:inherit;font-size:11px;cursor:pointer}
+:is(#card-library-unified,.accepted-card-picker) .bulk-toggle[aria-pressed=true]{color:#975e82;background:#faf5f9;border-color:#c99bbf}
+:is(#card-library-unified,.accepted-card-picker) .bulk-bar{padding:13px 0 15px;border-bottom:1px solid #e6e1e9;margin-bottom:17px;display:grid;grid-template-columns:auto 1fr;gap:10px 20px}
+:is(#card-library-unified,.accepted-card-picker) .results-dock .bulk-bar{padding:8px 0 14px;border:0;margin:0;align-items:center}
+:is(#card-library-unified,.accepted-card-picker) .bulk-scope{display:flex;gap:11px;align-items:baseline;flex-wrap:wrap}
+:is(#card-library-unified,.accepted-card-picker) .bulk-scope strong{font-size:13px;color:#795e85;font-weight:600}
+:is(#card-library-unified,.accepted-card-picker) .bulk-scope span{font-size:11px;color:#8a7d90}
+:is(#card-library-unified,.accepted-card-picker) .bulk-selection{justify-content:flex-end}
+:is(#card-library-unified,.accepted-card-picker) .bulk-selection,:is(#card-library-unified,.accepted-card-picker) .bulk-actions{display:flex;gap:8px 18px;flex-wrap:wrap;align-items:center}
+:is(#card-library-unified,.accepted-card-picker) .bulk-selection button:not(.filter-action){border:0;background:none;padding:3px 0;font:inherit;font-size:11px;color:#7e608c;cursor:pointer}
+:is(#card-library-unified,.accepted-card-picker) .bulk-group-all{margin-left:auto;flex:none}
+:is(#card-library-unified,.accepted-card-picker) :is(.bulk-selection .filter-action,.bulk-group-all){background:#f7f9fb;border-color:#dce4eb;color:#647689}
+:is(#card-library-unified,.accepted-card-picker) :is(.bulk-selection .filter-action,.bulk-group-all)[data-complete=true]{background:#eaf2f8;border-color:#b8cddd;color:var(--list-accent,#45667e)}
+:is(#card-library-unified,.accepted-card-picker) :is(.bulk-selection .filter-action,.bulk-group-all):hover{background:#edf3f8;border-color:#91b1c9;color:#45667e}
+:is(#card-library-unified,.accepted-card-picker) :is(.bulk-selection .filter-action,.bulk-group-all):focus-visible{outline-color:#7396b2}
+:is(#card-library-unified,.accepted-card-picker)[data-bulk=true] .group-heading{flex-wrap:wrap}
+:is(#card-library-unified,.accepted-card-picker)[data-bulk=true] .group-heading .group-owned{margin-left:0}
+:is(#card-library-unified,.accepted-card-picker) .bulk-actions{grid-column:1/-1;align-items:center}
+:is(#card-library-unified,.accepted-card-picker) .bulk-actions button{background:white;border:1px solid #dcd6e1;border-radius:4px;padding:6px 13px;font:inherit;font-size:12px;cursor:pointer;color:#70567e}
+:is(#card-library-unified,.accepted-card-picker) .bulk-actions .bulk-clear-archive{margin-left:auto;color:#927887;border:0;background:none;font-size:11px;padding:6px 0}
+:is(#card-library-unified,.accepted-card-picker) .bulk-bar button:disabled{opacity:.45;cursor:default}
+:is(#card-library-unified,.accepted-card-picker) .bulk-check{display:inline-flex;align-items:center;justify-content:center;width:12px;height:12px;border:1px solid #bdaac7;border-radius:2px;color:white;flex:none;margin-right:3px;font-size:10px;line-height:1}
+:is(#card-library-unified,.accepted-card-picker) .bulk-selected .bulk-check{background:#9c739e;border-color:#9c739e}
+:is(#card-library-unified,.accepted-card-picker) .bulk-selected .cp-art{outline:2px solid #ab88b2;outline-offset:2px}
+:is(#card-library-unified,.accepted-card-picker) .bulk-status{font-size:12px;color:#8c607e;margin:10px 0}
+:is(#card-library-unified,.accepted-card-picker) .bulk-dialog{font-family:Inter,"Noto Sans SC","Microsoft YaHei",sans-serif;box-sizing:border-box;padding:0;width:min(560px,calc(100vw - 24px));max-height:calc(100dvh - 24px);border:1px solid #e4dce9;border-radius:9px;color:#514657;background:white;box-shadow:0 18px 60px #40304830;overflow:auto}
+:is(#card-library-unified,.accepted-card-picker) .bulk-dialog::backdrop{background:#29213555;backdrop-filter:blur(2px)}
+:is(#card-library-unified,.accepted-card-picker) .bulk-dialog *{box-sizing:border-box}
+:is(#card-library-unified,.accepted-card-picker) .bulk-dialog [hidden],:is(#card-library-unified,.accepted-card-picker) [hidden].bulk-bar{display:none!important}
+:is(#card-library-unified,.accepted-card-picker) .bulk-dialog header{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:20px 24px 16px;border-bottom:1px solid #e8e2ec;background:white;position:sticky;top:0;z-index:1}
+:is(#card-library-unified,.accepted-card-picker) .bulk-dialog h2{font-size:17px;margin:0 0 6px;font-weight:600}
+:is(#card-library-unified,.accepted-card-picker) .bulk-dialog header p{font-size:11px;line-height:1.6;margin:0;color:#8a7b91}
+:is(#card-library-unified,.accepted-card-picker) .bulk-dialog header button{background:none;border:0;font-size:24px;color:#8a7895;width:32px;height:32px;cursor:pointer}
+:is(#card-library-unified,.accepted-card-picker) .bulk-dialog-body{padding:19px 24px}
+:is(#card-library-unified,.accepted-card-picker) .bulk-impact{display:flex;align-items:baseline;gap:10px}
+:is(#card-library-unified,.accepted-card-picker) .bulk-impact strong{font-size:27px;font-weight:550;font-variant-numeric:tabular-nums;color:#966987}
+:is(#card-library-unified,.accepted-card-picker) .bulk-impact span{font-size:13px}
+:is(#card-library-unified,.accepted-card-picker) .bulk-note{font-size:11px;line-height:1.75;color:#8a7c91;margin:9px 0 16px}
+:is(#card-library-unified,.accepted-card-picker) .bulk-template{border:0;padding:0;margin:20px 0 0;min-width:0}
+:is(#card-library-unified,.accepted-card-picker) .bulk-template legend{font-size:12px;font-weight:600;margin:0 0 10px;padding:0}
+:is(#card-library-unified,.accepted-card-picker) .bulk-template-row{display:grid;grid-template-columns:145px minmax(0,1fr);align-items:center;gap:12px;margin:10px 0;font-size:12px}
+:is(#card-library-unified,.accepted-card-picker) .bulk-template-row>span:first-child{display:flex;align-items:center;gap:8px}
+:is(#card-library-unified,.accepted-card-picker) .bulk-template-row input[type=checkbox],:is(#card-library-unified,.accepted-card-picker) .bulk-confirm input{accent-color:#9e739b;width:14px;height:14px;margin:0}
+:is(#card-library-unified,.accepted-card-picker) .bulk-template-row select,:is(#card-library-unified,.accepted-card-picker) .bulk-template-row input[type=number]{min-width:0;width:100%;height:35px;border:1px solid #ddd5e3;border-radius:4px;background:white;padding:4px 8px;color:#5e4a69;font:inherit}
+:is(#card-library-unified,.accepted-card-picker) .bulk-template-row.is-inactive{color:#988b9f}
+:is(#card-library-unified,.accepted-card-picker) .bulk-template-row :disabled{background:#f7f6f8;color:#a399a8}
+:is(#card-library-unified,.accepted-card-picker) .bulk-level{display:flex;gap:7px;min-width:0}
+:is(#card-library-unified,.accepted-card-picker) .bulk-level input{max-width:74px}
+:is(#card-library-unified,.accepted-card-picker) .bulk-confirm{display:flex;align-items:center;gap:8px;font-size:12px;color:#a44c68}
+:is(#card-library-unified,.accepted-card-picker) .bulk-review{font-size:11px;color:#947b91;line-height:1.7;margin:15px 0 0}
+:is(#card-library-unified,.accepted-card-picker) .bulk-dialog footer{display:flex;justify-content:flex-end;gap:10px;padding:13px 24px;border-top:1px solid #e8e2ec;background:white;position:sticky;bottom:0}
+:is(#card-library-unified,.accepted-card-picker) .bulk-dialog footer button{min-height:35px;border:1px solid #dbd1e2;background:white;border-radius:4px;font:inherit;font-size:12px;padding:6px 14px;cursor:pointer;color:#6a5177}
+:is(#card-library-unified,.accepted-card-picker) .bulk-dialog footer .bulk-apply{background:#92678e;border-color:#92678e;color:white}
+:is(#card-library-unified,.accepted-card-picker) .bulk-dialog button:disabled{opacity:.4;cursor:default}
+:is(#card-library-unified,.accepted-card-picker) .bulk-dialog :focus-visible,:is(#card-library-unified,.accepted-card-picker) .bulk-bar :focus-visible,:is(#card-library-unified,.accepted-card-picker) .bulk-toggle:focus-visible{outline:2px solid #ac7baf;outline-offset:3px}
+@media (max-width:680px){:is(#card-library-unified,.accepted-card-picker) .bulk-bar{grid-template-columns:minmax(0,1fr)}
+:is(#card-library-unified,.accepted-card-picker) .bulk-selection{justify-content:flex-start}
+:is(#card-library-unified,.accepted-card-picker) .bulk-actions{gap:8px}
+:is(#card-library-unified,.accepted-card-picker) .bulk-template-row{grid-template-columns:115px minmax(0,1fr)}
+:is(#card-library-unified,.accepted-card-picker) .bulk-dialog header,:is(#card-library-unified,.accepted-card-picker) .bulk-dialog-body{padding:16px}
+:is(#card-library-unified,.accepted-card-picker) .bulk-dialog footer{padding:12px 16px}
+:is(#card-library-unified,.accepted-card-picker) .bulk-dialog input,:is(#card-library-unified,.accepted-card-picker) .bulk-dialog select,:is(#card-library-unified,.accepted-card-picker) .bulk-dialog button,:is(#card-library-unified,.accepted-card-picker) .bulk-toggle,:is(#card-library-unified,.accepted-card-picker) .bulk-actions button{min-height:40px}
+:is(#card-library-unified,.accepted-card-picker) .bulk-dialog input[type=checkbox]{min-height:14px}
+:is(#card-library-unified,.accepted-card-picker) .bulk-template-row{gap:8px}}
+@media (max-height:560px){:is(#card-library-unified,.accepted-card-picker) .bulk-dialog header,:is(#card-library-unified,.accepted-card-picker) .bulk-dialog footer{position:static}}
+:is(#card-library-unified,.accepted-card-picker) .bulk-template-row>label{display:flex;align-items:center;gap:8px}
+@media (max-width:380px){:is(#card-library-unified,.accepted-card-picker) .bulk-level{flex-direction:column}
+:is(#card-library-unified,.accepted-card-picker) .bulk-level input{max-width:none}
+:is(#card-library-unified,.accepted-card-picker) .bulk-template-row{grid-template-columns:100px minmax(0,1fr)}}

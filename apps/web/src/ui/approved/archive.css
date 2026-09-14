@@ -1,0 +1,812 @@
+/* Accepted source: player-design/study.css */
+:is(#archive-design,#archive-dialog-host){font-family:Inter,"Noto Sans SC","Microsoft YaHei",sans-serif;font-size:14px;line-height:1.5;color:#292a32;background:#fff;color-scheme:light;--ink:#292a32;--muted:#686c78;--line:#e7e8ed;--brand:#c20a56;--pink:#f01468;--soft:#f7f7f9;--aurora:.045}
+:is(#archive-design,#archive-dialog-host) *{box-sizing:border-box}
+:is(#archive-design,#archive-dialog-host){margin:0}
+:is(#archive-design,#archive-dialog-host) button,:is(#archive-design,#archive-dialog-host) input,:is(#archive-design,#archive-dialog-host) select{font:inherit;color:inherit}
+:is(#archive-design,#archive-dialog-host) button,:is(#archive-design,#archive-dialog-host) a,:is(#archive-design,#archive-dialog-host) input{-webkit-tap-highlight-color:transparent}
+:is(#archive-design,#archive-dialog-host) button{cursor:pointer}
+:is(#archive-design,#archive-dialog-host) button:disabled{cursor:default;opacity:.4}
+:is(#archive-design,#archive-dialog-host) button{border:0;background:transparent}
+:is(#archive-design,#archive-dialog-host) a{color:inherit;text-decoration:none}
+:is(#archive-design,#archive-dialog-host) img{display:block}
+:is(#archive-design,#archive-dialog-host) h1,:is(#archive-design,#archive-dialog-host) h2,:is(#archive-design,#archive-dialog-host) h3,:is(#archive-design,#archive-dialog-host) p{margin:0}
+:is(#archive-design,#archive-dialog-host) [hidden]{display:none!important}
+:is(#archive-design,#archive-dialog-host) :focus-visible{outline:2px solid #98488c;outline-offset:3px}
+:is(#archive-design,#archive-dialog-host) .muted{color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) [data-icon]{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+:is(#archive-design,#archive-dialog-host) [data-icon] svg{width:17px;height:17px}
+:is(#archive-design,#archive-dialog-host) .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+:is(#archive-design,#archive-dialog-host) .workspace{display:grid;grid-template-columns:178px minmax(0,1fr);min-height:100vh}
+:is(#archive-design,#archive-dialog-host) .sidebar{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;padding:25px 15px 22px;background:var(--soft);border-right:1px solid var(--line)}
+:is(#archive-design,#archive-dialog-host) .brand{display:flex;align-items:center;gap:9px}
+:is(#archive-design,#archive-dialog-host) .brand-mark{width:31px;height:35px;border-radius:9px;background:linear-gradient(140deg,#e32979,#a05dde);color:white}
+:is(#archive-design,#archive-dialog-host) .brand-mark svg{width:23px;height:23px}
+:is(#archive-design,#archive-dialog-host) .brand b{font-size:15px;font-weight:600;letter-spacing:-.5px}
+:is(#archive-design,#archive-dialog-host) .brand small{display:block;font-size:9px;letter-spacing:.5px;color:var(--muted);margin-top:2px}
+:is(#archive-design,#archive-dialog-host) .nav-caption{margin:29px 10px 10px;font-size:11px;color:var(--muted);letter-spacing:1px}
+:is(#archive-design,#archive-dialog-host) .sidebar nav{display:grid;gap:6px}
+:is(#archive-design,#archive-dialog-host) .sidebar nav>a,:is(#archive-design,#archive-dialog-host) .nav-disabled{display:flex;align-items:center;gap:10px;min-height:44px;padding:10px;font-size:13px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .sidebar nav>a[aria-current]{box-shadow:inset 3px 0 var(--pink);color:var(--brand);font-weight:600}
+:is(#archive-design,#archive-dialog-host) .sidebar nav>a:hover{background:#efeff3}
+:is(#archive-design,#archive-dialog-host) .nav-disabled{opacity:.7}
+:is(#archive-design,#archive-dialog-host) .sidebar-foot{margin-top:auto;display:grid;gap:20px;padding-top:32px;font-size:12px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .sidebar-foot>span{display:flex;gap:8px;align-items:center;margin-left:10px}
+:is(#archive-design,#archive-dialog-host) .sidebar-foot>.text-button{justify-content:flex-start;padding-left:10px}
+:is(#archive-design,#archive-dialog-host) .status-dot{width:6px;height:6px;background:#828493;border-radius:50%}
+:is(#archive-design,#archive-dialog-host) .primary{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:6px;padding:10px 16px;min-height:40px;background:linear-gradient(110deg,#cf216a,#9160c9);color:white;font-size:12px}
+:is(#archive-design,#archive-dialog-host) .primary:hover{filter:brightness(.95)}
+:is(#archive-design,#archive-dialog-host) main{min-width:0}
+:is(#archive-design,#archive-dialog-host) .topbar{height:49px;padding:0 28px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .topbar b{color:var(--ink);font-weight:500}
+:is(#archive-design,#archive-dialog-host) .topbar small{margin-left:auto;font-size:11px}
+:is(#archive-design,#archive-dialog-host) .profile{display:flex;align-items:center;flex-wrap:wrap;gap:12px;min-height:45px;padding:8px 28px;border-bottom:1px solid var(--line);font-size:12px}
+:is(#archive-design,#archive-dialog-host) .profile b{font-weight:500}
+:is(#archive-design,#archive-dialog-host) .profile-server{display:flex;align-items:center;gap:5px;background:#f2f3f6;padding:2px 7px;border-radius:4px}
+:is(#archive-design,#archive-dialog-host) .profile-server img{width:20px;height:16px}
+:is(#archive-design,#archive-dialog-host) .demo-note{margin-left:auto;color:var(--muted);font-size:11px}
+:is(#archive-design,#archive-dialog-host) .heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:27px 28px 24px;background:radial-gradient(ellipse 420px 160px at 75% 0%,rgb(168 85 247 / var(--aurora)),transparent 85%),radial-gradient(ellipse 280px 100px at 100% 0%,rgb(34 211 238 / var(--aurora)),transparent 90%)}
+:is(#archive-design,#archive-dialog-host) .heading h1{font-size:26px;font-weight:600;letter-spacing:-.5px}
+:is(#archive-design,#archive-dialog-host) .heading p{font-size:12px;color:var(--muted);margin-top:5px}
+:is(#archive-design,#archive-dialog-host) .text-button{display:inline-flex;gap:6px;align-items:center;justify-content:center;min-height:36px;padding:4px 3px;color:var(--muted);font-size:12px;white-space:nowrap}
+:is(#archive-design,#archive-dialog-host) .text-button:hover{color:var(--brand);text-decoration:underline;text-underline-offset:4px}
+:is(#archive-design,#archive-dialog-host) .text-button.danger{color:#9a5262}
+:is(#archive-design,#archive-dialog-host) .section-nav{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:25px;background:#fffffff5;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:0 28px;min-height:49px}
+:is(#archive-design,#archive-dialog-host) .section-nav>a{display:flex;gap:7px;align-items:center;font-size:13px;min-height:49px}
+:is(#archive-design,#archive-dialog-host) .section-nav>a:first-child{color:var(--brand)}
+:is(#archive-design,#archive-dialog-host) .section-nav a:hover{color:var(--brand)}
+:is(#archive-design,#archive-dialog-host) .section-nav small{font:11px Consolas,monospace;color:var(--muted);background:var(--soft);padding:1px 5px;border-radius:3px}
+:is(#archive-design,#archive-dialog-host) .section-nav>span{margin-left:auto;font-size:11px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .content{padding:26px 28px 0;max-width:1340px;margin:auto;container-type:inline-size}
+:is(#archive-design,#archive-dialog-host) .page-section{scroll-margin-top:70px}
+:is(#archive-design,#archive-dialog-host) .section-heading{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:15px}
+:is(#archive-design,#archive-dialog-host) .section-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+:is(#archive-design,#archive-dialog-host) .section-title h2{font-size:18px;font-weight:600}
+:is(#archive-design,#archive-dialog-host) .section-number{color:#947b98;font:12px Consolas,monospace}
+:is(#archive-design,#archive-dialog-host) .section-title>.muted{font-size:11px;margin-left:4px}
+:is(#archive-design,#archive-dialog-host) .section-actions{display:flex;gap:18px}
+:is(#archive-design,#archive-dialog-host) .section-actions>.text-button:first-child{color:var(--brand)}
+:is(#archive-design,#archive-dialog-host) .category-heading{display:flex;gap:12px;align-items:center;margin:12px 0}
+:is(#archive-design,#archive-dialog-host) .category-heading h3{font-size:13px;font-weight:600}
+:is(#archive-design,#archive-dialog-host) .category-heading>span{color:var(--muted);font-size:12px}
+:is(#archive-design,#archive-dialog-host) .category-heading>.text-button{margin-left:auto}
+:is(#archive-design,#archive-dialog-host) .subheading{margin-top:28px}
+:is(#archive-design,#archive-dialog-host) .band-row{border-top:1px solid var(--line)}
+:is(#archive-design,#archive-dialog-host) .band-row:last-child{border-bottom:1px solid var(--line)}
+:is(#archive-design,#archive-dialog-host) .band-summary{width:100%;display:grid;grid-template-columns:153px minmax(0,1fr) 95px 22px;align-items:center;gap:14px;padding:13px 0;text-align:left;min-height:91px}
+:is(#archive-design,#archive-dialog-host) .band-summary:hover{background:#faf9fc}
+:is(#archive-design,#archive-dialog-host) .band-identity{display:flex;align-items:center;gap:12px}
+:is(#archive-design,#archive-dialog-host) .band-logo{width:61px;height:37px;object-fit:contain}
+:is(#archive-design,#archive-dialog-host) .band-identity .band-name{max-width:86px;font-size:11px;line-height:1.4;overflow-wrap:anywhere}
+:is(#archive-design,#archive-dialog-host) .band-identity .band-name small{display:block;color:var(--muted);font-size:10px;margin-top:4px}
+:is(#archive-design,#archive-dialog-host) .common-logo{width:61px;height:37px;display:grid;place-items:center;color:#626577;border:1px solid #e5e5eb;border-radius:4px;font-size:11px;letter-spacing:1px}
+:is(#archive-design,#archive-dialog-host) .mini-items{display:flex;align-items:center;gap:clamp(10px,2vw,30px)}
+:is(#archive-design,#archive-dialog-host) .mini-item{display:grid;justify-items:center;gap:1px;min-width:30px}
+:is(#archive-design,#archive-dialog-host) .mini-item img{width:31px;height:31px;object-fit:contain}
+:is(#archive-design,#archive-dialog-host) .mini-item small{font:10px Consolas,monospace;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .mini-item.is-max small{color:#8b6098}
+:is(#archive-design,#archive-dialog-host) .group-rate{display:grid;justify-items:end;gap:2px}
+:is(#archive-design,#archive-dialog-host) .group-rate small{font-size:10px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .group-rate strong{font:500 19px Consolas,monospace;letter-spacing:-.5px}
+:is(#archive-design,#archive-dialog-host) .chevron{color:#85858f}
+:is(#archive-design,#archive-dialog-host) .band-summary[aria-expanded=true] .chevron{transform:rotate(180deg)}
+:is(#archive-design,#archive-dialog-host) .band-row.is-expanded .band-summary{padding-bottom:7px}
+:is(#archive-design,#archive-dialog-host) .band-row.is-expanded .mini-items{visibility:hidden}
+:is(#archive-design,#archive-dialog-host) .band-row.is-expanded .band-identity .band-name{color:var(--brand)}
+:is(#archive-design,#archive-dialog-host) .band-detail{padding:6px 0 20px}
+:is(#archive-design,#archive-dialog-host) .shelf-toolbar{display:flex;gap:12px;justify-content:flex-end;align-items:center;font-size:11px;color:var(--muted);margin-bottom:8px}
+:is(#archive-design,#archive-dialog-host) .shelf-toolbar .text-button{font-size:11px;min-height:28px}
+:is(#archive-design,#archive-dialog-host) .item-shelf{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:12px}
+:is(#archive-design,#archive-dialog-host) .item{min-width:0;position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;padding:8px 4px 9px}
+:is(#archive-design,#archive-dialog-host) .item-art{display:grid;place-items:center;width:100%;height:67px;margin-bottom:7px;background:linear-gradient(0deg,#f6f6f8,transparent 70%);border-radius:3px}
+:is(#archive-design,#archive-dialog-host) .item-art img{width:60px;height:60px;object-fit:contain;filter:drop-shadow(0 3px 2px #15132210)}
+:is(#archive-design,#archive-dialog-host) .item-name{font-size:12px;min-height:36px;display:flex;align-items:center;justify-content:center;line-height:1.45;word-break:normal}
+:is(#archive-design,#archive-dialog-host) .item-rate{font:11px Consolas,monospace;color:var(--muted);margin:5px 0 7px}
+:is(#archive-design,#archive-dialog-host) .level-control{display:flex;align-items:center;border:1px solid #dddfe6;border-radius:5px;height:33px;background:white;max-width:100%}
+:is(#archive-design,#archive-dialog-host) .level-control button{width:28px;height:31px;font-size:16px;padding:0;color:#777181}
+:is(#archive-design,#archive-dialog-host) .level-control button:hover{background:#f5eef7;color:var(--brand)}
+:is(#archive-design,#archive-dialog-host) .level-control input{width:34px;min-width:0;text-align:center;background:transparent;border:0;font:12px Consolas,monospace;padding:0;appearance:textfield;-moz-appearance:textfield}
+:is(#archive-design,#archive-dialog-host) .level-control input::-webkit-inner-spin-button{appearance:none}
+:is(#archive-design,#archive-dialog-host) .level-caption{font-size:10px;color:var(--muted);margin-top:4px;min-height:15px}
+:is(#archive-design,#archive-dialog-host) .level-caption.is-max{color:#8a639b}
+:is(#archive-design,#archive-dialog-host) .attribute-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:22px}
+:is(#archive-design,#archive-dialog-host) .attribute-group{border-top:2px solid var(--group-color);padding-top:11px}
+:is(#archive-design,#archive-dialog-host) .attribute-heading{display:flex;gap:7px;align-items:center;min-height:25px}
+:is(#archive-design,#archive-dialog-host) .attribute-heading img{width:24px;height:24px}
+:is(#archive-design,#archive-dialog-host) .attribute-heading h4{font-size:12px;font-weight:500;margin:0}
+:is(#archive-design,#archive-dialog-host) .attribute-heading strong{margin-left:auto;font:14px Consolas,monospace;color:var(--group-color)}
+:is(#archive-design,#archive-dialog-host) .attribute-shelf{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}
+:is(#archive-design,#archive-dialog-host) .attribute-shelf .item-art{height:59px}
+:is(#archive-design,#archive-dialog-host) .attribute-shelf .item-art img{width:50px;height:50px}
+:is(#archive-design,#archive-dialog-host) .attribute-shelf .item-name{font-size:11px}
+:is(#archive-design,#archive-dialog-host) .general-strip{display:grid;grid-template-columns:1fr 2fr;align-items:center;gap:26px;margin-top:22px;padding:18px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+:is(#archive-design,#archive-dialog-host) .general-intro h3{font-size:13px;font-weight:500}
+:is(#archive-design,#archive-dialog-host) .general-intro p{font-size:12px;color:var(--muted);line-height:1.8;margin-top:7px;max-width:240px}
+:is(#archive-design,#archive-dialog-host) .general-items{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+:is(#archive-design,#archive-dialog-host) .general-items .item-art{height:51px;background:none}
+:is(#archive-design,#archive-dialog-host) .general-items .item-art img{width:47px;height:47px}
+:is(#archive-design,#archive-dialog-host) .general-items .item-name{min-height:20px}
+:is(#archive-design,#archive-dialog-host) .magazine-items{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:28px}
+:is(#archive-design,#archive-dialog-host) .magazine-items .item{display:grid;grid-template-columns:54px minmax(0,1fr) 92px;column-gap:10px;text-align:left;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+:is(#archive-design,#archive-dialog-host) .magazine-items .item-art{grid-row:1/4;height:60px;margin:0;background:none}
+:is(#archive-design,#archive-dialog-host) .magazine-items .item-art img{width:48px;height:48px}
+:is(#archive-design,#archive-dialog-host) .magazine-items .item-name{min-height:0;display:block;grid-column:2;grid-row:1;align-self:end}
+:is(#archive-design,#archive-dialog-host) .magazine-items .item-rate{grid-column:2;grid-row:2}
+:is(#archive-design,#archive-dialog-host) .magazine-items .level-control{grid-column:3;grid-row:1/3}
+:is(#archive-design,#archive-dialog-host) .magazine-items .level-caption{grid-column:3;grid-row:3;text-align:center}
+:is(#archive-design,#archive-dialog-host) .character-section{margin-top:50px;padding-top:24px;border-top:1px solid #d9dce4}
+:is(#archive-design,#archive-dialog-host) .character-tools{display:flex;align-items:center;gap:20px;margin:20px 0 13px}
+:is(#archive-design,#archive-dialog-host) .search{display:flex;align-items:center;gap:9px;border:1px solid #dcdfe6;border-radius:5px;padding:0 10px;min-width:0;width:250px}
+:is(#archive-design,#archive-dialog-host) .search input{width:100%;min-width:0;height:37px;border:0;background:transparent;outline:none;font-size:12px}
+:is(#archive-design,#archive-dialog-host) .search:focus-within{outline:2px solid #98488c;outline-offset:2px}
+:is(#archive-design,#archive-dialog-host) .search [data-icon]{color:#858591}
+:is(#archive-design,#archive-dialog-host) .owned-toggle{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);min-height:38px}
+:is(#archive-design,#archive-dialog-host) .owned-toggle input{accent-color:var(--brand)}
+:is(#archive-design,#archive-dialog-host) .character-tools>span{margin-left:auto;color:var(--muted);font-size:11px}
+:is(#archive-design,#archive-dialog-host) .band-filter{display:flex;flex-wrap:wrap;gap:8px;padding-bottom:18px}
+:is(#archive-design,#archive-dialog-host) .band-filter button{min-width:59px;min-height:38px;padding:5px 10px;border:1px solid var(--line);border-radius:4px;color:var(--muted);font-size:12px}
+:is(#archive-design,#archive-dialog-host) .band-filter img{width:40px;height:26px;object-fit:contain}
+:is(#archive-design,#archive-dialog-host) .band-filter button[aria-pressed=true]{border-color:#dbaaC4;background:#fff4f9;color:var(--brand)}
+:is(#archive-design,#archive-dialog-host) .character-band{display:grid;grid-template-columns:85px minmax(0,1fr);align-items:center;gap:22px;padding:17px 0;border-top:1px solid var(--line)}
+:is(#archive-design,#archive-dialog-host) .character-band-label{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center}
+:is(#archive-design,#archive-dialog-host) .character-band-label img{width:62px;height:32px;object-fit:contain}
+:is(#archive-design,#archive-dialog-host) .character-band-label small{font-size:10px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .members{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:15px}
+:is(#archive-design,#archive-dialog-host) .member{display:grid;grid-template-columns:46px minmax(0,1fr);align-items:center;gap:5px 9px;text-align:left;padding:9px 3px;border-radius:5px;min-width:0}
+:is(#archive-design,#archive-dialog-host) .member:hover{background:#fbf3f8}
+:is(#archive-design,#archive-dialog-host) .member img{width:44px;height:44px;object-fit:contain;grid-column:1;grid-row:1/3}
+:is(#archive-design,#archive-dialog-host) .member-name{font-size:12px;font-weight:500;line-height:1.5;overflow-wrap:anywhere}
+:is(#archive-design,#archive-dialog-host) .member[data-owned=false] .member-name::after{content:"暂无卡牌";display:block;font-size:10px;color:#878995;font-weight:400}
+:is(#archive-design,#archive-dialog-host) .member-detail-icon{display:none}
+:is(#archive-design,#archive-dialog-host) .member-bonus{grid-column:1/-1;display:flex;gap:12px;font-size:10px;color:var(--muted);margin-top:5px}
+:is(#archive-design,#archive-dialog-host) .member-bonus b{font:12px Consolas,monospace;color:#735783;margin-left:3px}
+:is(#archive-design,#archive-dialog-host) .member-bonus span:last-child b{color:#627589}
+:is(#archive-design,#archive-dialog-host) .member-custom{font-size:11px;color:var(--muted);grid-column:1/-1}
+:is(#archive-design,#archive-dialog-host) .empty{display:grid;justify-items:center;gap:14px;padding:55px 12px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .empty h3{font-size:15px}
+:is(#archive-design,#archive-dialog-host) .page-footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;border-top:1px solid var(--line);margin-top:30px;padding:20px 0;color:var(--muted);font-size:11px}
+:is(#archive-design,#archive-dialog-host) .page-footer a:hover{color:var(--brand)}
+:is(#archive-design,#archive-dialog-host) dialog{border:1px solid #dedde5;border-radius:10px;padding:0;background:white;color:var(--ink);max-height:calc(100dvh - 28px);box-shadow:0 20px 80px #2820342b}
+:is(#archive-design,#archive-dialog-host) dialog::backdrop{background:#27233643}
+:is(#archive-design,#archive-dialog-host) .editor{width:min(500px,calc(100vw - 28px))}
+:is(#archive-design,#archive-dialog-host) .dialog-top{display:flex;justify-content:space-between;align-items:center;padding:12px 22px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .icon-button{display:grid;place-items:center;width:34px;height:34px;border-radius:5px}
+:is(#archive-design,#archive-dialog-host) .icon-button:hover{background:var(--soft)}
+:is(#archive-design,#archive-dialog-host) .editor-identity{display:flex;gap:18px;padding:24px 24px 22px;align-items:center}
+:is(#archive-design,#archive-dialog-host) .editor-identity>img{width:74px;height:74px;object-fit:contain}
+:is(#archive-design,#archive-dialog-host) .eyebrow{font-size:11px;color:#8b658d;letter-spacing:.5px}
+:is(#archive-design,#archive-dialog-host) .editor-identity h2{font-size:22px;margin:3px 0 5px;font-weight:600}
+:is(#archive-design,#archive-dialog-host) .editor-identity p{font-size:12px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .editor-matrix{padding:0 24px}
+:is(#archive-design,#archive-dialog-host) .matrix-head,:is(#archive-design,#archive-dialog-host) .matrix-row{display:grid;grid-template-columns:42px repeat(3,minmax(0,1fr));gap:12px;align-items:center}
+:is(#archive-design,#archive-dialog-host) .matrix-head{color:var(--muted);font-size:12px;text-align:center;margin-bottom:8px}
+:is(#archive-design,#archive-dialog-host) .matrix-row{margin-bottom:12px}
+:is(#archive-design,#archive-dialog-host) .matrix-row>b{font-size:13px;font-weight:500}
+:is(#archive-design,#archive-dialog-host) .matrix-row>label{display:flex;align-items:center;border:1px solid #dcdce4;border-radius:5px;height:41px;padding:0 7px}
+:is(#archive-design,#archive-dialog-host) .matrix-row input{min-width:0;width:100%;border:0;background:transparent;padding:3px 0;font:14px Consolas,monospace;text-align:center}
+:is(#archive-design,#archive-dialog-host) .matrix-row label>span:last-child{font-size:11px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .editor-total{display:flex;gap:20px;align-items:center;padding:10px 24px 15px;font-size:12px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .editor-total>div{display:flex;gap:22px}
+:is(#archive-design,#archive-dialog-host) .editor-total strong{font:14px Consolas,monospace;color:var(--ink);margin-left:5px}
+:is(#archive-design,#archive-dialog-host) .editor-quick{padding:13px 24px 18px;border-top:1px solid var(--line);display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+:is(#archive-design,#archive-dialog-host) .editor-quick>span{width:100%;font-size:11px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .dialog-bottom{display:flex;justify-content:space-between;align-items:center;gap:14px;border-top:1px solid var(--line);padding:15px 24px}
+:is(#archive-design,#archive-dialog-host) .dialog-bottom>span{font-size:11px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .confirm{width:min(420px,calc(100vw - 32px))}
+:is(#archive-design,#archive-dialog-host) .confirm h2{font-size:17px;padding:24px 24px 12px}
+:is(#archive-design,#archive-dialog-host) .confirm p{font-size:13px;line-height:1.9;color:var(--muted);padding:0 24px 24px;white-space:pre-line}
+:is(#archive-design,#archive-dialog-host) .toast{position:fixed;z-index:30;bottom:23px;left:50%;transform:translateX(-50%);padding:11px 18px;background:#332e3d;color:white;border-radius:7px;font-size:12px;box-shadow:0 4px 16px #0002;max-width:calc(100vw - 30px)}
+@container  (max-width:950px){:is(#archive-design,#archive-dialog-host) .band-summary{grid-template-columns:138px minmax(0,1fr) 85px 18px;gap:10px}
+:is(#archive-design,#archive-dialog-host) .mini-items{gap:16px}
+:is(#archive-design,#archive-dialog-host) .mini-item img{width:28px;height:28px}
+:is(#archive-design,#archive-dialog-host) .item-shelf{gap:7px}
+:is(#archive-design,#archive-dialog-host) .attribute-grid{gap:15px}
+:is(#archive-design,#archive-dialog-host) .magazine-items{gap:18px}
+:is(#archive-design,#archive-dialog-host) .magazine-items .item{grid-template-columns:48px minmax(0,1fr)}
+:is(#archive-design,#archive-dialog-host) .magazine-items .level-control{grid-column:2;grid-row:3}
+:is(#archive-design,#archive-dialog-host) .magazine-items .level-caption{grid-column:2;grid-row:4;text-align:left}
+:is(#archive-design,#archive-dialog-host) .character-tools{flex-wrap:wrap;gap:9px 18px}
+:is(#archive-design,#archive-dialog-host) .character-tools>span{margin-left:0}
+:is(#archive-design,#archive-dialog-host) .character-band{gap:14px;grid-template-columns:68px minmax(0,1fr)}
+:is(#archive-design,#archive-dialog-host) .members{gap:8px}
+:is(#archive-design,#archive-dialog-host) .member{grid-template-columns:1fr;justify-items:center;text-align:center}
+:is(#archive-design,#archive-dialog-host) .member img{grid-column:1;grid-row:1;width:46px;height:46px}
+:is(#archive-design,#archive-dialog-host) .member-name{grid-row:2}
+:is(#archive-design,#archive-dialog-host) .member-bonus{gap:6px;flex-wrap:wrap;justify-content:center}
+:is(#archive-design,#archive-dialog-host) .mini-items{justify-content:space-between;gap:4px}}
+@container  (max-width:730px){:is(#archive-design,#archive-dialog-host) .band-summary{grid-template-columns:138px minmax(0,1fr) 77px 18px;gap:6px}
+:is(#archive-design,#archive-dialog-host) .mini-items{gap:2px}
+:is(#archive-design,#archive-dialog-host) .mini-item{min-width:23px}
+:is(#archive-design,#archive-dialog-host) .mini-item img{width:24px;height:24px}
+:is(#archive-design,#archive-dialog-host) .item-shelf{grid-template-columns:repeat(4,minmax(0,1fr))}
+:is(#archive-design,#archive-dialog-host) .attribute-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 24px}
+:is(#archive-design,#archive-dialog-host) .general-strip{grid-template-columns:1fr}
+:is(#archive-design,#archive-dialog-host) .general-intro p{max-width:none}
+:is(#archive-design,#archive-dialog-host) .magazine-items{gap:12px}
+:is(#archive-design,#archive-dialog-host) .members{gap:5px}
+:is(#archive-design,#archive-dialog-host) .character-band{grid-template-columns:55px minmax(0,1fr);gap:10px}
+:is(#archive-design,#archive-dialog-host) .character-band-label img{width:48px}
+:is(#archive-design,#archive-dialog-host) .member-bonus{display:grid;gap:2px}
+:is(#archive-design,#archive-dialog-host) .member-bonus b{font-size:11px}
+:is(#archive-design,#archive-dialog-host) .character-tools .search{width:240px}
+:is(#archive-design,#archive-dialog-host) .section-nav>span{display:none}}
+@media (max-width:760px){:is(#archive-design,#archive-dialog-host) .workspace{grid-template-columns:1fr}
+:is(#archive-design,#archive-dialog-host) .sidebar{position:static;height:auto;padding:12px 16px 0;display:block;border-right:0;border-bottom:1px solid var(--line)}
+:is(#archive-design,#archive-dialog-host) .brand{margin-bottom:10px}
+:is(#archive-design,#archive-dialog-host) .brand small{display:none}
+:is(#archive-design,#archive-dialog-host) .brand-mark{width:25px;height:27px;border-radius:6px}
+:is(#archive-design,#archive-dialog-host) .brand b{font-size:14px}
+:is(#archive-design,#archive-dialog-host) .sidebar nav{grid-template-columns:repeat(4,1fr);gap:1px}
+:is(#archive-design,#archive-dialog-host) .sidebar nav>a,:is(#archive-design,#archive-dialog-host) .nav-disabled{justify-content:center;gap:5px;padding:9px 2px;font-size:11px}
+:is(#archive-design,#archive-dialog-host) .sidebar nav>a[aria-current]{box-shadow:inset 0 -2px var(--pink)}
+:is(#archive-design,#archive-dialog-host) .sidebar-foot,:is(#archive-design,#archive-dialog-host) .nav-caption{display:none}
+:is(#archive-design,#archive-dialog-host) .topbar{height:40px;padding:0 16px}
+:is(#archive-design,#archive-dialog-host) .profile{padding:9px 16px;gap:8px}
+:is(#archive-design,#archive-dialog-host) .demo-note{font-size:10px;margin-left:auto}
+:is(#archive-design,#archive-dialog-host) .heading{padding:21px 16px 19px}
+:is(#archive-design,#archive-dialog-host) .heading h1{font-size:23px}
+:is(#archive-design,#archive-dialog-host) .heading p{font-size:11px;max-width:225px}
+:is(#archive-design,#archive-dialog-host) .heading>.text-button{font-size:11px}
+:is(#archive-design,#archive-dialog-host) .section-nav{padding:0 16px;gap:22px}
+:is(#archive-design,#archive-dialog-host) .section-nav>span{display:none}
+:is(#archive-design,#archive-dialog-host) .content{padding:20px 16px 0}
+:is(#archive-design,#archive-dialog-host) .page-section{scroll-margin-top:65px}
+:is(#archive-design,#archive-dialog-host) .section-title{gap:7px}
+:is(#archive-design,#archive-dialog-host) .section-title h2{font-size:17px}
+:is(#archive-design,#archive-dialog-host) .section-heading{flex-wrap:wrap;gap:3px}
+:is(#archive-design,#archive-dialog-host) .section-title>.muted{font-size:10px}
+:is(#archive-design,#archive-dialog-host) .section-actions{margin-left:auto;gap:15px}
+:is(#archive-design,#archive-dialog-host) .category-heading{gap:8px;flex-wrap:wrap}
+:is(#archive-design,#archive-dialog-host) .category-heading>span{font-size:11px}
+:is(#archive-design,#archive-dialog-host) .character-tools>span{font-size:11px}
+:is(#archive-design,#archive-dialog-host) .character-tools .search{width:100%}
+:is(#archive-design,#archive-dialog-host) .owned-toggle{font-size:12px}
+:is(#archive-design,#archive-dialog-host) .page-footer{font-size:10px}
+:is(#archive-design,#archive-dialog-host) .band-filter{gap:6px}
+:is(#archive-design,#archive-dialog-host) .band-filter button{min-width:50px;min-height:42px;padding:5px}
+:is(#archive-design,#archive-dialog-host) .band-filter img{width:35px;height:26px}
+:is(#archive-design,#archive-dialog-host) .character-section{margin-top:34px}
+:is(#archive-design,#archive-dialog-host) .section-number{font-size:11px}}
+@container (max-width:460px){:is(#archive-design,#archive-dialog-host) .band-summary{grid-template-columns:minmax(0,1fr) 80px 18px;min-height:71px}
+:is(#archive-design,#archive-dialog-host) .mini-items{display:none}
+:is(#archive-design,#archive-dialog-host) .band-identity .band-name{max-width:none;font-size:12px}
+:is(#archive-design,#archive-dialog-host) .band-identity .band-name small{font-size:10px}
+:is(#archive-design,#archive-dialog-host) .band-logo,:is(#archive-design,#archive-dialog-host) .common-logo{width:56px;height:34px}
+:is(#archive-design,#archive-dialog-host) .group-rate strong{font-size:18px}
+:is(#archive-design,#archive-dialog-host) .band-detail{padding-top:0}
+:is(#archive-design,#archive-dialog-host) .item-shelf{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 4px}
+:is(#archive-design,#archive-dialog-host) .shelf-toolbar{justify-content:space-between;flex-wrap:wrap}
+:is(#archive-design,#archive-dialog-host) .item-art{height:61px}
+:is(#archive-design,#archive-dialog-host) .item-art img{width:55px;height:55px}
+:is(#archive-design,#archive-dialog-host) .item-name{font-size:11px}
+:is(#archive-design,#archive-dialog-host) .level-control{height:36px}
+:is(#archive-design,#archive-dialog-host) .level-control button{height:34px;width:27px}
+:is(#archive-design,#archive-dialog-host) .level-control input{width:32px;font-size:16px}
+:is(#archive-design,#archive-dialog-host) .attribute-grid{gap:20px 15px}
+:is(#archive-design,#archive-dialog-host) .attribute-heading{gap:5px;flex-wrap:wrap}
+:is(#archive-design,#archive-dialog-host) .attribute-heading h4{font-size:11px}
+:is(#archive-design,#archive-dialog-host) .attribute-heading strong{font-size:13px}
+:is(#archive-design,#archive-dialog-host) .attribute-shelf{gap:0}
+:is(#archive-design,#archive-dialog-host) .attribute-shelf .level-control button{width:20px}
+:is(#archive-design,#archive-dialog-host) .attribute-shelf .level-control input{width:28px}
+:is(#archive-design,#archive-dialog-host) .attribute-shelf .item{padding:7px 0}
+:is(#archive-design,#archive-dialog-host) .attribute-shelf .item-name{font-size:10px;min-height:34px}
+:is(#archive-design,#archive-dialog-host) .attribute-shelf .item-art img{width:46px;height:46px}
+:is(#archive-design,#archive-dialog-host) .general-items{gap:6px}
+:is(#archive-design,#archive-dialog-host) .general-intro p{font-size:11px}
+:is(#archive-design,#archive-dialog-host) .magazine-items{grid-template-columns:1fr}
+:is(#archive-design,#archive-dialog-host) .magazine-items .item{grid-template-columns:54px minmax(0,1fr) 94px;padding:13px 0}
+:is(#archive-design,#archive-dialog-host) .magazine-items .level-control{grid-column:3;grid-row:1/3}
+:is(#archive-design,#archive-dialog-host) .magazine-items .level-caption{grid-column:3;grid-row:3;text-align:center}
+:is(#archive-design,#archive-dialog-host) .character-band{grid-template-columns:1fr;gap:10px;padding:16px 0}
+:is(#archive-design,#archive-dialog-host) .character-band-label{flex-direction:row;justify-content:flex-start;gap:9px}
+:is(#archive-design,#archive-dialog-host) .character-band-label img{width:51px;height:29px}
+:is(#archive-design,#archive-dialog-host) .members{grid-template-columns:repeat(5,minmax(0,1fr));gap:3px}
+:is(#archive-design,#archive-dialog-host) .member{padding:5px 0}
+:is(#archive-design,#archive-dialog-host) .member img{width:42px;height:42px}
+:is(#archive-design,#archive-dialog-host) .member-name{font-size:10px}
+:is(#archive-design,#archive-dialog-host) .member-bonus{font-size:9px}
+:is(#archive-design,#archive-dialog-host) .member-bonus b{font-size:10px}
+:is(#archive-design,#archive-dialog-host) .member[data-owned=false] .member-name::after{font-size:8px}
+:is(#archive-design,#archive-dialog-host) .member-custom{font-size:10px}}
+@media (max-width:460px){:is(#archive-design,#archive-dialog-host) .editor-identity{padding:18px 16px;gap:14px}
+:is(#archive-design,#archive-dialog-host) .editor-identity>img{width:60px;height:60px}
+:is(#archive-design,#archive-dialog-host) .editor-identity h2{font-size:20px}
+:is(#archive-design,#archive-dialog-host) .editor-identity p{font-size:11px}
+:is(#archive-design,#archive-dialog-host) .editor-matrix{padding:0 16px}
+:is(#archive-design,#archive-dialog-host) .matrix-head,:is(#archive-design,#archive-dialog-host) .matrix-row{grid-template-columns:32px repeat(3,minmax(0,1fr));gap:7px}
+:is(#archive-design,#archive-dialog-host) .matrix-row>label{padding:0 3px}
+:is(#archive-design,#archive-dialog-host) .matrix-row input{font-size:16px}
+:is(#archive-design,#archive-dialog-host) .editor-total{padding:8px 16px 16px;gap:12px}
+:is(#archive-design,#archive-dialog-host) .editor-total>div{gap:12px}
+:is(#archive-design,#archive-dialog-host) .editor-total strong{font-size:13px}
+:is(#archive-design,#archive-dialog-host) .editor-quick{padding:12px 16px;gap:13px}
+:is(#archive-design,#archive-dialog-host) .dialog-bottom{padding:14px 16px}
+:is(#archive-design,#archive-dialog-host) .dialog-bottom>span{max-width:45%}
+:is(#archive-design,#archive-dialog-host) .category-heading>span{max-width:66%}}
+@media (prefers-reduced-motion:reduce){:is(#archive-design,#archive-dialog-host) *{scroll-behavior:auto!important;transition:none!important}}
+:is(#archive-design,#archive-dialog-host) .section-nav>a:first-child{color:inherit}
+:is(#archive-design,#archive-dialog-host) .section-nav>a[aria-current],:is(#archive-design,#archive-dialog-host) .section-nav>a:hover{color:var(--brand)}
+/* Accepted source: shared-design/shared.css */
+:is(#archive-design,#archive-dialog-host){--good:#357364;--warning:#8a6226;--danger:#ad3554;--hint:#6c5b88}
+:is(#archive-design,#archive-dialog-host) textarea{font:inherit;resize:vertical}
+:is(#archive-design,#archive-dialog-host) button,:is(#archive-design,#archive-dialog-host) input,:is(#archive-design,#archive-dialog-host) select,:is(#archive-design,#archive-dialog-host) textarea{touch-action:manipulation}
+:is(#archive-design,#archive-dialog-host) button:active{filter:brightness(.96)}
+:is(#archive-design,#archive-dialog-host) .skip-link{position:fixed;top:-100px;z-index:90;background:white;padding:12px}
+:is(#archive-design,#archive-dialog-host) .skip-link:focus{top:0}
+:is(#archive-design,#archive-dialog-host) .accent{color:var(--brand)}
+:is(#archive-design,#archive-dialog-host) .utility-current{display:flex;align-items:center;gap:10px;padding:9px 10px;color:var(--brand);box-shadow:inset 3px 0 var(--pink);font-size:13px;font-weight:600}
+:is(#archive-design,#archive-dialog-host) .topbar .icon-button{width:30px;height:30px}
+:is(#archive-design,#archive-dialog-host) .profile{position:relative}
+:is(#archive-design,#archive-dialog-host) .profile #profile-switch{display:flex;align-items:center;gap:9px;padding:0;min-height:28px}
+:is(#archive-design,#archive-dialog-host) .profile #profile-switch b{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+:is(#archive-design,#archive-dialog-host) .save-state{margin-left:auto;display:flex;gap:6px;align-items:center;color:var(--good);font-size:11px}
+:is(#archive-design,#archive-dialog-host) .save-state.error{color:var(--danger)}
+:is(#archive-design,#archive-dialog-host) .save-state.busy{color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .save-state svg{width:14px;height:14px}
+:is(#archive-design,#archive-dialog-host) .preview-controls{display:flex;align-items:center;gap:10px;padding:9px 28px;color:var(--muted);background:#fafafc;border-bottom:1px dashed var(--line);font-size:11px}
+:is(#archive-design,#archive-dialog-host) .preview-controls select{border:1px solid #d4d5dd;border-radius:4px;padding:5px 24px 5px 8px;font-size:11px;background:white;min-height:30px}
+:is(#archive-design,#archive-dialog-host) .preview-controls .text-button{font-size:11px;min-height:30px}
+:is(#archive-design,#archive-dialog-host) .preview-controls>a{margin-left:auto}
+:is(#archive-design,#archive-dialog-host) .preview-controls>a:hover{color:var(--brand)}
+:is(#archive-design,#archive-dialog-host) .heading{padding-top:23px;padding-bottom:21px}
+:is(#archive-design,#archive-dialog-host) .section-nav{min-height:46px;gap:28px}
+:is(#archive-design,#archive-dialog-host) .section-nav>a{min-height:46px}
+:is(#archive-design,#archive-dialog-host) .section-nav>a[aria-current]{box-shadow:inset 0 -2px var(--pink)}
+:is(#archive-design,#archive-dialog-host) .shared-content{padding:24px 28px 0;max-width:1220px;margin:auto}
+:is(#archive-design,#archive-dialog-host) .shared-content:focus{outline:none}
+:is(#archive-design,#archive-dialog-host) .profile-layout{display:grid;grid-template-columns:240px minmax(0,1fr);gap:32px}
+:is(#archive-design,#archive-dialog-host) .profile-directory{border-right:1px solid var(--line);padding-right:24px}
+:is(#archive-design,#archive-dialog-host) .directory-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px}
+:is(#archive-design,#archive-dialog-host) .directory-heading h2{font-size:13px;font-weight:600}
+:is(#archive-design,#archive-dialog-host) .directory-heading small{font:12px Consolas,monospace;color:var(--muted);margin-left:5px}
+:is(#archive-design,#archive-dialog-host) .directory-heading>span{font-size:10px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .directory-search{display:flex;align-items:center;border-bottom:1px solid #d2d4dc;padding:0 2px 7px;gap:7px;margin-bottom:10px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .directory-search input{width:100%;min-width:0;border:0;outline-offset:4px;font-size:12px;background:transparent}
+:is(#archive-design,#archive-dialog-host) .profile-entry{position:relative;display:grid;grid-template-columns:27px minmax(0,1fr);gap:3px 10px;text-align:left;width:100%;padding:12px 9px;border-radius:5px;margin-bottom:5px;min-height:75px}
+:is(#archive-design,#archive-dialog-host) .profile-entry:hover{background:var(--soft)}
+:is(#archive-design,#archive-dialog-host) .profile-entry[aria-pressed=true]{background:#f5f2f8;box-shadow:inset 2px 0 #a680b8}
+:is(#archive-design,#archive-dialog-host) .profile-entry img{width:25px;height:20px;margin-top:2px;grid-row:1/3}
+:is(#archive-design,#archive-dialog-host) .profile-entry strong{font-size:13px;font-weight:500;overflow-wrap:anywhere}
+:is(#archive-design,#archive-dialog-host) .profile-entry small{font-size:11px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .profile-entry .current{color:var(--brand);font-size:10px;font-weight:400;margin-left:6px}
+:is(#archive-design,#archive-dialog-host) .directory-empty{font-size:12px;padding:25px 4px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .detail-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}
+:is(#archive-design,#archive-dialog-host) .detail-heading h2{font-size:18px;display:flex;gap:10px;align-items:center;font-weight:600}
+:is(#archive-design,#archive-dialog-host) .detail-heading img{width:29px;height:22px}
+:is(#archive-design,#archive-dialog-host) .detail-state{color:var(--good);font-size:11px;font-weight:400;display:flex;align-items:center;gap:4px}
+:is(#archive-design,#archive-dialog-host) .detail-heading>.text-button{font-size:12px}
+:is(#archive-design,#archive-dialog-host) .profile-form{margin-top:20px}
+:is(#archive-design,#archive-dialog-host) .field{display:grid;gap:7px;font-size:12px;min-width:0}
+:is(#archive-design,#archive-dialog-host) .field>span:first-child{color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .field input,:is(#archive-design,#archive-dialog-host) .field select,:is(#archive-design,#archive-dialog-host) .field textarea,:is(#archive-design,#archive-dialog-host) .plain-select{width:100%;min-width:0;border:1px solid #b7b9c4;border-radius:5px;padding:8px 10px;background:white;min-height:38px}
+:is(#archive-design,#archive-dialog-host) .field textarea{line-height:1.65}
+:is(#archive-design,#archive-dialog-host) .field input:focus,:is(#archive-design,#archive-dialog-host) .field textarea:focus{border-color:#9b79b4;outline:2px solid #d0b7e544;outline-offset:1px}
+:is(#archive-design,#archive-dialog-host) .form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+:is(#archive-design,#archive-dialog-host) .field small,:is(#archive-design,#archive-dialog-host) .field-hint{color:var(--muted);font-size:11px;line-height:1.65}
+:is(#archive-design,#archive-dialog-host) .field-error{color:var(--danger);font-size:12px;min-height:0;margin-top:5px}
+:is(#archive-design,#archive-dialog-host) .field-error:empty{display:none}
+:is(#archive-design,#archive-dialog-host) .field [aria-invalid=true]{border-color:var(--danger)}
+:is(#archive-design,#archive-dialog-host) .server-field{padding:0;margin:17px 0 0;border:0;min-width:0}
+:is(#archive-design,#archive-dialog-host) .server-field legend{padding:0;color:var(--muted);font-size:12px;margin-bottom:8px}
+:is(#archive-design,#archive-dialog-host) .server-choices{display:flex;gap:7px;flex-wrap:wrap}
+:is(#archive-design,#archive-dialog-host) .server-choices label{position:relative}
+:is(#archive-design,#archive-dialog-host) .server-choices input{position:absolute;width:1px;height:1px;opacity:0}
+:is(#archive-design,#archive-dialog-host) .server-choices label>span{display:flex;align-items:center;gap:6px;border:1px solid transparent;border-radius:4px;padding:6px 8px;min-height:34px;font-size:12px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .server-choices img{width:21px;height:17px}
+:is(#archive-design,#archive-dialog-host) .server-choices input:checked+span{color:var(--brand);border-color:#bf859f;background:#fff6f9}
+:is(#archive-design,#archive-dialog-host) .server-choices input:focus-visible+span{outline:2px solid #98488c;outline-offset:3px}
+:is(#archive-design,#archive-dialog-host) .server-choices label:hover>span{background:var(--soft)}
+:is(#archive-design,#archive-dialog-host) .server-hint{font-size:11px;color:var(--muted);margin-top:9px}
+:is(#archive-design,#archive-dialog-host) .form-save-row{margin-top:13px;display:flex;gap:13px;align-items:center}
+:is(#archive-design,#archive-dialog-host) .secondary{display:inline-flex;gap:7px;align-items:center;justify-content:center;min-height:34px;border:1px solid #bdbac9;border-radius:5px;padding:6px 11px;background:white;font-size:12px}
+:is(#archive-design,#archive-dialog-host) .secondary:hover{background:var(--soft)}
+:is(#archive-design,#archive-dialog-host) .form-save-row small{color:var(--muted);font-size:11px}
+:is(#archive-design,#archive-dialog-host) .inventory-strip{display:flex;gap:0;margin-top:22px;padding:16px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+:is(#archive-design,#archive-dialog-host) .inventory-strip>div{flex:1;border-right:1px solid var(--line);padding:0 16px;min-width:0}
+:is(#archive-design,#archive-dialog-host) .inventory-strip>div:first-child{padding-left:0}
+:is(#archive-design,#archive-dialog-host) .inventory-strip>div:last-child{border:0}
+:is(#archive-design,#archive-dialog-host) .inventory-strip strong{font:23px Consolas,monospace;letter-spacing:-.5px}
+:is(#archive-design,#archive-dialog-host) .inventory-strip span{font-size:11px;color:var(--muted);margin-left:6px}
+:is(#archive-design,#archive-dialog-host) .inventory-strip p{font-size:11px;color:var(--muted);margin-top:4px}
+:is(#archive-design,#archive-dialog-host) .profile-actions{display:flex;gap:17px;align-items:center;flex-wrap:wrap;margin-top:13px}
+:is(#archive-design,#archive-dialog-host) .profile-actions .danger{margin-left:auto}
+:is(#archive-design,#archive-dialog-host) .sample-cards{display:flex;align-items:center;gap:6px;margin-top:14px}
+:is(#archive-design,#archive-dialog-host) .sample-cards img{width:36px;height:36px;border-radius:3px}
+:is(#archive-design,#archive-dialog-host) .sample-cards>span{font-size:11px;color:var(--muted);margin-left:7px}
+:is(#archive-design,#archive-dialog-host) .import-guide{display:flex;gap:15px;align-items:center;border-top:1px solid var(--line);margin-top:29px;padding:19px 0 0}
+:is(#archive-design,#archive-dialog-host) .guide-icon{height:38px;width:38px;background:#f2eff8;border-radius:8px;color:#80658f}
+:is(#archive-design,#archive-dialog-host) .guide-icon svg{width:21px;height:21px}
+:is(#archive-design,#archive-dialog-host) .import-guide h2{font-size:13px;font-weight:500}
+:is(#archive-design,#archive-dialog-host) .import-guide p{color:var(--muted);font-size:11px;margin-top:4px}
+:is(#archive-design,#archive-dialog-host) .import-guide .text-button{margin-left:auto}
+:is(#archive-design,#archive-dialog-host) .notice{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;background:#f8f5ef;border-left:2px solid #bf924a;margin-bottom:21px;border-radius:0 5px 5px 0;font-size:12px}
+:is(#archive-design,#archive-dialog-host) .notice.error{background:#fff4f6;border-color:#bf5573}
+:is(#archive-design,#archive-dialog-host) .notice.info{background:#f4f3fa;border-color:#9c86b9}
+:is(#archive-design,#archive-dialog-host) .notice.good{background:#eff8f5;border-color:#599f8a}
+:is(#archive-design,#archive-dialog-host) .notice>span{color:var(--warning);margin-top:2px}
+:is(#archive-design,#archive-dialog-host) .notice.error>span{color:var(--danger)}
+:is(#archive-design,#archive-dialog-host) .notice.info>span{color:var(--hint)}
+:is(#archive-design,#archive-dialog-host) .notice.good>span{color:var(--good)}
+:is(#archive-design,#archive-dialog-host) .notice b{font-weight:500}
+:is(#archive-design,#archive-dialog-host) .notice p{color:var(--muted);margin-top:4px;font-size:11px;line-height:1.7}
+:is(#archive-design,#archive-dialog-host) .notice .notice-actions{display:flex;gap:16px;margin-top:6px}
+:is(#archive-design,#archive-dialog-host) .notice .text-button{min-height:28px}
+:is(#archive-design,#archive-dialog-host) .notice>div{min-width:0}
+:is(#archive-design,#archive-dialog-host) .welcome{padding:6px 0 20px;border-bottom:1px solid var(--line);margin-bottom:20px}
+:is(#archive-design,#archive-dialog-host) .welcome h2{font-size:18px;font-weight:500;margin-bottom:7px}
+:is(#archive-design,#archive-dialog-host) .welcome p{font-size:12px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .welcome .welcome-actions{display:flex;gap:18px;align-items:center;margin-top:16px}
+:is(#archive-design,#archive-dialog-host) .resource-title{display:flex;align-items:center;gap:9px;margin-bottom:6px}
+:is(#archive-design,#archive-dialog-host) .resource-title h2{font-size:15px;font-weight:600}
+:is(#archive-design,#archive-dialog-host) .resource-title>span{color:#80658f}
+:is(#archive-design,#archive-dialog-host) .resource-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:center;padding:17px 0;border-bottom:1px solid var(--line)}
+:is(#archive-design,#archive-dialog-host) .resource-row h3{font-size:13px;font-weight:500}
+:is(#archive-design,#archive-dialog-host) .resource-row p{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.7}
+:is(#archive-design,#archive-dialog-host) .resource-row .text-button{margin-left:14px}
+:is(#archive-design,#archive-dialog-host) .resource-block+.resource-block{margin-top:26px}
+:is(#archive-design,#archive-dialog-host) .resource-meta{display:flex;gap:14px;color:var(--muted);font-size:11px;margin-top:7px;flex-wrap:wrap}
+:is(#archive-design,#archive-dialog-host) .resource-meta .status{color:var(--good)}
+:is(#archive-design,#archive-dialog-host) .environment-label{margin-left:auto;font-size:11px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .risk-details{border-top:1px solid var(--line);margin-top:25px;font-size:12px}
+:is(#archive-design,#archive-dialog-host) .risk-details summary{cursor:pointer;padding:15px 0;color:var(--muted);list-style:none;display:flex;gap:8px;align-items:center}
+:is(#archive-design,#archive-dialog-host) .risk-details summary::-webkit-details-marker{display:none}
+:is(#archive-design,#archive-dialog-host) .risk-details[open] summary{color:var(--danger)}
+:is(#archive-design,#archive-dialog-host) .risk-details .resource-row{padding-top:5px;padding-bottom:16px}
+:is(#archive-design,#archive-dialog-host) .risk-details p{max-width:650px}
+:is(#archive-design,#archive-dialog-host) .flow-dialog{width:min(610px,calc(100vw - 28px));max-height:calc(100dvh - 28px);overflow:auto}
+:is(#archive-design,#archive-dialog-host) .flow-dialog .dialog-top,:is(#archive-design,#archive-dialog-host) .confirm-dialog .dialog-top{position:sticky;top:0;background:white;z-index:3;padding:14px 22px}
+:is(#archive-design,#archive-dialog-host) .dialog-top h2{font-size:18px;color:var(--ink);font-weight:600}
+:is(#archive-design,#archive-dialog-host) .eyebrow:empty{display:none}
+:is(#archive-design,#archive-dialog-host) .eyebrow{display:block;font-size:10px;margin-bottom:3px;color:#796889}
+:is(#archive-design,#archive-dialog-host) .flow-dialog.wide{width:min(700px,calc(100vw - 28px))}
+:is(#archive-design,#archive-dialog-host) .flow-dialog.switcher{width:min(410px,calc(100vw - 28px))}
+:is(#archive-design,#archive-dialog-host) .flow-dialog.menu-dialog{width:min(380px,calc(100vw - 28px))}
+:is(#archive-design,#archive-dialog-host) .flow-body{padding:21px 23px}
+:is(#archive-design,#archive-dialog-host) .flow-body>p.intro{font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:18px}
+:is(#archive-design,#archive-dialog-host) .flow-dialog .dialog-bottom{position:sticky;bottom:0;background:#fff;z-index:2;padding:13px 22px;gap:10px}
+:is(#archive-design,#archive-dialog-host) .dialog-bottom .actions{display:flex;gap:14px;align-items:center}
+:is(#archive-design,#archive-dialog-host) .dialog-bottom small{font-size:11px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .form-stack{display:grid;gap:15px}
+:is(#archive-design,#archive-dialog-host) .dialog-note{font-size:11px;color:var(--muted);margin-top:13px;line-height:1.7}
+:is(#archive-design,#archive-dialog-host) .dialog-note:empty{display:none}
+:is(#archive-design,#archive-dialog-host) .step-list{display:flex;align-items:center;gap:16px;list-style:none;margin:0 0 20px;padding:0;font-size:11px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .step-list li{display:flex;gap:6px;align-items:center}
+:is(#archive-design,#archive-dialog-host) .step-list i{font-style:normal;width:19px;height:19px;display:grid;place-items:center;border-radius:50%;background:var(--soft);font-size:10px}
+:is(#archive-design,#archive-dialog-host) .step-list .active{color:var(--brand)}
+:is(#archive-design,#archive-dialog-host) .step-list .active i{background:#fbe8f0;color:var(--brand)}
+:is(#archive-design,#archive-dialog-host) .step-list li+li::before{content:"";height:1px;width:26px;background:var(--line);margin-right:5px}
+:is(#archive-design,#archive-dialog-host) .source-tabs{display:flex;gap:8px;padding-bottom:18px}
+:is(#archive-design,#archive-dialog-host) .source-tabs button{display:flex;align-items:center;justify-content:center;gap:8px;flex:1;min-height:43px;border:1px solid #b7b9c4;border-radius:5px;font-size:12px}
+:is(#archive-design,#archive-dialog-host) .source-tabs button[aria-pressed=true]{border-color:#bd88a0;background:#fff6f9;color:var(--brand)}
+:is(#archive-design,#archive-dialog-host) .source-tabs button:hover{background:var(--soft)}
+:is(#archive-design,#archive-dialog-host) .source-hint{background:#f8f7fb;padding:11px 13px;margin:15px 0 0;border-radius:4px;font-size:12px}
+:is(#archive-design,#archive-dialog-host) .source-hint strong{display:block;font-weight:500}
+:is(#archive-design,#archive-dialog-host) .source-hint p{color:var(--muted);font-size:11px;line-height:1.75;margin-top:5px}
+:is(#archive-design,#archive-dialog-host) .sample-tools{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted);gap:8px}
+:is(#archive-design,#archive-dialog-host) .sample-tools .text-button{font-size:11px;min-height:29px}
+:is(#archive-design,#archive-dialog-host) .compact-check{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) input[type=checkbox],:is(#archive-design,#archive-dialog-host) input[type=radio]{accent-color:var(--brand)}
+:is(#archive-design,#archive-dialog-host) .compact-check input{margin:0;width:15px;height:15px}
+:is(#archive-design,#archive-dialog-host) .parse-state{min-height:215px;display:grid;align-content:center;justify-items:center;gap:13px;text-align:center}
+:is(#archive-design,#archive-dialog-host) .parse-state h3{font-size:17px;font-weight:500}
+:is(#archive-design,#archive-dialog-host) .parse-state p{font-size:12px;color:var(--muted);max-width:350px;line-height:1.8}
+:is(#archive-design,#archive-dialog-host) .loader{width:27px;height:27px;border:2px solid var(--line);border-top-color:#aa77b2;border-radius:50%;animation:spin 1s linear infinite}
+@keyframes  spin{to{transform:rotate(360deg)}}
+:is(#archive-design,#archive-dialog-host) .destination{margin-bottom:18px;padding:0;border:0;min-width:0}
+:is(#archive-design,#archive-dialog-host) .destination legend{font-size:12px;color:var(--muted);padding:0;margin-bottom:9px}
+:is(#archive-design,#archive-dialog-host) .destination-options{display:flex;gap:18px;flex-wrap:wrap}
+:is(#archive-design,#archive-dialog-host) .destination-options label{display:flex;gap:6px;align-items:center;font-size:12px;min-height:28px}
+:is(#archive-design,#archive-dialog-host) .destination-options input{margin:0}
+:is(#archive-design,#archive-dialog-host) .destination-name{margin-top:12px}
+:is(#archive-design,#archive-dialog-host) .diff-table{border-collapse:collapse;width:100%;font-size:12px}
+:is(#archive-design,#archive-dialog-host) .diff-table th{font-weight:400;color:var(--muted);font-size:11px;background:#fafafc;text-align:left;padding:9px 10px;border-bottom:1px solid var(--line)}
+:is(#archive-design,#archive-dialog-host) .diff-table td{padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+:is(#archive-design,#archive-dialog-host) .diff-table td:first-child{white-space:nowrap}
+:is(#archive-design,#archive-dialog-host) .diff-table td b{font-weight:500}
+:is(#archive-design,#archive-dialog-host) .diff-table td small{display:block;font-size:11px;color:var(--muted);margin-top:4px;line-height:1.6}
+:is(#archive-design,#archive-dialog-host) .diff-table td:last-child{color:var(--muted);line-height:1.65}
+:is(#archive-design,#archive-dialog-host) .diff-table .delta{color:var(--good)}
+:is(#archive-design,#archive-dialog-host) .diff-table .replace{color:var(--warning)}
+:is(#archive-design,#archive-dialog-host) .mini-roster{display:flex;gap:6px;margin-top:16px;align-items:center}
+:is(#archive-design,#archive-dialog-host) .mini-roster img{width:39px;height:39px;border-radius:4px}
+:is(#archive-design,#archive-dialog-host) .mini-roster span{font-size:11px;color:var(--muted);margin-left:8px}
+:is(#archive-design,#archive-dialog-host) .import-summary{display:flex;align-items:center;gap:9px;margin-bottom:16px;font-size:12px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .import-summary img{width:23px;height:18px}
+:is(#archive-design,#archive-dialog-host) .check-disc{width:46px;height:46px;color:var(--good);background:#edf7f2;border-radius:50%;display:grid;place-items:center}
+:is(#archive-design,#archive-dialog-host) .check-disc svg{width:24px;height:24px}
+:is(#archive-design,#archive-dialog-host) .export-options{display:grid;gap:0;margin-bottom:19px}
+:is(#archive-design,#archive-dialog-host) .export-option{display:grid;grid-template-columns:18px minmax(0,1fr);gap:9px;align-items:start;padding:13px 0;border-bottom:1px solid var(--line);font-size:12px}
+:is(#archive-design,#archive-dialog-host) .export-option input{margin:2px 0}
+:is(#archive-design,#archive-dialog-host) .export-option b{font-weight:500}
+:is(#archive-design,#archive-dialog-host) .export-option small{display:block;font-size:11px;color:var(--muted);line-height:1.7;margin-top:5px}
+:is(#archive-design,#archive-dialog-host) .export-option .recommend{color:var(--brand);font-size:10px;margin-left:7px}
+:is(#archive-design,#archive-dialog-host) .export-preview{font:11px/1.6 Consolas,monospace;background:#fafafc!important;min-height:118px;overflow-wrap:anywhere}
+:is(#archive-design,#archive-dialog-host) .coverage-line{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--good);margin-bottom:13px}
+:is(#archive-design,#archive-dialog-host) .coverage-line span{display:flex;align-items:center;gap:4px}
+:is(#archive-design,#archive-dialog-host) .coverage-line svg{width:13px;height:13px}
+:is(#archive-design,#archive-dialog-host) .format-warning{font-size:11px;color:var(--warning);line-height:1.75;margin-bottom:14px}
+:is(#archive-design,#archive-dialog-host) .confirm-dialog{width:min(460px,calc(100vw - 28px))}
+:is(#archive-design,#archive-dialog-host) .confirm-dialog #confirm-body{padding:20px 22px;font-size:13px;line-height:1.9;overflow-wrap:anywhere}
+:is(#archive-design,#archive-dialog-host) .confirm-dialog #confirm-body p+p{margin-top:9px}
+:is(#archive-design,#archive-dialog-host) .confirm-dialog .danger-fill{background:var(--danger)}
+:is(#archive-design,#archive-dialog-host) .confirm-dialog .confirm-hint{font-size:12px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .switch-list .switch-item{width:100%;display:grid;grid-template-columns:30px minmax(0,1fr) 20px;gap:12px;align-items:center;text-align:left;padding:13px 0;border-bottom:1px solid var(--line)}
+:is(#archive-design,#archive-dialog-host) .switch-list img{width:28px;height:23px}
+:is(#archive-design,#archive-dialog-host) .switch-list b{font-size:13px;font-weight:500;overflow-wrap:anywhere}
+:is(#archive-design,#archive-dialog-host) .switch-list small{display:block;font-size:11px;color:var(--muted);margin-top:4px}
+:is(#archive-design,#archive-dialog-host) .switch-list [data-icon=check]{color:var(--good)}
+:is(#archive-design,#archive-dialog-host) .switch-list .switch-item:hover{background:var(--soft)}
+:is(#archive-design,#archive-dialog-host) .menu-list button{display:flex;gap:10px;align-items:center;min-height:46px;width:100%;font-size:13px;text-align:left}
+:is(#archive-design,#archive-dialog-host) .menu-list button:hover{color:var(--brand);background:var(--soft)}
+:is(#archive-design,#archive-dialog-host) .menu-list button+button{border-top:1px solid var(--line)}
+:is(#archive-design,#archive-dialog-host) .attachment-list{display:grid;gap:5px;color:var(--muted);font-size:11px;overflow-wrap:anywhere}
+:is(#archive-design,#archive-dialog-host) .attach-label{display:inline-flex;gap:8px;align-items:center;position:relative;border:1px dashed #afacbd;padding:9px 12px;border-radius:4px;min-height:40px;font-size:12px;cursor:pointer}
+:is(#archive-design,#archive-dialog-host) .attach-label input{position:absolute;inset:0;opacity:0;width:100%;cursor:pointer}
+:is(#archive-design,#archive-dialog-host) .attach-label:focus-within{outline:2px solid #98488c;outline-offset:2px}
+:is(#archive-design,#archive-dialog-host) .download-item{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:16px 0;border-bottom:1px solid var(--line)}
+:is(#archive-design,#archive-dialog-host) .download-item h3{font-size:13px;font-weight:500}
+:is(#archive-design,#archive-dialog-host) .download-item p{font-size:11px;color:var(--muted);margin-top:5px}
+:is(#archive-design,#archive-dialog-host) .history-state-select{display:flex;align-items:center;gap:10px;font-size:11px;color:var(--muted);margin-bottom:9px}
+:is(#archive-design,#archive-dialog-host) .history-state-select select{font-size:11px;padding:5px;border:1px solid #b7b9c4;border-radius:4px}
+:is(#archive-design,#archive-dialog-host) .diagnostic-text{font:11px/1.65 Consolas,monospace;padding:12px;background:var(--soft);white-space:pre-wrap;overflow-wrap:anywhere}
+:is(#archive-design,#archive-dialog-host) .page-footer{margin-top:27px}
+:is(#archive-design,#archive-dialog-host) .empty-profile{font-size:12px;color:var(--muted);margin:19px 0 3px}
+:is(#archive-design,#archive-dialog-host) .field input[type=email]{font-size:12px}
+:is(#archive-design,#archive-dialog-host) .feedback-options{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+:is(#archive-design,#archive-dialog-host) .feedback-options .compact-check{min-height:28px}
+:is(#archive-design,#archive-dialog-host) .flow-dialog .notice{margin-bottom:0}
+:is(#archive-design,#archive-dialog-host) .flow-dialog .notice p{font-size:12px}
+:is(#archive-design,#archive-dialog-host) .export-heading{display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:8px}
+:is(#archive-design,#archive-dialog-host) .export-heading img{width:22px;height:17px}
+:is(#archive-design,#archive-dialog-host) .export-heading span{color:var(--muted);margin-left:auto}
+:is(#archive-design,#archive-dialog-host) .server-changed{margin-top:12px}
+:is(#archive-design,#archive-dialog-host) .save-bar-note{min-height:16px}
+:is(#archive-design,#archive-dialog-host) .stack-gap{margin-top:15px}
+:is(#archive-design,#archive-dialog-host) .compact-field-label{color:var(--muted);font-size:12px;display:block;margin-bottom:7px}
+:is(#archive-design,#archive-dialog-host) .first-steps{display:flex;gap:22px;margin:18px 0 0;color:var(--muted);font-size:11px;flex-wrap:wrap}
+:is(#archive-design,#archive-dialog-host) .first-steps span{display:flex;align-items:center;gap:5px}
+:is(#archive-design,#archive-dialog-host) .first-steps [data-icon]{color:#8f709c}
+:is(#archive-design,#archive-dialog-host) .mobile-links{display:none}
+@media (max-width:1050px){:is(#archive-design,#archive-dialog-host) .profile-layout{grid-template-columns:200px minmax(0,1fr);gap:24px}
+:is(#archive-design,#archive-dialog-host) .profile-directory{padding-right:17px}
+:is(#archive-design,#archive-dialog-host) .inventory-strip>div{padding:0 10px}
+:is(#archive-design,#archive-dialog-host) .inventory-strip strong{font-size:22px}
+:is(#archive-design,#archive-dialog-host) .inventory-strip p{font-size:10px}
+:is(#archive-design,#archive-dialog-host) .profile-actions{gap:12px}
+:is(#archive-design,#archive-dialog-host) .directory-heading>span{display:none}}
+@media (max-width:760px){:is(#archive-design,#archive-dialog-host) .topbar .icon-button{margin-right:-6px}
+:is(#archive-design,#archive-dialog-host) .preview-controls{padding:8px 16px;gap:8px;flex-wrap:wrap}
+:is(#archive-design,#archive-dialog-host) .preview-controls>a{display:none}
+:is(#archive-design,#archive-dialog-host) .preview-controls>span{font-size:10px}
+:is(#archive-design,#archive-dialog-host) .preview-controls select{max-width:139px;min-height:32px}
+:is(#archive-design,#archive-dialog-host) .shared-content{padding:19px 16px 0}
+:is(#archive-design,#archive-dialog-host) .profile-layout{grid-template-columns:1fr;gap:22px}
+:is(#archive-design,#archive-dialog-host) .profile-directory{border-right:0;padding:0;border-bottom:1px solid var(--line);padding-bottom:12px}
+:is(#archive-design,#archive-dialog-host) .directory-heading{margin-bottom:10px}
+:is(#archive-design,#archive-dialog-host) .directory-heading>span{display:block}
+:is(#archive-design,#archive-dialog-host) .directory-search{margin-bottom:7px}
+:is(#archive-design,#archive-dialog-host) .profile-entry{min-height:58px;padding:9px 8px;margin-bottom:3px;grid-template-columns:25px minmax(0,1fr)}
+:is(#archive-design,#archive-dialog-host) .profile-entry img{width:23px;height:19px}
+:is(#archive-design,#archive-dialog-host) .profile-entry strong{font-size:12px}
+:is(#archive-design,#archive-dialog-host) .profile-entry small{font-size:11px}
+:is(#archive-design,#archive-dialog-host) .profile-form{margin-top:16px}
+:is(#archive-design,#archive-dialog-host) .server-choices{gap:4px}
+:is(#archive-design,#archive-dialog-host) .server-choices label>span{padding:8px 7px;min-height:39px;gap:4px}
+:is(#archive-design,#archive-dialog-host) .server-choices img{width:20px;height:16px}
+:is(#archive-design,#archive-dialog-host) .heading h1{font-size:23px}
+:is(#archive-design,#archive-dialog-host) .save-state{font-size:10px}
+:is(#archive-design,#archive-dialog-host) .profile #profile-switch b{max-width:125px}
+:is(#archive-design,#archive-dialog-host) .inventory-strip{margin-top:18px;padding:14px 0}
+:is(#archive-design,#archive-dialog-host) .inventory-strip strong{font-size:22px}
+:is(#archive-design,#archive-dialog-host) .inventory-strip span{font-size:10px;margin-left:5px}
+:is(#archive-design,#archive-dialog-host) .inventory-strip p{font-size:10px}
+:is(#archive-design,#archive-dialog-host) .profile-actions{gap:16px}
+:is(#archive-design,#archive-dialog-host) .profile-actions .text-button{min-height:40px}
+:is(#archive-design,#archive-dialog-host) .import-guide{gap:10px;flex-wrap:wrap;padding-top:15px;margin-top:22px}
+:is(#archive-design,#archive-dialog-host) .import-guide>div{flex:1}
+:is(#archive-design,#archive-dialog-host) .import-guide .text-button{margin-left:48px;min-height:30px}
+:is(#archive-design,#archive-dialog-host) .guide-icon{width:36px;height:36px}
+:is(#archive-design,#archive-dialog-host) .import-guide p{font-size:11px}
+:is(#archive-design,#archive-dialog-host) .form-row{gap:12px}
+:is(#archive-design,#archive-dialog-host) .field input,:is(#archive-design,#archive-dialog-host) .field textarea,:is(#archive-design,#archive-dialog-host) .field select{font-size:16px;min-height:42px;padding:8px}
+:is(#archive-design,#archive-dialog-host) .profile-form .field input{font-size:14px}
+:is(#archive-design,#archive-dialog-host) .flow-dialog .dialog-top,:is(#archive-design,#archive-dialog-host) .confirm-dialog .dialog-top{padding:12px 16px}
+:is(#archive-design,#archive-dialog-host) .flow-body{padding:18px 16px}
+:is(#archive-design,#archive-dialog-host) .flow-dialog .dialog-bottom{padding:12px 16px}
+:is(#archive-design,#archive-dialog-host) .flow-dialog .dialog-bottom small{font-size:10px;max-width:40%}
+:is(#archive-design,#archive-dialog-host) .flow-dialog .dialog-bottom .text-button{min-height:40px}
+:is(#archive-design,#archive-dialog-host) .flow-dialog .dialog-bottom .actions{gap:12px}
+:is(#archive-design,#archive-dialog-host) .primary{min-height:42px}
+:is(#archive-design,#archive-dialog-host) .icon-button{width:40px;height:40px}
+:is(#archive-design,#archive-dialog-host) .source-tabs button{min-height:44px;font-size:12px}
+:is(#archive-design,#archive-dialog-host) .step-list{gap:10px;margin-bottom:18px}
+:is(#archive-design,#archive-dialog-host) .step-list li+li::before{width:16px;margin-right:2px}
+:is(#archive-design,#archive-dialog-host) .diff-table th,:is(#archive-design,#archive-dialog-host) .diff-table td{padding:10px 6px;font-size:11px}
+:is(#archive-design,#archive-dialog-host) .diff-table td small{font-size:10px}
+:is(#archive-design,#archive-dialog-host) .diff-table th:last-child{width:42%}
+:is(#archive-design,#archive-dialog-host) .resource-row{grid-template-columns:1fr;gap:8px;padding:15px 0}
+:is(#archive-design,#archive-dialog-host) .resource-row>button,:is(#archive-design,#archive-dialog-host) .resource-row>div:last-child:not(:first-child){justify-self:start}
+:is(#archive-design,#archive-dialog-host) .resource-row .text-button{margin-left:0;min-height:34px}
+:is(#archive-design,#archive-dialog-host) .resource-row>div>.text-button+.text-button{margin-left:18px}
+:is(#archive-design,#archive-dialog-host) .resource-block+.resource-block{margin-top:23px}
+:is(#archive-design,#archive-dialog-host) .resource-title h2{font-size:14px}
+:is(#archive-design,#archive-dialog-host) .directory-search input{font-size:13px}
+:is(#archive-design,#archive-dialog-host) .sample-cards img{width:31px;height:31px}
+:is(#archive-design,#archive-dialog-host) .sample-cards{gap:5px}
+:is(#archive-design,#archive-dialog-host) .sample-cards>span{font-size:10px;max-width:100px}
+:is(#archive-design,#archive-dialog-host) .profile-actions .danger{margin-left:auto}
+:is(#archive-design,#archive-dialog-host) .form-save-row{flex-wrap:wrap;gap:10px}
+:is(#archive-design,#archive-dialog-host) .notice{padding:11px 10px}
+:is(#archive-design,#archive-dialog-host) .notice .notice-actions{gap:14px;flex-wrap:wrap}
+:is(#archive-design,#archive-dialog-host) .notice p{font-size:11px}
+:is(#archive-design,#archive-dialog-host) .flow-dialog .form-row{grid-template-columns:1fr}
+:is(#archive-design,#archive-dialog-host) .flow-dialog .source-tabs{gap:7px}
+:is(#archive-design,#archive-dialog-host) .flow-dialog .export-preview{font-size:11px}
+:is(#archive-design,#archive-dialog-host) .flow-dialog .field input[type=email]{font-size:16px}
+:is(#archive-design,#archive-dialog-host) .profile .muted{font-size:11px}
+:is(#archive-design,#archive-dialog-host) .profile{gap:7px}
+:is(#archive-design,#archive-dialog-host) .section-nav{gap:27px}
+:is(#archive-design,#archive-dialog-host) .section-nav a{font-size:12px}
+:is(#archive-design,#archive-dialog-host) .destination-options{gap:12px}
+:is(#archive-design,#archive-dialog-host) .destination-options label{font-size:11px}
+:is(#archive-design,#archive-dialog-host) .server-choices label>span{font-size:11px}
+:is(#archive-design,#archive-dialog-host) .flow-dialog .server-choices{gap:2px}
+:is(#archive-design,#archive-dialog-host) .flow-dialog .server-choices label>span{padding:8px 6px}
+:is(#archive-design,#archive-dialog-host) .flow-dialog .server-choices img{width:18px;height:15px}
+:is(#archive-design,#archive-dialog-host) .export-heading{flex-wrap:wrap}
+:is(#archive-design,#archive-dialog-host) .export-heading span{margin-left:0;width:100%;font-size:11px}
+:is(#archive-design,#archive-dialog-host) .download-item{flex-wrap:wrap}
+:is(#archive-design,#archive-dialog-host) .download-item .secondary{min-height:40px}
+:is(#archive-design,#archive-dialog-host) .page-footer{font-size:10px}
+:is(#archive-design,#archive-dialog-host) .detail-heading h2{font-size:16px}
+:is(#archive-design,#archive-dialog-host) .detail-heading img{width:25px;height:20px}
+:is(#archive-design,#archive-dialog-host) .mini-roster span{font-size:10px}
+:is(#archive-design,#archive-dialog-host) .mini-roster img{width:32px;height:32px}
+:is(#archive-design,#archive-dialog-host) .guide-icon svg{width:19px;height:19px}
+:is(#archive-design,#archive-dialog-host) .directory-heading h2{font-size:13px}
+:is(#archive-design,#archive-dialog-host) .resource-meta{gap:9px}
+:is(#archive-design,#archive-dialog-host) .first-steps{gap:12px}
+:is(#archive-design,#archive-dialog-host) .switch-list .switch-item{min-height:66px}}
+:is(#archive-design,#archive-dialog-host) #import-back [data-icon]{transform:rotate(180deg)}
+@media (max-width:460px){:is(#archive-design,#archive-dialog-host) .server-choices,:is(#archive-design,#archive-dialog-host) .flow-dialog .server-choices{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:3px}
+:is(#archive-design,#archive-dialog-host) .server-choices label>span,:is(#archive-design,#archive-dialog-host) .flow-dialog .server-choices label>span{flex-direction:column;justify-content:center;gap:4px;padding:7px 2px;min-height:49px}
+:is(#archive-design,#archive-dialog-host) .server-choices img,:is(#archive-design,#archive-dialog-host) .flow-dialog .server-choices img{width:21px;height:17px}}
+@media (prefers-reduced-motion:reduce){:is(#archive-design,#archive-dialog-host) .loader{animation:none}
+:is(#archive-design,#archive-dialog-host) *{transition:none!important;scroll-behavior:auto!important}}
+/* Accepted source: archive-body-study/study.css */
+:is(#archive-design,#archive-dialog-host) #archive-review-bar{position:relative;z-index:6;padding:11px 24px;background:#fcfbfd;border-bottom:1px solid #eeeaf1;font:12px/1.55 Inter,"Noto Sans SC","Microsoft YaHei",sans-serif;color:#686875}
+:is(#archive-design,#archive-dialog-host) .archive-review-top{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+:is(#archive-design,#archive-dialog-host) .archive-review-top strong{color:#45414e;font-size:12px;font-weight:600}
+:is(#archive-design,#archive-dialog-host) .archive-review-top>div{display:flex;gap:2px}
+:is(#archive-design,#archive-dialog-host) .archive-review-top button{font:inherit;cursor:pointer;min-height:36px;padding:6px 11px;border:0;border-radius:2px;color:#6d6975;background:transparent}
+:is(#archive-design,#archive-dialog-host) .archive-review-top button:hover{background:#f2eef5;color:#775376}
+:is(#archive-design,#archive-dialog-host) .archive-review-top button[aria-pressed=true]{background:white;box-shadow:0 1px 5px #30204010;color:#925578}
+:is(#archive-design,#archive-dialog-host) .archive-review-top nav{margin-left:auto;display:flex;gap:4px}
+:is(#archive-design,#archive-dialog-host) #archive-review-bar p{font-size:11px;margin:6px 0 0;color:#797481}
+:is(#archive-design,#archive-dialog-host) .archive-section-title,:is(#archive-design,#archive-dialog-host) .archive-current-title,:is(#archive-design,#archive-dialog-host) .archive-stat-art,:is(#archive-design,#archive-dialog-host) .archive-resource-kinds,:is(#archive-design,#archive-dialog-host) .archive-empty-action{display:none}
+:is(#archive-design,#archive-dialog-host) .archive-stat-content{display:contents}
+:is(#archive-design,#archive-dialog-host) .archive-overview{display:contents}
+:is(#archive-design,#archive-dialog-host) .archive-card-images{display:contents}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=original] .resource-meta .status svg{display:none}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined]{--archive-purple:#795e87;--archive-blue:#426e94;--archive-green:#426f68;--archive-ochre:#7d6744}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .shared-content{padding-top:26px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .profile-layout{grid-template-columns:220px minmax(0,1fr);gap:32px;align-items:start}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .profile-directory{padding-right:22px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .directory-heading h2{color:var(--archive-purple)}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .directory-heading small{font:inherit;font-size:11px;background:#f2edf6;color:#75637f;padding:1px 5px;border-radius:2px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .profile-entry{border-radius:2px;padding:13px 10px;min-height:74px;margin-bottom:3px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .profile-entry[aria-pressed=true]{background:linear-gradient(90deg,#f2edf6,#f9f7fb);box-shadow:inset 2px 0 #a182b4}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .profile-entry .current{color:#846080;margin-left:6px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .profile-entry strong{font-weight:500}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .detail-heading h2{font-size:18px;gap:10px;line-height:1.5;overflow-wrap:anywhere;min-width:0}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .detail-heading h2>img{flex:none;width:27px;height:22px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .detail-heading{align-items:flex-start;gap:14px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .detail-state{padding-top:5px;white-space:nowrap;color:var(--archive-green)}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-original-title{display:none}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-current-title{display:block}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-section-title{display:flex;align-items:center;gap:10px;font-size:13px;font-weight:600;line-height:1.5;margin:0;color:var(--archive-purple)}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-section-title>svg{width:15px;height:15px;flex:none;overflow:visible;border-radius:50%;background:#f3edf8;outline:4px solid #f3edf8}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-overview{display:grid;grid-template-columns:1fr;gap:13px;margin-top:22px;padding:0 0 23px;border-bottom:1px solid var(--line)}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-overview-title{color:var(--archive-blue)}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-overview-title>svg{background:#edf4fa;outline-color:#edf4fa}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .inventory-strip{display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:22px;border:0;padding:0;margin:0}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .inventory-strip>.archive-stat{padding:0;border:0;display:flex;gap:9px;align-items:center}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-stat-content{display:block;min-width:0}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .inventory-strip strong{font-family:inherit;font-size:24px;font-weight:500;font-variant-numeric:tabular-nums;letter-spacing:-.5px;line-height:1.25;white-space:nowrap}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .inventory-strip span{font-size:11px;white-space:nowrap}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .inventory-strip p{margin-top:4px;font-size:11px;line-height:1.5}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-stat[data-kind=cards] strong{color:#80618e}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-stat[data-kind=items] strong{color:var(--archive-ochre)}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-stat[data-kind=characters] strong{color:var(--archive-green)}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-stat-art{position:relative;display:grid;place-items:center;width:44px;height:46px;flex:none;isolation:isolate}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-stat-art::before{content:"";position:absolute;inset:8px -3px 0;background:radial-gradient(ellipse,#ede7dc95,transparent 72%);z-index:-1;pointer-events:none}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-stat[data-kind=characters] .archive-stat-art::before{background:radial-gradient(ellipse,#dfefed90,transparent 72%)}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-stat-art img{width:44px;height:44px;object-fit:contain;mix-blend-mode:multiply}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-stat-art svg{width:28px;height:28px;color:#a4a1aa}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .sample-cards{margin:0;gap:12px;align-items:center}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-card-images{display:flex;gap:5px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .sample-cards img{width:40px;height:40px;border-radius:2px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .sample-cards>span{font-size:10px;margin-left:0;max-width:none;color:#716d79}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .profile-form{margin-top:24px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-form-title{margin-bottom:16px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .profile-form .field input{border-radius:3px;border-color:#c4c1cb}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .server-choices label>span{border-radius:2px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .server-choices input:checked+span{background:#f8f3fa;border-color:#c5b1cf;color:#785887}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .form-save-row{margin-top:14px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .form-save-row .secondary{border-radius:3px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .profile-actions{gap:18px;margin-top:18px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .profile-actions button{font-size:12px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .import-guide{margin-top:26px;padding-top:20px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .guide-icon{width:29px;height:29px;border-radius:50%;background:#f3edf8;color:var(--archive-purple)}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .guide-icon svg{width:17px;height:17px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .import-guide h2{color:var(--archive-purple);font-size:13px;font-weight:600}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .empty-profile{margin:0;font-size:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-empty-action{display:inline-flex;min-height:36px;flex:none}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .resource-title{gap:11px;margin-bottom:2px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .resource-title h2{font-size:14px;color:var(--archive-green)}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .resource-title>[data-icon]{color:var(--archive-green);background:#eaf5f0;outline:4px solid #eaf5f0;border-radius:50%}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .resource-title>[data-icon] svg{width:16px;height:16px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-app-resources .resource-title h2,:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-app-resources .resource-title>[data-icon]{color:var(--archive-blue)}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-app-resources .resource-title>[data-icon]{background:#edf4fa;outline-color:#edf4fa}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .resource-row{padding:21px 0;column-gap:32px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .resource-row h3{font-weight:600;font-size:13px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .resource-row p{font-size:12px;max-width:660px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .resource-row>button{margin-left:0;white-space:nowrap}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .resource-block+.resource-block{margin-top:29px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-resource-description{display:none}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-resource-kinds{display:flex;gap:18px;flex-wrap:wrap;margin:13px 0 12px;color:#73717d;font-size:11px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-resource-kinds>span{display:flex;gap:5px;align-items:center}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-resource-kinds svg{width:15px;height:15px;color:#888193}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .resource-meta{align-items:center;gap:14px;margin-top:0}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .resource-meta .status{display:inline-flex;align-items:center;gap:4px;padding:3px 7px;background:#eef7f2;border-radius:2px;color:#3b7260}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .resource-meta .status svg{width:13px;height:13px;flex:none}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .resource-meta .status[data-state=error]{background:#fff0f3;color:#ad3554}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .resource-meta .status:is([data-state=loading],[data-state=pending]){background:#f5f1e9;color:#85642f}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .risk-details{border-top:0;margin-top:14px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .risk-details summary{font-size:12px;min-height:44px;padding:10px 0}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .risk-details .resource-row{border-bottom:0}
+@media (max-width:1100px){:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .profile-layout{grid-template-columns:195px minmax(0,1fr);gap:25px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .profile-directory{padding-right:18px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .inventory-strip{gap:14px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .inventory-strip>.archive-stat{gap:5px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-stat-art{width:35px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-stat-art img{width:35px;height:35px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .inventory-strip strong{font-size:22px}}
+@media (max-width:760px){:is(#archive-design,#archive-dialog-host) #archive-review-bar{padding:9px 16px}
+:is(#archive-design,#archive-dialog-host) .archive-review-top{gap:6px 14px}
+:is(#archive-design,#archive-dialog-host) .archive-review-top nav{margin-left:0}
+:is(#archive-design,#archive-dialog-host) .archive-review-top button{min-height:40px;padding:5px 10px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .shared-content{padding:20px 16px 0}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .profile-layout{grid-template-columns:1fr;gap:24px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .profile-directory{padding:0 0 13px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .profile-entry{min-height:60px;padding:10px 9px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .profile-form{margin-top:21px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-overview{margin-top:18px;padding-bottom:20px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .inventory-strip{gap:12px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .profile-actions{gap:16px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .resource-row{padding:18px 0;row-gap:10px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .resource-row>button{min-height:40px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-resource-kinds{gap:12px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .import-guide{column-gap:12px;row-gap:4px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .import-guide .text-button{margin-left:41px;min-height:40px}}
+@media (max-width:460px){:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .inventory-strip{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .inventory-strip>.archive-stat{display:flex;flex-wrap:wrap;gap:2px 4px;align-items:flex-start;align-content:flex-start}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-stat-art{width:24px;height:26px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-stat-art img{width:24px;height:24px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-stat-art svg{width:20px;height:20px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .archive-stat-content{flex:1;flex-basis:50px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .inventory-strip strong{font-size:21px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .inventory-strip span{font-size:10px;margin-left:3px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .inventory-strip p{font-size:10px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .sample-cards{flex-wrap:wrap;gap:5px 10px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .sample-cards img{width:37px;height:37px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .profile-form .form-row{grid-template-columns:1fr;gap:13px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .profile-actions{display:grid;grid-template-columns:1fr 1fr;gap:3px 14px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .profile-actions button{font-size:11px;justify-self:start;min-height:44px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .profile-actions button.danger{margin-left:0;justify-self:start}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .import-guide{display:grid;grid-template-columns:29px minmax(0,1fr);align-items:start;gap:4px 12px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .import-guide .guide-icon{grid-row:1/3;margin-top:2px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .import-guide>div{min-width:0}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .import-guide .text-button{grid-column:2;justify-self:start;margin-left:0}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .detail-heading h2{font-size:16px}
+:is(#archive-design,#archive-dialog-host)[data-archive-skin=refined] .detail-heading>.text-button{max-width:100px;text-align:right;justify-content:flex-end;flex-shrink:0;min-height:40px}}
