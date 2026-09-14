@@ -30,6 +30,7 @@ export function createPlayerModel({
   supportedEventTypeOrDefault,
   maxCardLevel,
   normalizeCardTrainingStatus,
+  hasCardRecord = () => true,
 }) {
   function normalizedPlayer(player) {
     const calculationMode = normalizedCalculationMode(player.calculationMode);
@@ -131,10 +132,11 @@ export function createPlayerModel({
 
   function normalizedCardConfig(cardId, config = {}) {
     const episodes = Array.isArray(config.episodes) ? config.episodes : [];
+    const known = hasCardRecord(cardId);
     return {
       level: positiveIntegerOrDefault(config.level, maxCardLevel(cardId)),
-      training: normalizeCardTrainingStatus(cardId, config.training),
-      illustTrainingStatus: normalizeCardTrainingStatus(cardId, config.illustTrainingStatus),
+      training: !known && typeof config.training === 'boolean' ? config.training : normalizeCardTrainingStatus(cardId, config.training),
+      illustTrainingStatus: !known && typeof config.illustTrainingStatus === 'boolean' ? config.illustTrainingStatus : normalizeCardTrainingStatus(cardId, config.illustTrainingStatus),
       episodes: [
         booleanOrDefault(episodes[0], true),
         booleanOrDefault(episodes[1], true),

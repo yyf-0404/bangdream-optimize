@@ -1,3 +1,5 @@
+import {designFragment} from './approved/templates.js';
+
 export function confirmDialog({
   title = '确认操作',
   lines = [],
@@ -10,44 +12,32 @@ export function confirmDialog({
   }
 
   return new Promise((resolve) => {
-    const dialog = document.createElement('dialog');
-    dialog.className = 'app-confirm-dialog';
-
-    const form = document.createElement('form');
-    form.className = 'app-confirm-dialog-content';
-    form.method = 'dialog';
-
-    const heading = document.createElement('h3');
+    const dialog = designFragment('confirm-dialog');
+    const heading = dialog.querySelector('#confirm-title');
     heading.textContent = title;
 
-    const body = document.createElement('div');
-    body.className = 'app-confirm-dialog-body';
+    const body = dialog.querySelector('#confirm-body');
     for (const line of lines) {
       const paragraph = document.createElement('p');
       paragraph.textContent = line;
       body.append(paragraph);
     }
 
-    const actions = document.createElement('div');
-    actions.className = 'app-confirm-dialog-actions';
-
-    const cancel = document.createElement('button');
+    const cancel = dialog.querySelector('#confirm-cancel');
     cancel.type = 'button';
     cancel.textContent = cancelText;
     cancel.addEventListener('click', () => dialog.close('cancel'));
 
-    const confirm = document.createElement('button');
-    confirm.type = 'submit';
-    confirm.className = danger ? 'primary danger-action' : 'primary';
+    const confirm = dialog.querySelector('#confirm-apply');
+    confirm.type = 'button';
+    confirm.className = danger ? 'primary danger-fill' : 'primary';
     confirm.textContent = confirmText;
-
-    actions.append(cancel, confirm);
-    form.append(heading, body, actions);
-    dialog.append(form);
-    document.body.append(dialog);
+    confirm.onclick=()=>dialog.close('confirm');
+    const close=dialog.querySelector('#close-confirm');close.type='button';close.textContent='×';close.onclick=()=>dialog.close('cancel');
+    (document.querySelector('#archive-dialog-host')||document.body).append(dialog);
 
     dialog.addEventListener('close', () => {
-      const confirmed = dialog.returnValue !== 'cancel';
+      const confirmed = dialog.returnValue === 'confirm';
       dialog.remove();
       resolve(confirmed);
     }, { once: true });

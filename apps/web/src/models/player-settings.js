@@ -16,6 +16,14 @@ const PT_EVALUATE_LIVE_VARIANTS_BY_EVENT_TYPE = {
   medley: ['medley'],
 };
 
+export function allowedLiveVariants(eventType, calculationMode) {
+  // These solvers determine the scenario from the event itself, not the PT editor preferences.
+  if (calculationMode === 'scoreRange') return [eventType === 'medley' ? 'medley' : eventType === 'versus' ? 'versus' : 'solo'];
+  if (calculationMode === 'maximize') return [({challenge:'challenge_cp',versus:'versus',festival:'festival',medley:'medley'})[eventType] || 'solo'];
+  const table = calculationMode === 'ptMaximize' ? PT_MAXIMIZE_LIVE_VARIANTS_BY_EVENT_TYPE : PT_EVALUATE_LIVE_VARIANTS_BY_EVENT_TYPE;
+  return [...(table[eventType] || ['solo'])];
+}
+
 export const PLAYER_CONFIG_SCHEMA_VERSION = 1;
 
 const COOPERATIVE_LEADER_MODES = new Set([

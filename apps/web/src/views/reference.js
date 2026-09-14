@@ -1,3 +1,4 @@
+import { language } from '../ui/preferences.js';
 import {
   attributeIconUrls,
   bandIconUrls,
@@ -77,7 +78,7 @@ export function createReferenceView({
     if (!cardPageActive()) {
       renderOptionsCached(
         elements.cardOptions,
-        releasedCardRecords(core?.cards),
+        core?.cards,
         cardLabel,
         `cards:${server}`,
       );
@@ -1029,6 +1030,7 @@ export function installRecoveringDatalistInput(input) {
 }
 
 function renderOptionsCached(element, records, labelFn, cacheKey, options = {}) {
+  cacheKey += ':' + language();
   const count = records ? Object.keys(records).length : 0;
   const key = `${cacheKey}:${count}`;
   if (element.dataset.optionsKey === key) {

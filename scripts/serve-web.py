@@ -2,9 +2,21 @@
 import argparse
 import functools
 import posixpath
+import re
+import time
+import threading
+from urllib.request import build_opener, HTTPRedirectHandler, Request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
+
+
+HEADER_PATH = re.compile(r"assets/(jp|cn|en|tw|kr)/(characters/resourceset/[A-Za-z0-9_-]+_rip/card_(normal|after_training)\.png|event/[A-Za-z0-9_-]+/(topscreen_rip/(trim_eventtop|bg_eventtop)|images_rip/logo)\.png)\Z")
+HEADER_CACHE = {}
+HEADER_LOCK = threading.Lock()
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
 
 
 class WebStaticHandler(SimpleHTTPRequestHandler):
@@ -12,6 +24,36 @@ class WebStaticHandler(SimpleHTTPRequestHandler):
         self.web_root = web_root
         self.game_data_root = game_data_root
         super().__init__(*args, directory=str(web_root), **kwargs)
+
+    def do_GET(self):
+        if not self.path.startswith("/bestdori/header/"):
+            return super().do_GET()
+        path = unquote(self.path.removeprefix("/bestdori/header/"))
+        if not HEADER_PATH.fullmatch(path):
+            self.send_error(400)
+            return
+        try:
+            with HEADER_LOCK:
+                entry = HEADER_CACHE.get(path)
+            if entry and time.monotonic() - entry[0] < 86400:
+                data = entry[1]
+            else:
+                with build_opener(NoRedirect).open(Request("https://bestdori.com/" + path, headers={"User-Agent": "Mozilla/5.0 BanG-Dream-Optimize/0.3"}), timeout=10) as response:
+                    data = response.read(4 * 1024 * 1024 + 1)
+                if len(data) > 4 * 1024 * 1024 or not data.startswith(b"\x89PNG\r\n\x1a\n"):
+                    raise ValueError("Invalid header PNG")
+                with HEADER_LOCK:
+                    while HEADER_CACHE and (len(HEADER_CACHE) >= 12 or sum(len(v[1]) for v in HEADER_CACHE.values()) + len(data) > 8 * 1024 * 1024):
+                        HEADER_CACHE.pop(next(iter(HEADER_CACHE)))
+                    HEADER_CACHE[path] = (time.monotonic(), data)
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception as error:
+            self.log_error("Header asset unavailable (%s): %s", type(error).__name__, error)
+            self.send_error(502, "Header asset unavailable")
 
     def end_headers(self):
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")

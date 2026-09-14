@@ -39,6 +39,7 @@ export function createResourceActions({
       }
       renderResultSummary(null);
       renderMetrics(null);
+      await ensureCore({ refreshManifest: true });
       renderReferenceOptions();
       renderConfigForms(readPlayer());
       elements.log.textContent = '';

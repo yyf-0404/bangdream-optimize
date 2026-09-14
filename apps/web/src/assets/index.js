@@ -30,6 +30,13 @@ export function cardTrainingStatusList(card) {
   return [false, true];
 }
 
+export function cardArtUrls({ card, illustTrainingStatus = true }) {
+  const name = safeAssetName(card?.resourceSetName);
+  if (!name) return [];
+  return cardAssetServers(card).flatMap(server => cardIconSuffixes(card, illustTrainingStatus)
+    .map(suffix => `${assetBaseUrl()}/${server}/characters/resourceset/${name}_rip/card_${suffix}.png`));
+}
+
 export function normalizeTrainingStatus(statuses, value) {
   const preferred = booleanOrDefault(value, statuses.includes(true));
   if (statuses.includes(preferred)) {
@@ -52,14 +59,16 @@ export function songCoverUrls({ songId, song }) {
   }
 
   const base = assetBaseUrl();
-  const server = assetServer();
-  const folder = `musicjacket${musicJacketBucket(songId)}`;
-  const fallbackFolder = `musicjacket${legacyMusicJacketBucket(songId)}`;
-  const normalizedJacket = jacketImage.toLowerCase();
-  return [
-    `${base}/${server}/musicjacket/${folder}_rip/assets-star-forassetbundle-startapp-musicjacket-${folder}-${normalizedJacket}-jacket.png`,
-    `${base}/${server}/musicjacket/${fallbackFolder}_rip/assets-star-forassetbundle-startapp-musicjacket-${fallbackFolder}-${normalizedJacket}-jacket.png`,
-  ];
+  const servers = [...new Set([assetServer(), 'jp', 'cn', 'en', 'tw', 'kr'])];
+  const folders = [...new Set([musicJacketBucket(songId), legacyMusicJacketBucket(songId)])];
+  const indices = {jp:0,en:1,tw:2,cn:3,kr:4};
+  return servers.flatMap(server => {
+    const jacket = safeAssetName(Array.isArray(song?.jacketImage) ? song.jacketImage[indices[server]] : song?.jacketImage) || jacketImage;
+    return folders.map(bucket => {
+      const folder = 'musicjacket' + bucket;
+      return `${base}/${server}/musicjacket/${folder}_rip/assets-star-forassetbundle-startapp-musicjacket-${folder}-${jacket.toLowerCase()}-jacket.png`;
+    });
+  });
 }
 
 export function bandIconUrls(bandId) {
@@ -168,12 +177,12 @@ function cardAssetServers(card) {
   return releasedServers.length > 0 ? releasedServers : [preferred];
 }
 
-function assetBaseUrl() {
+export function assetBaseUrl() {
   const configured = globalThis.BANGDREAM_OPTIMIZE_CONFIG?.assetBaseUrl;
   return String(configured || 'https://bestdori.com/assets').replace(/\/$/, '');
 }
 
-function assetOriginUrl() {
+export function assetOriginUrl() {
   const configured = globalThis.BANGDREAM_OPTIMIZE_CONFIG?.assetOriginUrl;
   if (configured) {
     return String(configured).replace(/\/$/, '');

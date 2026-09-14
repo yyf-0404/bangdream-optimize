@@ -9,6 +9,7 @@ import {
   withPtMaximizeLiveVariant,
 } from '../models/player-settings.js?v=3';
 import { validatePtEvaluateTeamSelection } from '../models/pt-evaluate-validation.js?v=1';
+import {showResultCopy} from '../ui/result-dialogs.js';
 
 export function createCalculationActions({
   state,
@@ -29,6 +30,8 @@ export function createCalculationActions({
   buildDiagnostic,
   diagnosticFileName,
   activatePage,
+  getActivePage = () => globalThis.location?.hash,
+  hasOpenDialog = () => !!globalThis.document?.querySelector?.('dialog[open]'),
   setStatus,
   setError,
   eventLabel,
@@ -45,13 +48,14 @@ export function createCalculationActions({
   clearPersistedResultCache,
   yieldForPaint = yieldToBrowserPaint,
 }) {
-  const RESULT_CACHE_KEY_VERSION = 6;
+  const RESULT_CACHE_KEY_VERSION = 7;
   const calculateButton = elements.calculateButton;
   const calculateButtons = Array.from(elements.calculateButtons || []);
   const calculateButtonLabel = calculateButton?.querySelector('.button-label');
   const calculateLabel = calculateButtonLabel?.textContent?.trim()
     || calculateButton?.textContent?.trim()
     || '计算';
+  const calculationLabels = new Map();
   let isCalculating = false;
   const cacheLimit = Number.isInteger(resultCacheLimit) && resultCacheLimit > 0
     ? resultCacheLimit
@@ -73,9 +77,11 @@ export function createCalculationActions({
     return Number(player.currentEvent);
   }
 
-  function makeResultCacheKey(player, eventId) {
+  function makeResultCacheKey(player, eventId, profileId = state.activePlayerProfileId) {
+    player = normalizedPlayer(player);
     const serialized = cloneJson({
       cacheVersion: RESULT_CACHE_KEY_VERSION,
+      profileId,
       server: player.server,
       calculationMode: player.calculationMode,
       activityMode: player.activityMode,
@@ -85,7 +91,7 @@ export function createCalculationActions({
       eventId,
       eventSearch: player.eventSearch,
       currentEvent: player.currentEvent,
-      cards: player.cardList,
+      cards: Object.fromEntries(Object.entries(player.cardList||{}).map(([id,card])=>{const {illustTrainingStatus,...growth}=card;return [id,growth];})),
       areas: player.areaItem,
       chars: player.characterBouns,
       bonuses: player.eventPresets,
@@ -93,12 +99,12 @@ export function createCalculationActions({
       songs: player.eventSongs,
       eventAttributeAndCharacterBonus: player.eventPresets?.[String(eventId)]?.eventAttributeAndCharacterBonus,
     });
-    return JSON.stringify(serialized);
+    return JSON.stringify(serialized, (_key, value) => value && typeof value === 'object' && !Array.isArray(value) ? Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b))) : value);
   }
 
   function getCachedResult(cacheKey) {
     const cache = state.resultCache || [];
-    const index = cache.findIndex((entry) => entry.key === cacheKey);
+    const index = cache.findIndex((entry) => entry.key === cacheKey && entry.profileId === state.activePlayerProfileId);
     if (index < 0) {
       return undefined;
     }
@@ -110,11 +116,13 @@ export function createCalculationActions({
     eventId,
     result,
     diagnostic,
+    profileId = state.activePlayerProfileId,
   }) {
     const cache = state.resultCache || [];
     const nextCache = cache.filter((entry) => entry.key !== cacheKey);
     nextCache.unshift({
       cacheVersion: RESULT_CACHE_KEY_VERSION,
+      profileId,
       key: cacheKey,
       eventLabel: eventLabel(eventId, player),
       eventId,
@@ -147,10 +155,8 @@ export function createCalculationActions({
           : undefined,
       averageScore: ptMaximizeAverageScore(result),
     });
-    if (nextCache.length > cacheLimit) {
-      nextCache.length = cacheLimit;
-    }
-    state.resultCache = nextCache;
+    let profileCount = 0;
+    state.resultCache = nextCache.filter(entry => entry.profileId !== profileId || ++profileCount <= cacheLimit);
     try {
       await persistResultCacheState();
       return true;
@@ -170,27 +176,33 @@ export function createCalculationActions({
 
   function renderResultCachePanel(activeKey = state.activeResultCacheKey) {
     if (typeof renderResultCache === 'function') {
-      renderResultCache(state.resultCache || [], { activeKey });
+      renderResultCache((state.resultCache || []).filter(entry=>entry.profileId===state.activePlayerProfileId), { activeKey });
     }
   }
 
-  function applyResult(result, diagnostic, cacheKey) {
+  function applyResult(result, diagnostic, cacheKey, profileId = state.activePlayerProfileId, reveal = true) {
+    state.profileDiagnostics ??= {};
+    state.profileDiagnostics[profileId] = {result,diagnostic,cacheKey};
+    if (profileId !== state.activePlayerProfileId) return;
     elements.result.textContent = JSON.stringify(result, null, 2);
     renderResultSummary(result, { diagnostic });
     renderMetrics(result.metrics);
     state.lastDiagnostic = diagnostic;
     state.activeResultCacheKey = cacheKey;
-    activatePage('result');
+    if (reveal) activatePage('result');
   }
 
-  function applyFailureDiagnostic(diagnostic) {
+  function applyFailureDiagnostic(diagnostic, profileId = state.activePlayerProfileId, reveal = true) {
+    state.profileDiagnostics ??= {};
+    state.profileDiagnostics[profileId] = {diagnostic};
+    if (profileId !== state.activePlayerProfileId) return;
     elements.result.textContent = JSON.stringify(diagnostic, null, 2);
     renderResultSummary(null, { diagnostic });
     renderMetrics(null);
     state.lastDiagnostic = diagnostic;
     state.activeResultCacheKey = null;
     renderResultCachePanel(null);
-    activatePage('result');
+    if (reveal) activatePage('result');
   }
 
   async function handleCalculate(event) {
@@ -201,7 +213,11 @@ export function createCalculationActions({
     if (elements.form?.checkValidity && !elements.form.checkValidity()) {
       const firstInvalid = elements.form.querySelector('.is-invalid, :invalid');
       if (firstInvalid?.focus) {
+        const page=firstInvalid.closest('[data-page-panel]')?.dataset.pagePanel;
+        if(page) activatePage(page);
         firstInvalid.focus();
+        firstInvalid.reportValidity?.();
+        setStatus(firstInvalid.validationMessage || '请补全标出的计算参数');
       }
       return;
     }
@@ -211,29 +227,44 @@ export function createCalculationActions({
       setError(error);
       return;
     }
+    const requestProfileId = state.activePlayerProfileId;
+    const requestPage = getActivePage();
+    const revealResult = () => !hasOpenDialog() && (getActivePage() === requestPage || getActivePage() === '#result');
+    const requestPlayer = readPlayer();
+    const originalPlayerText = JSON.stringify(requestPlayer);
     isCalculating = true;
     setCalculatingState(true);
     try {
-      setStatus('准备计算');
-      await yieldForPaint();
-      setStatus('同步数据');
-      const player = readPlayer();
+      const player = requestPlayer;
+      if (requestProfileId !== state.activePlayerProfileId) throw new Error('档案已切换，请重新开始计算');
       applyEventInputToPlayer(player);
       applyScoreRangeInputToPlayer(player);
       applyPtMaximizeInputToPlayer(player);
       applyPtEvaluateInputToPlayer(player);
       const eventId = readCurrentEventId(player, readOptionalInteger(elements.eventId.value));
+      const scoreRangeRequest = player.calculationMode === 'scoreRange' ? readScoreRangeRequest() : undefined;
+      const ptMaximizeRequest = player.calculationMode === 'ptMaximize' ? readPtMaximizeRequest(player, eventId) : undefined;
+      const ptEvaluateRequest = player.calculationMode === 'ptEvaluate' ? readPtEvaluateRequest(player, eventId) : undefined;
+      setStatus('准备计算');
+      await yieldForPaint();
+      setStatus('同步数据');
       const core = await ensureCore({ refreshManifest: true });
       normalizeCurrentActivityForMode(player);
       ensureOwnedCardCharacterBonuses(player);
-      await savePlayerNow(player);
-      writePlayer(player, { autosave: false });
-      renderConfigForms(player);
-      const cacheKey = makeResultCacheKey(player, eventId);
+      if (requestProfileId !== state.activePlayerProfileId) throw new Error('档案已切换，请重新开始计算');
+      // Synchronization may yield while the user edits. Keep those newer edits;
+      // this request still calculates against the snapshot captured on submit.
+      if (JSON.stringify(readPlayer()) === originalPlayerText) {
+        writePlayer(player, { autosave: false });
+        renderConfigForms(player);
+        await savePlayerNow(player);
+      }
+      if (requestProfileId !== state.activePlayerProfileId) throw new Error('档案已切换，请重新开始计算');
+      const cacheKey = makeResultCacheKey(player, eventId, requestProfileId);
       state.activeResultCacheKey = cacheKey;
       const cached = getCachedResult(cacheKey);
       if (cached) {
-        applyResult(cached.result, cached.diagnostic, cacheKey);
+        applyResult(cached.result, cached.diagnostic, cacheKey, requestProfileId, revealResult());
         renderResultCachePanel(cacheKey);
         setStatus('完成（缓存）');
         return;
@@ -243,15 +274,6 @@ export function createCalculationActions({
       let result;
       let calculationRequest;
       try {
-        const scoreRangeRequest = player.calculationMode === 'scoreRange'
-          ? readScoreRangeRequest()
-          : undefined;
-        const ptMaximizeRequest = player.calculationMode === 'ptMaximize'
-          ? readPtMaximizeRequest(player, eventId)
-          : undefined;
-        const ptEvaluateRequest = player.calculationMode === 'ptEvaluate'
-          ? readPtEvaluateRequest(player, eventId)
-          : undefined;
         calculationRequest = scoreRangeRequest ?? ptMaximizeRequest ?? ptEvaluateRequest;
         result = player.calculationMode === 'scoreRange'
           ? await calculateScoreRange({
@@ -290,7 +312,7 @@ export function createCalculationActions({
           phase: 'calculation',
           calculationRequest,
         });
-        applyFailureDiagnostic(diagnostic);
+        applyFailureDiagnostic(diagnostic, requestProfileId, revealResult());
         setStatus(`计算失败：${diagnostic.error?.title ?? '已生成诊断'}`);
         return;
       }
@@ -306,8 +328,9 @@ export function createCalculationActions({
         eventId,
         result,
         diagnostic,
+        profileId: requestProfileId,
       });
-      applyResult(result, diagnostic, cacheKey);
+      applyResult(result, diagnostic, cacheKey, requestProfileId, revealResult());
       setStatus(resultCacheSaved ? '完成' : '完成（结果缓存保存失败）');
     } catch (error) {
       setError(error);
@@ -772,6 +795,21 @@ export function createCalculationActions({
     }
   }
 
+  async function loadMainBandDraft(current, teamIndex) {
+    if (!Number.isSafeInteger(Number(current.playerId)) || Number(current.playerId) <= 0) {
+      throw new Error('请先在档案与数据中填写玩家 ID，再导入主乐队。');
+    }
+    await ensureCore();
+    const profile = await state.runtime.importBestdoriPlayerProfile({playerId:current.playerId,server:current.server,mode:3});
+    const cardIds = mainBandCardIds(profile);
+    importMainBandCards(current, profile);
+    importMainBandCharacterBonuses(current, profile);
+    importEnabledAreaItems(current, profile);
+    current.ptEvaluate.teams[teamIndex] = cardIds;
+    current.ptEvaluate.items = selectedImportedAreaItems(profile, current);
+    return current;
+  }
+
   async function handlePtEvaluateTeamAction(event) {
     const button = event.target.closest('.pt-evaluate-import-main-band');
     if (!button) {
@@ -921,10 +959,10 @@ export function createCalculationActions({
       }
       const previousCache = state.resultCache || [];
       const previousActiveKey = state.activeResultCacheKey;
-      state.resultCache = [];
+      state.resultCache = (state.resultCache || []).filter(entry=>entry.profileId!==state.activePlayerProfileId);
       state.activeResultCacheKey = null;
       try {
-        await clearPersisted();
+        await persistCache(state.resultCache);
       } catch (error) {
         state.resultCache = previousCache;
         state.activeResultCacheKey = previousActiveKey;
@@ -976,12 +1014,7 @@ export function createCalculationActions({
         : Array.isArray(state.lastDiagnostic.result)
           ? state.lastDiagnostic.result
           : scoreCheckPayloadFromDiagnostic(state.lastDiagnostic);
-      await copyTextToClipboard(JSON.stringify(payload, null, 2));
-      setStatus(isFailure
-        ? '诊断 JSON 已复制'
-        : Array.isArray(state.lastDiagnostic.result)
-          ? '方案 JSON 已复制'
-          : 'score_check JSON 已复制');
+      showResultCopy(payload,async text=>{await copyTextToClipboard(text);setStatus(isFailure?'诊断 JSON 已复制':'结果 JSON 已复制');});
     } catch (error) {
       setError(error);
     }
@@ -1015,19 +1048,35 @@ export function createCalculationActions({
       return;
     }
     for (const button of buttons) {
+      const label = button.querySelector('.button-label');
+      if (!calculationLabels.has(button)) calculationLabels.set(button, label?.textContent?.trim() || button.textContent?.trim() || calculateLabel);
       button.disabled = isBusy;
       button.classList.toggle('is-loading', isBusy);
       button.setAttribute('aria-busy', isBusy ? 'true' : 'false');
-      const label = button.querySelector('.button-label');
       if (label) {
-        label.textContent = isBusy ? '计算中' : calculateLabel;
+        label.textContent = isBusy ? '计算中' : calculationLabels.get(button);
       } else {
-        button.textContent = isBusy ? '计算中' : calculateLabel;
+        button.textContent = isBusy ? '计算中' : calculationLabels.get(button);
       }
     }
   }
 
+  function syncProfileResult() {
+    if (state.displayedResultProfileId !== state.activePlayerProfileId) {
+      state.displayedResultProfileId = state.activePlayerProfileId;
+      const saved = state.profileDiagnostics?.[state.activePlayerProfileId];
+      state.lastDiagnostic = saved?.diagnostic ?? null;
+      state.activeResultCacheKey = saved?.cacheKey ?? null;
+      renderResultSummary(saved?.result, {diagnostic:saved?.diagnostic});
+      renderMetrics(saved?.result?.metrics);
+    }
+    renderResultCachePanel();
+    const notice = elements.resultSummary?.parentElement?.querySelector('.result-stale');
+    if (notice) notice.hidden = !state.lastDiagnostic || makeResultCacheKey(readPlayer(),readPlayer().currentEvent) === makeResultCacheKey(state.lastDiagnostic.player,state.lastDiagnostic.eventId);
+  }
+
   return {
+    syncProfileResult,
     handleCalculate,
     handleCopyResult,
     handleExportDiagnostics,
@@ -1037,6 +1086,7 @@ export function createCalculationActions({
     handlePtMaximizeInputChange,
     handlePtEvaluateInputChange,
     handlePtEvaluateTeamAction,
+    loadMainBandDraft,
   };
 }
 

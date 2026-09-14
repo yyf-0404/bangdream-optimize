@@ -1,3 +1,6 @@
+import { applyResultLayout } from '../ui/result-layout.js';
+import { designIcon } from '../ui/fidelity.js';
+import { itemArtUrls } from './player-library.js';
 import {
   attributeLabel,
   bandLabel,
@@ -63,15 +66,21 @@ export function renderMetrics(metricsElement, metrics) {
   metricsElement.append(term, detail);
 }
 
-export function renderResultSummary(resultElement, result, deps, { diagnostic } = {}) {
+export function renderResultSummary(resultElement, result, deps, options = {}) {
+  renderSummaryContent(resultElement, result, deps, options);
+  applyResultLayout(resultElement,result,options.diagnostic);
+}
+
+function renderSummaryContent(resultElement, result, deps, { diagnostic } = {}) {
   resultElement.textContent = '';
   const failureDiagnostic = diagnostic?.error ? diagnostic : undefined;
-  resultElement.hidden = !result && !failureDiagnostic;
+  resultElement.hidden = false;
   if (failureDiagnostic) {
     renderFailureDiagnostic(resultElement, failureDiagnostic);
     return;
   }
   if (!result) {
+    resultElement.append(emptyMessage('还没有计算结果。先配置活动与持有卡牌，然后点击计算。', 'result-empty'));
     return;
   }
 
@@ -98,7 +107,7 @@ export function renderResultSummary(resultElement, result, deps, { diagnostic } 
 
   const songs = Array.isArray(result.songs) ? result.songs : [];
   const overview = document.createElement('section');
-  overview.className = 'result-overview';
+  overview.className = 'metrics result-overview';
   overview.append(
     resultStat('总分', formatInteger(result.totalScore), 'strong'),
     resultStat('综合力', formatInteger(result.totalStat)),
@@ -136,7 +145,7 @@ function renderPtMaximizeSummary(resultElement, result, deps) {
   const evaluation = team.evaluation;
   const average = evaluation.averagePt;
   const overview = document.createElement('section');
-  overview.className = 'result-overview';
+  overview.className = 'metrics result-overview';
   const averagePtStat = resultStat('平均活动 PT', '-', 'strong');
   overview.append(
     averagePtStat,
@@ -190,7 +199,7 @@ function renderPtMaximizeMedleySummary(resultElement, result, deps) {
   const medley = result.medley;
   const average = medley.averagePt;
   const overview = document.createElement('section');
-  overview.className = 'result-overview';
+  overview.className = 'metrics result-overview';
   const averagePtStat = resultStat('平均活动 PT', '-', 'strong');
   overview.append(
     averagePtStat,
@@ -226,7 +235,7 @@ function renderPtEvaluateSummary(resultElement, result, deps) {
   const minPtStat = resultStat('最低活动 PT', '-');
   const maxPtStat = resultStat('最高活动 PT', '-');
   const overview = document.createElement('section');
-  overview.className = 'result-overview';
+  overview.className = 'metrics result-overview';
   overview.append(
     averagePtStat,
     minPtStat,
@@ -287,12 +296,12 @@ function renderPtEvaluateMedleySummary(resultElement, result, deps) {
   const minPtStat = resultStat('最低活动 PT', '-');
   const maxPtStat = resultStat('最高活动 PT', '-');
   const overview = document.createElement('section');
-  overview.className = 'result-overview';
+  overview.className = 'metrics result-overview';
   overview.append(
     averagePtStat,
+    resultStat('平均分数', formatAverageInteger(medley.totalScoreSum, medley.sampleCount)),
     minPtStat,
     maxPtStat,
-    resultStat('平均分数', formatAverageInteger(medley.totalScoreSum, medley.sampleCount)),
     resultStat(
       '最低分数',
       formatInteger(medley.teams.reduce(
@@ -355,11 +364,11 @@ function renderPtMultiplierSelector(liveVariant, onChange) {
   const challenge = liveVariant === 'challenge_cp';
   const medley = liveVariant === 'medley';
   const section = document.createElement('section');
-  section.className = 'result-section result-multiplier-section';
+  section.className = 'resource-selector';
   const title = document.createElement('h3');
-  title.textContent = medley ? '每曲倍率选择' : '倍率选择';
+  title.textContent = challenge ? 'CP 消耗' : medley ? '每曲消耗' : '演出消耗';
   const control = document.createElement('div');
-  control.className = 'segmented-control result-multiplier-control';
+  control.className = 'resource-options result-multiplier-control';
   if (medley) {
     control.classList.add('result-multiplier-control-medley');
   }
@@ -379,10 +388,10 @@ function renderPtMultiplierSelector(liveVariant, onChange) {
     input.checked = index === 0;
     const text = document.createElement('span');
     text.textContent = challenge
-      ? `${option.resource} CP / ${option.multiplier} 倍`
+      ? `${option.resource} CP · ×${option.multiplier}`
       : medley
-        ? `每曲 ${option.perSongResource} 火 / ${option.multiplier} 倍`
-        : `${option.resource} 火 / ${option.multiplier} 倍`;
+        ? `每曲 ${option.perSongResource} 火 · ×${option.multiplier}`
+        : `${option.resource} 火 · ×${option.multiplier}`;
     label.append(input, text);
     control.append(label);
   }
@@ -509,7 +518,7 @@ function renderSkillQueueRisk(songs, deps) {
 function renderFailureDiagnostic(resultElement, diagnostic) {
   const error = diagnostic.error ?? {};
   const overview = document.createElement('section');
-  overview.className = 'result-overview';
+  overview.className = 'metrics result-overview';
   overview.append(
     resultStat('状态', '计算失败', 'danger'),
     resultStat('原因', error.title ?? '未分类错误', 'danger'),
@@ -710,33 +719,31 @@ function formatBasisPoints(value) {
 
 function resultStat(label, value, tone) {
   const item = document.createElement('div');
-  item.className = compactJoin(['result-stat', tone && `result-stat-${tone}`]);
+  item.className = compactJoin(['result-stat', 'metric', tone && `result-stat-${tone}`, tone==='strong' && 'main']);
   const labelNode = document.createElement('span');
   labelNode.textContent = label;
   const valueNode = document.createElement('strong');
   valueNode.textContent = String(value ?? '-');
+  item.dataset.metric=label;
   item.append(labelNode, valueNode);
   return item;
 }
 
 function renderSelectedItems(items, deps) {
-  const bandId = deps.selectedBandId(items.band);
-  const section = document.createElement('section');
-  section.className = 'result-section result-items-section';
-  const title = document.createElement('h3');
-  title.textContent = '道具选择';
-  const itemsGrid = document.createElement('div');
-  itemsGrid.className = 'result-items';
-  itemsGrid.append(
-    resultItem('乐队道具', bandId == null ? selectedBandLabel(items.band) : bandLabel(bandId), {
-      imageUrls: bandIconUrls(bandId),
-    }),
-    resultItem('属性道具', attributeLabel(items.attribute), {
-      imageUrls: attributeIconUrls(items.attribute),
-    }),
-    resultItem('杂志道具', magazineLabel(items.magazine)),
-  );
-  section.append(title, itemsGrid);
+  const section=document.createElement('div');section.className='item-selection';
+  const heading=document.createElement('span');heading.id='result-equipment-heading';heading.innerHTML=designIcon('equipment')+'道具选择';heading.querySelector('svg').classList.add('record-mark');section.append(heading);
+  const groups=deps.areaItemGroups?.(deps.player)||[];
+  for(const [category,label]of[['band','乐队'],['attribute','属性'],['magazine','杂志']]){
+    const key=String(items[category]??'').toLowerCase(),group=groups.find(g=>g.category===category&&String(g.key.split(':').slice(1).join(':')).toLowerCase()===key);
+    const band=deps.selectedBandId(items.band),name=category==='band'?selectedBandLabel(items.band):category==='attribute'?attributeLabel(items.attribute):magazineLabel(items.magazine);
+    const node=document.createElement('div');node.className='selected-item';
+    const art=document.createElement('span');art.className='record-asset';art.style.setProperty('--asset-rgb',category==='band'?'130,101,186':category==='attribute'?'74,114,199':'161,123,145');
+    const groupUrls=category==='band'?bandIconUrls(band):category==='attribute'?attributeIconUrls(items.attribute):[];
+    const image=assetImage(groupUrls.length?groupUrls:itemArtUrls(group?.areaItemIds[0]||({performance:78,technique:79,visual:80}[items.magazine]),deps.player?.server),'',name);
+    const displayName=group?.isAll?'通用':category==='magazine'?(deps.areaItemLabel?.(group?.areaItemIds[0])||name):(group?.label||name||String(items[category])).replace(/^属性 /,'');
+    if(image)art.append(image);node.append(art);const caption=document.createElement('span'),labelNode=document.createElement('small');labelNode.textContent=label;caption.append(labelNode,document.createTextNode(displayName));node.append(caption);
+    node.title=(group?.areaItemIds||[]).map(id=>(deps.areaItemLabel?.(id)||id)+' · Lv. '+(deps.player?.areaItem?.[id]?.level||0)).join('\n');section.append(node);
+  }
   return section;
 }
 
@@ -755,71 +762,26 @@ function resultItem(label, value, { imageUrls } = {}) {
   return item;
 }
 
-function renderSongResult(song, index, maxScore, deps, {
-  skillTitle = '最优技能顺序',
-  showSkillOrder = true,
-} = {}) {
-  const card = document.createElement('article');
-  card.className = 'result-song';
-
-  const header = document.createElement('div');
-  header.className = 'result-song-header';
-  const cover = assetImage(deps.songCoverUrls(song.songId), 'song-cover', deps.songLabel(song.songId));
-  const content = document.createElement('div');
-  content.className = 'result-song-content';
-  const title = document.createElement('div');
-  title.className = 'result-song-title';
-  const songName = document.createElement('strong');
-  songName.textContent = deps.songLabel(song.songId);
-  const meta = document.createElement('span');
-  meta.className = 'result-song-meta';
-  meta.textContent = compactJoin([
-    `#${index + 1}`,
-    `ID ${song.songId}`,
-  ], ' · ');
-  const difficultyList = renderDifficultyList(deps.getSongRecord?.(song.songId), song.difficulty);
-  difficultyList.classList.add('result-song-difficulty-list');
-  title.append(songName, meta);
-
-  const score = document.createElement('div');
-  score.className = 'result-song-score';
-  score.textContent = formatInteger(song.score);
-  content.append(title, difficultyList);
-  if (cover) {
-    header.append(cover);
-  } else {
-    header.classList.add('no-cover');
-  }
-  header.append(content, score);
-
-  const bar = document.createElement('div');
-  bar.className = 'result-score-bar';
-  const fill = document.createElement('span');
-  const ratio = maxScore > 0 ? Math.max(0, Math.min(1, Number(song.score) / maxScore)) : 0;
-  fill.style.width = `${Math.max(4, ratio * 100)}%`;
-  bar.append(fill);
-
-  const details = document.createElement('div');
-  details.className = 'result-song-details';
-  details.classList.toggle('has-detailed-score', Boolean(
-    song.detailedScore && song.scoreDistribution,
-  ));
-  details.append(
-    resultItem('综合力', formatInteger(song.stat)),
-  );
-  if (song.detailedScore && song.scoreDistribution) {
-    details.append(
-      resultItem('最低分数', formatInteger(song.scoreDistribution.minScore)),
-      resultItem('平均分数', formatScoreDistributionAverage(song.scoreDistribution)),
-      resultItem('最高分数', formatInteger(song.scoreDistribution.maxScore)),
-    );
-  }
-
-  card.append(header, bar, details, renderSkillOrder(song, deps, {
-    sectionTitle: skillTitle,
-    showOrder: showSkillOrder,
-  }));
-  return card;
+function renderSongResult(song, index, maxScore, deps, {skillTitle='最优技能顺序',showSkillOrder=true}={}) {
+ const el=(tag,cls,text)=>{const n=document.createElement(tag);n.className=cls||'';if(text!==undefined)n.textContent=text;return n;};
+ const card=el('article','song-result');
+ const top=el('div','song-top'),info=el('div','composition-song-info'),sleeve=el('span','record-sleeve'),cover=assetImage(deps.songCoverUrls(song.songId),'song-cover',deps.songLabel(song.songId));if(cover)sleeve.append(cover);info.append(sleeve);
+ const identity=el('div','song-identity'),title=el('div','song-title',deps.songLabel(song.songId));title.append(el('small','',`第 ${index+1} 曲 · #${song.songId}`));identity.append(title);
+ const meta=el('div','song-meta'),difficulty=renderDifficultyList(deps.getSongRecord?.(song.songId),song.difficulty);for(const badge of [...difficulty.children])if(!badge.classList.contains('is-selected'))badge.remove();meta.append(difficulty,el('span','','综合力 '+formatInteger(song.stat)));identity.append(meta);info.append(identity);
+ const score=el('div','song-score');score.append(el('span','',showSkillOrder?'得分':'平均分数'),el('strong','',formatInteger(song.score)));top.append(info,score);card.append(top);
+ const label=el('div','team-label');label.append(el('span','',showSkillOrder?skillTitle:'队伍配置'),el('span','',showSkillOrder?'按编号查看技能发动次序':'卡位排列不表示技能顺序'));
+ const details=el('button','text-button','歌曲详情');details.type='button';details.onclick=()=>{
+  const dialog=el('dialog','accepted-song-details');dialog.setAttribute('aria-label','歌曲详情');
+  const header=el('header','dialog-top');header.append(el('h2','','歌曲详情'));
+  const close=el('button','icon-button','×');close.type='button';close.setAttribute('aria-label','关闭歌曲详情');close.onclick=()=>dialog.close();header.append(close);
+  const body=el('div','dialog-content song-details-body'),image=assetImage(deps.songCoverUrls(song.songId),'',deps.songLabel(song.songId)),identity=el('div','song-details-identity');
+  if(image)body.append(image);
+  identity.append(el('h3','',deps.songLabel(song.songId)),el('p','',`#${song.songId} · 综合力 ${formatInteger(song.stat)}`),renderDifficultyList(deps.getSongRecord?.(song.songId),song.difficulty),el('p','',(showSkillOrder?'得分 ':'平均分数 ')+formatInteger(song.score)));body.append(identity);dialog.append(header,body);
+  dialog.onclose=()=>{dialog.remove();details.focus({preventScroll:true});};document.querySelector('#result-design').append(dialog);dialog.showModal();
+ };label.append(details);card.append(label);
+ const team=renderSkillOrder(song,deps,{sectionTitle:skillTitle,showOrder:showSkillOrder}).querySelector('.result-skill-preview');team.className='team-grid';card.append(team);
+ if(song.detailedScore&&song.scoreDistribution){const range=el('details','range-detail');range.open=true;range.append(el('summary','','得分范围'));const values=el('div','range-values');for(const [label,value]of[['最低分数',formatInteger(song.scoreDistribution.minScore)],['平均分数',formatScoreDistributionAverage(song.scoreDistribution)],['最高分数',formatInteger(song.scoreDistribution.maxScore)]]){const metric=el('div','',label);metric.append(el('strong','',value));values.append(metric);}const bar=el('span','bar');bar.setAttribute('aria-hidden','true');const d=song.scoreDistribution;bar.style.setProperty('--average-position',`${d.maxScore>d.minScore?100*(Number(song.score)-d.minScore)/(d.maxScore-d.minScore):50}%`);values.append(bar);range.append(values);card.append(range);}
+ return card;
 }
 
 function renderSkillOrder(song, deps, {
@@ -874,6 +836,9 @@ function resultSkillCard(cardId, { isCaptain, orderIndex }, deps) {
     className: compactJoin(['result-skill-card', isCaptain && 'captain']),
     title: deps.cardLabel(cardId),
     leading: orderBadge,
+    config: playerCard,
+    captain: isCaptain,
+    order: Number.isInteger(orderIndex) ? orderIndex + 1 : undefined,
   });
 }
 

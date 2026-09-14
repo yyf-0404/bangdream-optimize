@@ -1,0 +1,90 @@
+/* Feedback follows the shared thin-line surfaces, with one primary writing area. */
+#feedback-dialog{--pf-ink:#34333e;--pf-muted:#777181;--pf-accent:#81558e;--pf-line:#e8e3eb;width:min(720px,calc(100vw - 32px));max-width:none;max-height:calc(100dvh - 32px);padding:0;border:1px solid #dfd9e5;border-radius:8px;background:#fff;color:var(--pf-ink);box-shadow:0 20px 70px #30284233;font:13px/1.65 Inter,"Noto Sans SC","Microsoft YaHei",sans-serif;overflow:hidden}
+#feedback-dialog[open]{display:flex;flex-direction:column}
+#feedback-dialog::backdrop{background:#27223552}
+#feedback-dialog *{box-sizing:border-box}
+#feedback-dialog [hidden]{display:none!important}
+#feedback-dialog :is(h2,h3,p){margin:0}
+#feedback-dialog svg{width:18px;height:18px;flex:none}
+#feedback-dialog button{cursor:pointer;touch-action:manipulation}
+#feedback-dialog button:disabled{opacity:.55;cursor:wait}
+#feedback-dialog :is(button,input,textarea):focus-visible{outline:2px solid #9870a6;outline-offset:3px}
+#feedback-dialog .pf-top{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:25px 28px 21px;flex:none;background:radial-gradient(ellipse 360px 150px at 0 0,#b99cd22b,transparent 80%),radial-gradient(ellipse 260px 150px at 100% 0,#9ecfce26,transparent 80%),#fff}
+#feedback-dialog .pf-heading{display:flex;gap:13px;min-width:0}
+#feedback-dialog .pf-mark{padding-top:4px;color:var(--pf-accent)}
+#feedback-dialog .pf-mark svg{width:23px;height:23px}
+#feedback-dialog h2{font-size:21px;font-weight:600;line-height:1.5;color:#594269}
+#feedback-dialog #pf-intro{margin-top:5px;color:var(--pf-muted);font-size:12px}
+#feedback-dialog .pf-close{display:grid;place-items:center;width:36px;min-width:36px;min-height:36px;margin:-5px -7px 0 0;padding:0;border:0;border-radius:4px;background:transparent;color:#83788e}
+#feedback-dialog .pf-close:hover{background:#eee7f3;color:#674774}
+#feedback-dialog form{display:flex;flex-direction:column;min-height:0;overflow:hidden;margin:0}
+#feedback-dialog .pf-body{display:flex;flex-direction:column;gap:19px;min-height:0;padding:0 28px 23px;overflow:auto;overscroll-behavior:contain;scroll-padding:16px}
+#feedback-dialog .pf-types{min-width:0;margin:0;padding:0;border:0}
+#feedback-dialog .pf-types legend{margin-bottom:8px;padding:0;color:var(--pf-muted);font-size:12px}
+#feedback-dialog .pf-types>div{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+#feedback-dialog .pf-type{position:relative;cursor:pointer}
+#feedback-dialog .pf-type>input{position:absolute;width:1px;height:1px;opacity:0;clip-path:inset(50%)}
+#feedback-dialog .pf-type>span{display:flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:8px 4px;border-bottom:1px solid #e4dce9;color:#746b7d;transition:background-color 140ms,color 140ms}
+#feedback-dialog .pf-type svg{width:16px;height:16px}
+#feedback-dialog .pf-type:hover>span{background:#f7f4fa}
+#feedback-dialog .pf-type>input:checked+span{border-color:#9863a3;background:linear-gradient(0deg,#eee5f4b3,#f9f6fc55);color:#785087;box-shadow:0 1px 0 #9863a3;font-weight:600}
+#feedback-dialog .pf-type>input:focus-visible+span{outline:2px solid #9870a6;outline-offset:3px}
+#feedback-dialog :is(.pf-field>label,.pf-supplements h3){display:flex;align-items:center;gap:7px;margin-bottom:7px;color:#554d61;font-size:13px;font-weight:500}
+#feedback-dialog :is(.pf-field>label,.pf-supplements h3)>small{color:#8b8393;font-size:11px;font-weight:400}
+#feedback-dialog :is(#feedback-subject,#feedback-contact-email,#feedback-content){display:block;width:100%;min-width:0;margin:0;padding:10px 12px;border:1px solid #dcd5e2;border-radius:3px;background:#fff;color:var(--pf-ink);font:inherit;box-shadow:none}
+#feedback-dialog :is(#feedback-subject,#feedback-contact-email){min-height:42px}
+#feedback-dialog #feedback-content{min-height:140px;resize:vertical}
+#feedback-dialog :is(input,textarea)::placeholder{color:#928a9b;opacity:1}
+#feedback-dialog :is(input,textarea):user-invalid{border-color:#b15572}
+#feedback-dialog .pf-writing-hint{display:flex;justify-content:space-between;gap:15px;margin-top:6px;color:var(--pf-muted);font-size:11px}
+#feedback-dialog #pf-content-count{flex:none;color:#92889d;font-variant-numeric:tabular-nums}
+#feedback-dialog .pf-supplements{display:grid;grid-template-columns:1.15fr 1fr;gap:28px;padding-top:18px;border-top:1px solid var(--pf-line)}
+#feedback-dialog .pf-supplements :is(h3,label)>svg{width:16px;height:16px;color:#778da0}
+#feedback-dialog .pf-file{position:relative;display:inline-flex;align-items:center;gap:7px;min-height:38px;margin:1px 0 6px;padding:5px 10px;border-radius:3px;background:#f1f5f8;color:#55768d;cursor:pointer}
+#feedback-dialog .pf-file:hover{background:#e8f0f5;color:#345e7b}
+#feedback-dialog .pf-file:focus-within{outline:2px solid #9870a6;outline-offset:3px}
+#feedback-dialog #feedback-attachments{position:absolute;inset:0;width:100%;height:100%;padding:0;opacity:0;cursor:pointer}
+#feedback-dialog .pf-note{color:var(--pf-muted);font-size:11px;line-height:1.8}
+#feedback-dialog .pf-contact .pf-note{margin-top:7px}
+#feedback-dialog .pf-file-list{margin:5px 0 0;padding:0;list-style:none}
+#feedback-dialog .pf-file-list li{display:flex;align-items:center;gap:7px;min-width:0;padding:4px 0;font-size:11px}
+#feedback-dialog .pf-file-list li>svg{width:14px;height:14px;color:#8090a0}
+#feedback-dialog .pf-file-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#feedback-dialog .pf-file-list small{color:var(--pf-muted);font-size:10px;white-space:nowrap}
+#feedback-dialog .pf-file-list button{display:grid;place-items:center;flex:none;width:30px;height:30px;min-height:0;padding:0;border:0;border-radius:3px;background:transparent;color:#93869d}
+#feedback-dialog .pf-file-list button:hover{background:#faf0f4;color:#a44c73}
+#feedback-dialog #feedback-diagnostic-notice{margin:0;padding:10px 12px;border:0;border-left:2px solid #96aab8;border-radius:0;background:#f3f6f8;color:#597487;font-size:11px}
+#feedback-dialog #feedback-status{margin:0;padding:10px 12px;border:0;border-radius:3px;background:#f5f2f8;color:#79648a;font-size:12px}
+#feedback-dialog #feedback-status:empty{display:none}
+#feedback-dialog #feedback-status.error{background:#faf0f3;color:#a14463}
+#feedback-dialog #feedback-status.success{background:#edf6f1;color:#39765d}
+#feedback-dialog .pf-bottom{display:flex;align-items:center;justify-content:space-between;gap:18px;flex:none;padding:14px 28px;border-top:1px solid var(--pf-line);background:#fff}
+#feedback-dialog .pf-context{display:grid;gap:1px;min-width:0;color:var(--pf-muted);font-size:11px;line-height:1.7}
+#feedback-dialog #pf-context-detail{overflow:hidden;color:#968ba0;font-size:10px;text-overflow:ellipsis;white-space:nowrap}
+#feedback-dialog .pf-bottom>div{display:flex;align-items:center;gap:12px;flex:none}
+#feedback-dialog .pf-bottom button{display:flex;align-items:center;justify-content:center;gap:9px;min-height:40px;padding:8px 15px;border:0;border-radius:4px;background:transparent;color:#776780;font:inherit;font-size:12px}
+#feedback-dialog .pf-cancel:hover{background:#f5f1f8}
+#feedback-dialog .pf-bottom .pf-submit{background:linear-gradient(110deg,#a34b85,#795995);color:#fff;box-shadow:inset 0 1px 0 #ffffff26,0 2px 5px #70426c1a}
+#feedback-dialog .pf-submit:hover{filter:brightness(.95)}
+#feedback-dialog .pf-submit svg{width:15px;height:15px}
+#feedback-dialog .pf-submit.is-loading svg{opacity:.5}
+@media(max-width:600px){
+ #feedback-dialog{width:calc(100vw - 20px);max-height:calc(100dvh - 20px)}
+ #feedback-dialog .pf-top{padding:20px 20px 18px}
+ #feedback-dialog .pf-body{gap:17px;padding:0 20px 20px}
+ #feedback-dialog h2{font-size:19px}
+ #feedback-dialog .pf-types>div{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 14px}
+ #feedback-dialog .pf-supplements{grid-template-columns:minmax(0,1fr);gap:19px}
+ #feedback-dialog .pf-writing-hint{align-items:flex-start;gap:8px}
+ #feedback-dialog :is(#feedback-subject,#feedback-contact-email,#feedback-content){font-size:16px}
+ #feedback-dialog #feedback-content{min-height:150px}
+ #feedback-dialog .pf-bottom{flex-wrap:wrap;gap:10px;padding:12px 20px}
+ #feedback-dialog .pf-context{flex:1;min-width:110px}
+ #feedback-dialog .pf-bottom>div{gap:5px;margin-left:auto}
+ #feedback-dialog .pf-bottom button{min-height:44px;padding-inline:12px}
+ #feedback-dialog .pf-close{width:40px;min-width:40px;min-height:40px}
+ #feedback-dialog .pf-file{min-height:42px}
+}
+@media(max-height:520px){#feedback-dialog .pf-top{padding-block:13px}#feedback-dialog .pf-bottom{padding-block:9px}#feedback-dialog #pf-intro{display:none}}
+@media(prefers-reduced-motion:reduce){#feedback-dialog .pf-type>span{transition:none}}
+@media(forced-colors:active){#feedback-dialog .pf-type>input:checked+span{outline:2px solid Highlight}#feedback-dialog .pf-bottom .pf-submit{border:1px solid ButtonText}}

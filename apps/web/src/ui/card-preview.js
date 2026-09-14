@@ -1,13 +1,20 @@
 import { assetImage } from '../assets/index.js?v=3';
 import { attributeSwatch } from './attribute.js?v=3';
 
+let presenter;
+export function configureCardPresentation(factory) { presenter = factory; }
+
 export function cardPreviewContent({
   id,
   name,
   rarity,
   attribute,
   imageUrls,
+  config,
+  captain = false,
+  order,
 }) {
+  if (presenter) return presenter({id, config, captain, order});
   const content = document.createElement('span');
   content.className = 'card-preview-content';
 
@@ -47,7 +54,17 @@ export function cardPreviewItem({
   selected = false,
   interactive = false,
   leading,
+  config,
+  captain = false,
+  order,
 }) {
+  if (presenter) {
+    const item = presenter({id, config, captain, order});
+    if (className) item.classList.add(...className.split(/\s+/).filter(Boolean));
+    item.classList.toggle('is-selected', selected);
+    if (interactive) { item.dataset.cardId = id; item.tabIndex = 0; }
+    return item;
+  }
   const item = document.createElement('div');
   item.className = ['card-preview-item', className].filter(Boolean).join(' ');
   item.classList.toggle('is-selected', selected);

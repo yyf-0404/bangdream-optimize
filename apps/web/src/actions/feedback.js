@@ -33,7 +33,8 @@ export function createFeedbackActions({
     } else {
       elements.feedbackDialog.setAttribute('open', '');
     }
-    elements.feedbackCategory.focus();
+    const categoryChoice = elements.feedbackDialog.querySelector?.(`[name="feedback-kind"][value="${elements.feedbackCategory.value}"]`);
+    (categoryChoice ?? elements.feedbackCategory).focus();
   }
 
   function handleCloseFeedback() {

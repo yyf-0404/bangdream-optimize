@@ -1,6 +1,5 @@
 import { samplePlayerConfig } from '../storage/user.js?v=3';
 import { submitFeedbackRequest } from '../data/feedback.js?v=2';
-import { fetchBangDreamUserDataRequest } from '../data/bangdream-import.js?v=1';
 
 export function isDesktopRuntimeAvailable() {
   return getInvoke() != null;
@@ -16,10 +15,11 @@ export async function createDesktopRuntime() {
 
   return {
     kind: 'desktop',
+    loadHeaderAsset: async path => new Blob([new Uint8Array(await invoke('load_header_asset',{path}))],{type:'image/png'}),
     samplePlayerConfig,
-    loadPlayerConfig: async () =>
-      (await invokeJson(invoke, 'load_player_config')) ?? samplePlayerConfig(),
-    savePlayerConfig: (player) => invoke('save_player_config', { player }),
+    loadPlayerConfig: async (configId) =>
+      (await invokeJson(invoke, 'load_player_config', {configId:configId??null})) ?? samplePlayerConfig(),
+    savePlayerConfig: (player, configId) => invoke('save_player_config', { player, configId: configId ?? null }),
     listPlayerConfigs: () => invokeJson(invoke, 'list_player_configs'),
     selectPlayerConfig: async (configId) =>
       (await invokeJson(invoke, 'select_player_config', { configId })) ?? samplePlayerConfig(),
@@ -42,12 +42,6 @@ export async function createDesktopRuntime() {
       }
       return payload.data.profile;
     },
-    importBangDreamUserData: ({ userId }) =>
-      fetchBangDreamUserDataRequest({
-        apiBaseUrl: config.bangDreamImportApiBaseUrl ?? config.apiBaseUrl,
-        userId,
-        requireConfiguredBase: true,
-      }),
     submitFeedback: (payload, attachments) =>
       submitFeedbackRequest({
         apiBaseUrl: config.feedbackApiBaseUrl ?? config.apiBaseUrl,
@@ -60,6 +54,7 @@ export async function createDesktopRuntime() {
     syncAllGameData: () => invoke('sync_all_game_data'),
     runtimeInfo: () => invokeJson(invoke, 'runtime_info'),
     syncReferenceData: () => invokeJson(invoke, 'sync_reference_data'),
+    syncCardDetail: (cardId) => invokeJson(invoke, 'sync_card_detail', { cardId }),
     saveJsonFile: (payload) => saveJsonFileWithPicker(invoke, payload),
     calculate: ({ player, server, eventId, options }) =>
       invokeJson(invoke, 'calculate_for_config', {

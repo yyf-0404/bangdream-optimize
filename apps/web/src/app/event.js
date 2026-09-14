@@ -32,7 +32,6 @@ export function createEventContext({
     for (const [eventId, event] of Object.entries(state.core.events)) {
       if (
         !isHiddenEventId(eventId)
-        && isSupportedEventType(event?.eventType, calculationMode)
       ) {
         records[eventId] = event;
       }

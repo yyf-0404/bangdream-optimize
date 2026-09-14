@@ -6,6 +6,8 @@ export function createPlayerStore({
   activityModeForEvent,
   ensureSongListForMode,
   recentUnfinishedEvent,
+  customEventId,
+  defaultEditableEvent,
   renderPlayerProfileControls,
   onError,
 }) {
@@ -37,6 +39,7 @@ export function createPlayerStore({
     cachedNormalizedPlayer = normalized;
     cachedNormalizedPlayerText = JSON.stringify(normalized);
     playerJson.value = text;
+    if (globalThis.document) document.dispatchEvent(new CustomEvent('player-config-change'));
     if (autosave) {
       schedulePlayerSave();
     }
@@ -61,9 +64,10 @@ export function createPlayerStore({
     clearTimeout(state.playerSaveTimer);
     state.playerSaveSequence += 1;
     const normalized = normalizedWritablePlayer(player);
+    const profileId = state.activePlayerProfileId;
     state.playerSaveQueue = state.playerSaveQueue
       .catch(() => {})
-      .then(() => state.runtime.savePlayerConfig(normalized));
+      .then(() => state.runtime.savePlayerConfig(normalized, profileId));
     return state.playerSaveQueue;
   }
 
@@ -127,14 +131,19 @@ export function createPlayerStore({
       return { player: normalized, changed: false };
     }
     const recent = recentUnfinishedEvent(state.core?.events, {
-      serverIndex: 3,
-      calculationMode: 'ptMaximize',
+      serverIndex: {jp:0,en:1,tw:2,cn:3,kr:4}[normalized.server] ?? 3,
+      calculationMode: normalized.calculationMode,
     });
     if (!recent) {
-      return { player: normalized, changed: false };
+      if (!defaultEditableEvent) return { player: normalized, changed: false };
+      normalized.currentEvent = customEventId;
+      normalized.eventOverrides ??= {};
+      const event = defaultEditableEvent(normalized.activityMode, normalized.calculationMode);
+      normalized.eventOverrides[customEventId] = event;
+      ensureSongListForMode(normalized, customEventId, event);
+      return { player: normalized, changed: true };
     }
-    normalized.server = 'cn';
-    normalized.calculationMode = 'ptMaximize';
+
     normalized.currentEvent = recent.id;
     normalized.activityMode = activityModeForEvent(recent.event);
     cacheEventPresetFromCore(normalized, recent.id);

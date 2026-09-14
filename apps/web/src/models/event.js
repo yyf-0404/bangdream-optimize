@@ -68,6 +68,8 @@ export function createEventModel({
       }
     }
 
+    // Bestdori's seq is the event's play order; payload array order is not authoritative.
+    entries.sort((a,b)=>(a.seq??Infinity)-(b.seq??Infinity)||0);
     return entries.map((song) => ({
       songId: song.songId,
       difficulty: song.difficulty ?? DEFAULT_EVENT_DIFFICULTY,
@@ -90,8 +92,9 @@ export function createEventModel({
     const normalizedMode = normalizedActivityMode(mode);
     const expected = requiredSongCountForMode(normalizedMode);
     const cached = normalizedSongSelections(cachedSongs);
-    if (cached.length === expected && cached.every((song) => song.songId > 0)) {
-      return cached;
+    if (cached.length > 0) {
+      // Explicit empty slots are drafts, not a request to replace them with a preset.
+      return Array.from({length:expected}, (_, index) => cached[index] ?? {songId:0,difficulty:DEFAULT_EVENT_DIFFICULTY});
     }
 
     const preset = normalizedSongSelections(eventSongsFromPreset(event));
@@ -283,6 +286,7 @@ function collectSongEntries(value, entries) {
   entries.push({
     songId,
     difficulty: parseDifficulty(value.difficulty ?? value.difficultyIndex),
+    seq: value.seq != null && value.seq !== '' && Number.isInteger(Number(value.seq)) && Number(value.seq) >= 0 ? Number(value.seq) : undefined,
   });
 }
 
@@ -307,5 +311,5 @@ export function parseDifficulty(value) {
     }
   }
   const number = Number(value);
-  return Number.isInteger(number) && number >= 0 && number <= 4 ? number : undefined;
+  return Number.isInteger(number) && number >= 0 ? number : undefined;
 }

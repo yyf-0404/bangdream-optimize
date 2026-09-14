@@ -1,0 +1,197 @@
+/* Only SPA shell geometry and runtime aliases; page visuals live in approved/. */
+html{overflow-y:auto}
+body{margin:0;overflow:visible}
+body{overflow-x:clip}
+#unified-sidebar #app-version:not([hidden]){display:block;width:max-content;margin-top:3px;color:#86728f;font:10px/1.4 Consolas,monospace;letter-spacing:.15px}
+#unified-sidebar .side-brand-mark:has(img){background:none}
+#unified-sidebar .side-brand-mark>img{display:block;width:100%;height:100%;object-fit:fill}
+[data-page-panel]{display:block!important;width:100%;min-width:0;min-height:0;padding:0;margin:0}
+[data-page-panel][hidden]{display:none!important}
+:is(#card-library-unified,.accepted-card-picker){display:block;min-width:0}
+.app-shell{min-height:100dvh;max-height:none;overflow:visible}
+/* Preserve the accepted shell's sticky rail after the decorative sidebar styles. */
+@media(min-width:681px){#unified-sidebar{position:sticky;top:0;z-index:30}}
+.accepted-content{min-width:0}
+.runtime-control-bank{display:none!important}
+/* Unsupported runtime actions hide their whole resource row, including its description. */
+#archive-design .desktop-resource:has(>button[hidden]){display:none}
+#aurora-soft-study .pc-live-fields{display:flex}
+#aurora-soft-study .pc-choice{height:auto;width:auto;min-width:0;flex:0 0 auto}
+#aurora-soft-study .pc-choice>span{position:static}
+#aurora-soft-study .bo-content{--bo-space:var(--gutter);padding-left:var(--body-inset);padding-right:var(--gutter)}
+#card-library-unified .content,#player-library .content,#archive-design .shared-content,#result-design .result-content{padding-left:var(--body-inset);padding-right:var(--gutter)}
+/* Inset spacing belongs inside each page surface, including its title and sticky navigation. */
+[data-page-panel]>:is(.page-hero,.section-nav){padding-left:var(--body-inset);padding-right:var(--gutter)}
+/* Full-width backgrounds continue through that inset to the sidebar; only their content moves. */
+#aurora-soft-study .bo-content>.bo-section::before,#card-library-unified .card-group::before{left:calc(-1 * var(--body-inset));right:calc(-1 * var(--gutter))}
+#card-library-unified .catalog-sticky{margin-left:calc(-1 * var(--body-inset));margin-right:calc(-1 * var(--gutter));padding-left:var(--body-inset);padding-right:var(--gutter)}
+#aurora-soft-study .bo-target-group{margin:0;padding:0;border:0}
+#aurora-soft-study .bo-section-heading>h3{display:flex;align-items:center;gap:9px}
+.catalog-filters .search input{min-width:0;width:100%}
+.accepted-card-picker .catalog-sticky{position:sticky;top:0}
+/* When magazines stack their controls below the name, do not stretch them across the grid track. */
+#player-library .magazine-items .level-control{justify-self:start}
+/* Runtime song rows combine jacket and title in one button, followed by difficulty controls. */
+#aurora-soft-study #song-rows{container:activity-songs / inline-size}
+#aurora-soft-study #song-rows .bo-song{grid-template-columns:22px minmax(0,1fr) auto;gap:10px}
+#aurora-soft-study #song-rows .song-entry{grid-column:2;grid-row:1}
+#aurora-soft-study #song-rows .song-entry>span{flex:1;min-width:0}
+#aurora-soft-study #song-rows .song-difficulty-group{grid-column:3;grid-row:1;justify-self:end}
+@container activity-songs (max-width:600px){
+ #aurora-soft-study #song-rows .bo-song{grid-template-columns:18px minmax(0,1fr);gap:7px}
+ #aurora-soft-study #song-rows .song-difficulty-group{grid-column:2;grid-row:2;justify-self:start}
+}
+@media(max-width:400px){#aurora-soft-study #song-rows .song-difficulty-group{grid-column:1 / -1;grid-row:2;justify-self:start}}
+/* Sort rules and direction are independent controls in every shared catalog. */
+:is(#card-library-unified,.accepted-card-picker) .sort-heading{margin-bottom:5px;color:var(--muted);font-size:11px}
+:is(#card-library-unified,.accepted-card-picker) .catalog-sort-row{display:flex;align-items:stretch;gap:6px;min-width:0}
+:is(#card-library-unified,.accepted-card-picker) .catalog-sort-row>:is(select,.bo-select){flex:1;min-width:0;width:166px}
+:is(#card-library-unified,.accepted-card-picker) .catalog-sort-row select[data-view=sort]{width:166px;max-width:100%}
+:is(#card-library-unified,.accepted-card-picker) .catalog-sort-direction{display:inline-flex;align-items:center;justify-content:center;gap:5px;flex:none;min-height:36px;padding:5px 9px;border:1px solid #e2e3e9;border-radius:4px;background:#fcfcfe;color:#74657e;font:inherit;font-size:11px;white-space:nowrap;cursor:pointer}
+:is(#card-library-unified,.accepted-card-picker) .catalog-sort-direction svg{width:15px;height:15px;flex:none}
+:is(#card-library-unified,.accepted-card-picker) .catalog-sort-direction:hover{background:#f0ebf5;border-color:#d6c8e0;color:#795489}
+:is(#card-library-unified,.accepted-card-picker) .catalog-sort-direction:focus-visible{outline:2px solid #9870a6;outline-offset:2px}
+@container card-results (max-width:790px){:is(#card-library-unified,.accepted-card-picker) .catalog-sort-row>:is(select,.bo-select),:is(#card-library-unified,.accepted-card-picker) .catalog-sort-row select[data-view=sort]{width:100%}}
+@media(max-width:680px){:is(#card-library-unified,.accepted-card-picker) .catalog-sort-direction{min-height:40px;padding-inline:7px}}
+/* Quick jumps use the catalog's blue-gray type and equal square asset slots. */
+:is(#card-library-unified,.accepted-card-picker) .catalog-jumps button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-width:72px;min-height:44px;padding:6px 8px;border:0;border-radius:0;background:transparent;color:#45667e;font-family:inherit;font-size:13px;font-weight:400;line-height:1.5;font-variant-numeric:tabular-nums;white-space:nowrap;cursor:pointer}
+:is(#card-library-unified,.accepted-card-picker) .catalog-jumps button>img{display:block;flex:none;width:24px;height:24px;object-fit:contain}
+:is(#card-library-unified,.accepted-card-picker) .catalog-jumps button>span{font:inherit;color:inherit}
+:is(#card-library-unified,.accepted-card-picker) .catalog-jumps button:hover{background:#f4f7fa;color:#87557f}
+:is(#card-library-unified,.accepted-card-picker) .catalog-jumps button:focus-visible{outline:2px solid #9870a6;outline-offset:2px}
+@container card-results (max-width:790px){:is(#card-library-unified,.accepted-card-picker) .catalog-jumps button{flex:1;min-width:0;gap:5px;padding-inline:2px;font-size:12px}:is(#card-library-unified,.accepted-card-picker) .catalog-jumps button>img{width:22px;height:22px}}
+/* Event metadata is read-only; filtering and custom-type editing are separate controls. */
+#aurora-soft-study .bo-event-row{grid-template-columns:minmax(0,1fr) auto}
+#aurora-soft-study .bo-event-type-display{min-width:155px}
+#aurora-soft-study .bo-event-type-value{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;min-height:44px;color:var(--text,#34313c);font-size:13px}
+#aurora-soft-study .bo-event-type-value .pb-link{min-height:36px;padding:4px 0;font-size:12px}
+#aurora-soft-study .bo-event-filters{border:0;padding:0;min-width:0;margin:12px 0 0 var(--bo-subsection-inset,23px)}
+#aurora-soft-study .bo-event-filters legend{float:left;display:flex;align-items:center;min-height:38px;margin:0 14px 0 0;padding:0;color:#817589;font-size:12px}
+#aurora-soft-study .bo-event-filters .event-type-filter-list{display:flex;flex-wrap:wrap;align-items:center;gap:2px 4px}
+#aurora-soft-study .bo-event-filters label{position:relative;display:inline-flex;cursor:pointer}
+#aurora-soft-study .bo-event-filters label[hidden]{display:none}
+#aurora-soft-study .bo-event-filters input{position:absolute;width:1px;height:1px;opacity:0;margin:0}
+#aurora-soft-study .bo-event-filters :is(label>span,button){position:relative;display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:38px;padding:6px 10px;border:0;border-radius:3px;background:transparent;color:#817589;font-family:inherit;font-size:13px;line-height:1.5;cursor:pointer;transition:background .15s,color .15s}
+#aurora-soft-study .bo-event-filters label>span::after{content:'';position:absolute;bottom:3px;left:calc(50% - 10px);width:20px;height:2px;border-radius:1px;background:currentColor;opacity:0;transition:opacity .15s}
+#aurora-soft-study .bo-event-filters input:checked+span{color:#754887;font-weight:550}
+#aurora-soft-study .bo-event-filters input:checked+span::after{opacity:.7}
+#aurora-soft-study .bo-event-filters label:hover>span,#aurora-soft-study .bo-event-filters button:hover{background:#ffffffa6;color:#754887}
+#aurora-soft-study .bo-event-filters button{margin-left:10px;color:#876292;font-size:12px}
+#aurora-soft-study .bo-event-filters button.is-active{color:#754887}
+#aurora-soft-study .bo-event-filters input:focus-visible+span,#aurora-soft-study .bo-event-filters button:focus-visible{outline:2px solid #9657ad;outline-offset:2px}
+#aurora-soft-study .bo-event-filters+.bo-note{margin-left:var(--bo-subsection-inset,23px)}
+#aurora-soft-study .event-type-dialog{width:min(490px,calc(100vw - 24px));height:fit-content;max-height:calc(100dvh - 24px)}
+#aurora-soft-study .event-type-dialog form{display:flex;flex-direction:column;min-height:0;height:auto}
+#aurora-soft-study .event-type-dialog-body{overflow:auto;padding:20px 24px}
+#aurora-soft-study .event-type-dialog fieldset{border:0;margin:0;padding:0;min-width:0}
+#aurora-soft-study .event-type-dialog legend{margin-bottom:12px;color:var(--pb-muted);font-size:12px}
+#aurora-soft-study .event-type-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+#aurora-soft-study .event-type-options label{display:flex;align-items:center;gap:9px;min-height:48px;padding:8px 12px;border:1px solid var(--pb-line);border-radius:3px;cursor:pointer}
+#aurora-soft-study .event-type-options label:has(:checked){border-color:#b599c5;background:#f4eef8;color:#704981}
+#aurora-soft-study .event-type-options label:hover{background:#f4eef8}
+#aurora-soft-study .event-type-options input{width:15px;height:15px;margin:0;flex:none;accent-color:#815b94}
+#aurora-soft-study .event-type-dialog-body>.pb-help{margin-top:14px}
+@media(max-width:760px){#aurora-soft-study .bo-event-row{grid-template-columns:1fr}#aurora-soft-study .bo-event-type-display{margin-left:var(--bo-subsection-inset,23px)}#aurora-soft-study .bo-event-filters legend{float:none;margin-bottom:2px;min-height:24px}#aurora-soft-study .bo-event-filters :is(label>span,button){min-height:44px}#aurora-soft-study .event-type-dialog-body{padding:16px 14px}}
+@media(max-width:480px){#aurora-soft-study .bo-event-filters .event-type-filter-list{display:grid;grid-template-columns:repeat(4,minmax(44px,1fr));gap:4px 6px}#aurora-soft-study .bo-event-filters label>span{width:100%}#aurora-soft-study .bo-event-filters button{margin-left:0}}
+@media(max-width:360px){#aurora-soft-study .event-type-options label{padding:8px 6px;gap:6px;font-size:12px}}
+@media(prefers-reduced-motion:reduce){#aurora-soft-study .bo-event-filters :is(label>span,button),#aurora-soft-study .bo-event-filters label>span::after{transition:none}}
+/* Flow flags retain intrinsic dimensions; text-inline flags must not inherit the page's block image reset. */
+:is(#archive-design,#archive-dialog-host) .flow-dialog img.server-flag{object-fit:contain;flex-shrink:0}
+:is(#archive-design,#archive-dialog-host) .flow-dialog img.server-flag--inline{display:inline-block;width:17px;height:13px;vertical-align:-2px}
+/* While quilting is pending or unavailable, keep the original image's left edge soft. */
+[data-hero=activity] .hero-event-background{mask-image:linear-gradient(90deg,transparent,#000 180px)}
+/* Shared pickers sit inside padded dialog scrollers, not the page's outer inset. */
+.accepted-card-picker .catalog-sticky{margin:0 0 9px;padding:0}
+.accepted-card-picker .catalog-group::before{left:0;right:0}
+.accepted-card-picker .catalog-filters .band-row{gap:8px}
+.accepted-card-picker .catalog-filters .band-button{width:88px;height:44px;padding:2px;flex:none}
+.accepted-card-picker .catalog-filters .band-button img{width:69px;height:29px}
+.accepted-card-picker .catalog-filters .members{flex:0 1 auto;justify-content:flex-start;gap:5px;max-width:none}
+.accepted-card-picker .catalog-filters .character-button{width:44px;height:44px;padding:3px;flex:none}
+.accepted-card-picker .catalog-filters .character-button[aria-checked=true]::after{width:12px;height:12px;font-size:9px}
+@media(max-width:950px){.accepted-card-picker .character-filters{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:680px){.accepted-card-picker .catalog-filters .band-row{gap:6px}.accepted-card-picker .catalog-filters .band-button{width:68px}.accepted-card-picker .catalog-filters .band-button img{width:61px}.accepted-card-picker .catalog-filters .members{gap:4px}.accepted-card-picker .catalog-filters .character-button{width:38px;height:40px;padding:2px}}
+
+/* Global profile tools and browser downloads share the accepted shell. */
+.accepted-profile #quick-import-profile{display:inline-flex;align-items:center;gap:6px;flex:none;min-height:32px;max-width:none;padding:4px 9px;margin-left:4px;border-radius:3px;color:#81608f;font-size:12px;transition:background .15s,color .15s}
+.accepted-profile #quick-import-profile::after{content:none}
+.accepted-profile #quick-import-profile svg{width:15px;height:15px;flex:none}
+.accepted-profile #quick-import-profile:hover{background:#f1eaf6;color:#69447c}
+.accepted-profile #quick-import-profile:focus-visible,#unified-sidebar .side-help:focus-visible{outline:2px solid #9657ad;outline-offset:2px}
+#unified-sidebar .side-help{border-radius:3px;transition:background .15s,color .15s}
+#unified-sidebar .side-help:hover{background:#eee9f3;color:#704981}
+#unified-sidebar .side-download{margin-bottom:2px}
+#desktop-downloads-dialog{padding:0;width:min(560px,calc(100vw - 32px));max-width:none;max-height:calc(100dvh - 32px);height:fit-content;border:1px solid #e4deea;border-radius:6px;color:#33313c;background:#fff;box-shadow:0 20px 65px #33244026}
+#desktop-downloads-dialog::backdrop{background:#29233645}
+.desktop-downloads-dialog-content{display:flex;flex-direction:column;max-height:calc(100dvh - 34px)}
+.desktop-downloads-header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 24px;border-bottom:1px solid #ece7ef}
+.desktop-downloads-header h2{margin:0;font-size:19px;font-weight:650;color:#363340}
+.desktop-downloads-eyebrow{margin:0 0 5px;font-size:11px;color:#9986a2}
+#close-desktop-downloads-dialog{flex:none;min-height:36px;padding:6px 10px;border:0;background:transparent;color:#7c7186;border-radius:3px}
+#close-desktop-downloads-dialog:hover{background:#f3eff7;color:#69447c}
+.desktop-downloads-body{padding:20px 24px 24px;overflow:auto;min-height:0}
+.desktop-downloads-intro{margin:0 0 20px;font-size:13px;line-height:1.7;color:#827b8e}
+.desktop-downloads-status{padding:16px 0;font-size:13px;color:#786780;line-height:1.7}
+.desktop-downloads-list{display:grid;gap:0}
+.desktop-download-item{display:flex;flex-direction:column;gap:6px;padding:16px 0;border-bottom:1px solid #eee9f1;min-width:0}
+.desktop-download-item:first-child{padding-top:0}.desktop-download-item:last-child{border-bottom:0}
+.desktop-download-button{color:#805b92;font-size:14px;font-weight:600;overflow-wrap:anywhere;text-decoration:none;line-height:1.65}
+.desktop-download-button:hover{text-decoration:underline;text-underline-offset:3px}
+.desktop-download-meta{font-size:12px;color:#8b8394}
+#retry-desktop-downloads{margin-top:12px;min-height:36px;border:1px solid #dcd1e4;padding:7px 13px;border-radius:3px;background:white;color:#805b92;font-size:13px}
+#retry-desktop-downloads:hover{background:#f5f0f8}
+@media(max-width:680px){
+ .accepted-profile{column-gap:6px;row-gap:0}
+ .accepted-profile>span:first-child{flex-basis:100%;font-size:11px}
+ .accepted-profile #workspace-profile{flex:0 1 auto;max-width:calc(100% - 143px);min-height:36px;text-align:left}
+ .accepted-profile #quick-import-profile{margin-left:auto;min-height:40px;padding:6px 8px}
+ #unified-sidebar .design-sidebar .side-bottom{display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:0 16px 6px;background:transparent}
+ #unified-sidebar .side-bottom .side-state,#unified-sidebar .side-bottom .side-calculate{display:none}
+ #unified-sidebar .side-bottom .side-help{width:auto;min-height:36px;gap:6px;margin:0;font-size:11px}
+ #unified-sidebar .side-bottom .help-arrow{display:none}
+ #unified-sidebar .side-bottom .side-help>svg{width:14px;height:14px}
+ .desktop-downloads-header{padding:16px 18px}.desktop-downloads-body{padding:16px 18px 20px}
+}
+@media(min-width:681px) and (max-height:740px){
+ #unified-sidebar .side-brand{min-height:76px;padding-block:14px}
+ #unified-sidebar .side-caption{margin-block:10px 8px}
+ #unified-sidebar .side-link{min-height:48px}
+ #unified-sidebar .design-sidebar .side-bottom{padding-top:12px;padding-bottom:12px}
+}
+/* Song detail inherits the same title/body rhythm as other result dialogs. */
+#result-design .accepted-song-details{padding:0;width:min(560px,calc(100vw - 32px));max-width:none;height:fit-content;max-height:calc(100dvh - 32px);border:1px solid #e4deea;border-radius:6px;background:white;overflow:auto}
+#result-design .accepted-song-details .dialog-top{position:sticky;top:0;background:#fff;z-index:1;gap:16px}
+#result-design .accepted-song-details .dialog-top h2{margin:0}
+#result-design .accepted-song-details .icon-button{width:32px;height:32px;flex:none;padding:0;border:0;background:transparent;border-radius:3px;color:#8b7a94;font-size:22px}
+#result-design .accepted-song-details .icon-button:hover{background:#f3eff7}
+#result-design .song-details-body{display:grid;grid-template-columns:112px minmax(0,1fr);gap:20px;align-items:start}
+#result-design .song-details-body>img{width:112px;height:112px;object-fit:cover;border-radius:3px}
+#result-design .song-details-identity h3{font-size:16px;line-height:1.6;overflow-wrap:anywhere;margin:0}
+#result-design .song-details-identity p{margin:10px 0}
+#result-design .song-details-identity .activity-song-difficulty-list{display:flex;flex-wrap:wrap;gap:6px}
+@media(max-width:480px){#result-design .song-details-body{grid-template-columns:1fr;gap:16px}#result-design .song-details-body>img{width:96px;height:96px}}
+/* Runtime difficulty buttons and jacket wrappers must survive the approved button reset. */
+#aurora-soft-study #song-picker .sp-current button.preview-difficulty{display:inline-flex;align-items:center;justify-content:center;width:54px;height:29px;min-height:29px;padding:0 2px;gap:5px;border:1px solid color-mix(in srgb,var(--diff-ink) 62%,white);border-radius:999px;background:#fff;color:var(--diff-ink)}
+#aurora-soft-study #song-picker .sp-current button.preview-difficulty[data-selected=true]{background:var(--diff-ink);border-color:var(--diff-ink);color:#fff}
+#aurora-soft-study #song-picker .sp-current button.preview-difficulty:not([data-selected=true]):hover{background:color-mix(in srgb,var(--diff-ink) 12%,white)}
+#aurora-soft-study #song-picker .sp-slot .sp-jacket{width:34px;height:34px}
+@media(max-width:600px){#aurora-soft-study #song-picker .sp-slot .sp-jacket{width:24px;height:24px}}
+@media(max-width:400px){#aurora-soft-study #song-picker .sp-current button.preview-difficulty{width:48px}}
+/* Clip only the artwork, so result actions can extend below the hero. */
+#result-design .page-hero{overflow:visible}
+#result-design .page-hero .hero-visual{overflow:hidden}
+#result-design .page-hero .heading-actions{z-index:5}
+#result-design .result-more .panel-actions button{min-height:36px;padding:6px 10px;white-space:nowrap;text-align:left}
+#result-design .result-more .panel-actions button:hover{background:#f3eff7;color:#704981}
+#archive-design .sample-cards:not(:has(.archive-card-images img:not([hidden]))){display:none}
+/* Keep all six character bonuses visible; adapt the member count to available space. */
+#player-library .accepted-character-library .members{grid-template-columns:repeat(auto-fit,minmax(144px,1fr));gap:12px}
+#player-library .accepted-character-library .member{grid-template-columns:44px minmax(0,1fr);justify-items:stretch;text-align:left;padding:8px 6px;gap:6px 8px}
+#player-library .accepted-character-library .member>img{grid-column:1;grid-row:1;width:44px;height:44px}
+#player-library .accepted-character-library .member-name{grid-column:2;grid-row:1;font-size:12px}
+#player-library .member-bonus-matrix{grid-column:1/-1;display:grid;grid-template-columns:28px repeat(3,minmax(0,1fr));gap:5px 4px;align-items:baseline;width:100%;font-size:11px;line-height:1.5;text-align:right}
+#player-library .member-bonus-heading{font-weight:400;color:var(--muted)}
+#player-library .member-bonus-heading:nth-child(4n+1){text-align:left}
+#player-library .member-bonus-value{font-size:12px;font-weight:500;font-variant-numeric:tabular-nums;color:var(--material-ink)}
+#player-library .member-bonus-value[data-bonus^="characterTask"]{color:#627589}
+@media(max-width:480px){#player-library .accepted-character-library .members{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 8px}#player-library .accepted-character-library .member{padding:6px 0;gap:5px}#player-library .member-bonus-matrix{grid-template-columns:24px repeat(3,minmax(0,1fr));gap:4px 2px;font-size:10px}#player-library .member-bonus-value{font-size:11px}}

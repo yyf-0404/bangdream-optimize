@@ -1,3 +1,4 @@
+pub use bangdream_optimize_data::hero_asset;
 use async_trait::async_trait;
 use bangdream_optimize_core::{
     BuildResult, ItemSearchOptions, PlayerConfig, PtEvaluateRequest, PtEvaluateResult,
@@ -264,6 +265,19 @@ impl DesktopOptimizer {
 
     pub fn sync_reference_data(&self) -> Result<DesktopReferenceData, DataError> {
         self.calculator.sync_reference_data()
+    }
+
+    pub fn sync_card_detail(&self, card_id: u32) -> Result<Value, DataError> {
+        match &self.calculator {
+            DesktopCalculator::Filesystem { root, .. } => {
+                let config = BestdoriFilesystemConfig::from_root(root);
+                let directory = config
+                    .cards_dir
+                    .ok_or(DataError::MissingField { field: "cards_dir" })?;
+                read_json(&directory.join(format!("{card_id}.json")))
+            }
+            DesktopCalculator::Remote { calculator, .. } => calculator.sync_card_detail(card_id),
+        }
     }
 
     pub fn refresh_core_game_data(&self) -> Result<(), DataError> {
@@ -857,6 +871,30 @@ mod tests {
         assert!(reference.area_items.get("10").is_some());
         assert!(reference.songs.get("1").is_some());
         assert!(reference.cards_fix.is_none());
+    }
+
+    #[test]
+    fn loads_card_level_details_from_both_local_layouts() {
+        for directory in ["cards", "api/cards"] {
+            let fixture = TestDir::new();
+            let root = fixture.path().join("game-data");
+            let cards = root.join(directory);
+            fs::create_dir_all(&cards).unwrap();
+            if directory == "api/cards" {
+                write_json(cards.join("all.5.json"), json!({}));
+            }
+            let detail = json!({
+                "stat": {"50": {"performance": 7476, "technique": 6022, "visual": 7771}}
+            });
+            write_json(cards.join("2508.json"), detail.clone());
+            let optimizer = DesktopOptimizer::new(DesktopConfig {
+                user_data_root: fixture.path().join("user-data"),
+                game_data: DesktopGameDataSource::Filesystem { root },
+            })
+            .unwrap();
+            assert_eq!(optimizer.sync_card_detail(2508).unwrap(), detail);
+            assert!(optimizer.sync_card_detail(9999).is_err());
+        }
     }
 
     #[test]

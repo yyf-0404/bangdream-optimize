@@ -16,10 +16,11 @@ export function createDownloadActions({
 
   async function handleOpenDesktopDownloads() {
     configureDownloadControls();
-    if (!elements.desktopDownloadsDialog) {
+    if (state.runtime?.kind !== 'browser' || !elements.desktopDownloadsDialog) {
       return;
     }
     renderDownloadStatus('加载中');
+    if (elements.retryDesktopDownloads) elements.retryDesktopDownloads.hidden = true;
     renderDownloadEntries([]);
     openDialog(elements.desktopDownloadsDialog);
     try {
@@ -27,9 +28,12 @@ export function createDownloadActions({
       cachedEntries = entries;
       renderDownloadEntries(entries);
       renderDownloadStatus(entries.length === 0 ? '没有可下载的桌面端文件' : '');
+      if (elements.retryDesktopDownloads) elements.retryDesktopDownloads.hidden = entries.length > 0;
+      if (!entries.length) cachedEntries = null;
     } catch (error) {
       renderDownloadEntries([]);
-      renderDownloadStatus('下载列表加载失败');
+      renderDownloadStatus('暂时无法读取下载列表，请稍后重试。');
+      if (elements.retryDesktopDownloads) elements.retryDesktopDownloads.hidden = false;
       setError(error);
     }
   }

@@ -45,7 +45,7 @@ import {
   parseNonNegativeInteger,
   readOptionalInteger,
 } from './utils.js?v=3';
-import { createCardView } from './views/card.js?v=3';
+import { createCardView } from './views/card-library.js';
 import { createEventView } from './views/event.js?v=5';
 import { createFormCells } from './ui/form.js?v=3';
 import { createGameMeta } from './domain/meta.js?v=3';
@@ -57,7 +57,7 @@ import {
 } from './models/player.js?v=3';
 import { createPageController } from './app/page.js?v=6';
 import { createPlayerStore } from './app/player.js?v=3';
-import { createPlayerView } from './views/player.js?v=3';
+import { createPlayerView } from './views/player-library.js';
 import { createProfileActions } from './actions/profile.js?v=3';
 import { createProfileView } from './views/profile.js?v=3';
 import {
@@ -79,21 +79,35 @@ import { createSongView } from './views/song.js?v=3';
 import { createStatusProxy } from './app/status.js?v=3';
 import { createStatusView } from './views/status.js?v=3';
 import { createViewAdapters } from './views/adapters.js?v=3';
+import { createArchiveUI } from './ui/archive.js';
 import { createResultCacheView } from './views/result-cache.js?v=3';
 
+import { mountShell } from './ui/shell.js';
+import { configureCardPresentation } from './ui/card-preview.js?v=3';
+import { createCardBrief } from './ui/cards/brief.js';
+import { cardModel } from './ui/cards/model.js';
+import { createCardDetails } from './ui/cards/presentation.js';
+import { createTeamEditor } from './ui/team-editor.js';
+import { createHeroes } from './ui/hero.js';
+import { createActivityUI } from './ui/activity.js';
+import { createEquipmentUI } from './ui/equipment.js';
+import {installSelects} from './ui/select.js';
+
 // Runtime state and deferred cross-module calls.
+mountShell(document);
+installSelects(document);
 const state = createInitialState();
 const elements = queryElements(document);
 void renderConfiguredAppVersion(elements.appVersion);
 const status = createStatusProxy();
 const resultCacheStorage = createResultCacheStorage({ limit: RESULT_CACHE_LIMIT });
-const resultCacheView = createResultCacheView({ elements });
+const resultCacheView = createResultCacheView({ elements, eventLabel: (...args) => eventLabel(...args) });
 try {
   state.resultCache = await resultCacheStorage.loadResultCache();
 } catch {
   state.resultCache = [];
 }
-resultCacheView.renderResultCache(state.resultCache, {});
+resultCacheView.renderResultCache([], {});
 const deferred = {
   activatePage: (...args) => pageController.activatePage(...args),
   ensureCore: (...args) => ensureCore(...args),
@@ -217,6 +231,7 @@ const {
   normalizedServer,
   normalizedStatRate,
 } = createPlayerModel({
+  hasCardRecord: id => Boolean(state.core?.cards?.[id] ?? state.core?.cardsFix?.[id]),
   normalizedActivityMode,
   normalizedCalculationMode,
   eventWithParameterBonusFix,
@@ -345,6 +360,8 @@ const {
   activityModeForEvent,
   ensureSongListForMode,
   recentUnfinishedEvent,
+  customEventId: CUSTOM_EVENT_ID,
+  defaultEditableEvent,
   renderPlayerProfileControls,
   onError: status.setError,
 });
@@ -361,6 +378,9 @@ const {
   renderMetricsView,
   renderResultSummaryView,
   selectedBandId,
+  areaItemGroups,
+  areaItemLabel,
+  formatAreaItemRate,
   songCoverUrls,
   songLabel,
   getSongRecord: (songId) => state.core?.songs?.[String(songId)],
@@ -437,6 +457,7 @@ const configActions = createConfigActions({
 });
 
 const profileActions = createProfileActions({
+  initializePlayerDefaults,
   state,
   elements,
   normalizedPlayer,
@@ -531,8 +552,17 @@ const downloadActions = createDownloadActions({
 });
 
 // Page views.
+const loadCardDetail = id => state.runtime.syncCardDetail(id);
+const readOnlyCardDetails = createCardDetails({loadCardDetail});
+configureCardPresentation(({id,config,captain,order}) => {
+  const card = cardModel(state.core, safeReadPlayer(), id, config, state.activePlayerProfileId);
+  return createCardBrief(card, {captain,order,onOpen:c=>readOnlyCardDetails.open(c,{context:config?'本次计算':'当前档案'})});
+});
 const cardView = createCardView({
+  loadCardDetail,
   rows: elements.cardRows,
+  getProfileId: () => state.activePlayerProfileId,
+  writePlayer,
   expandedGroups: state.expandedCardGroups,
   groupCache: state.cardGroupCache,
   getCore: () => state.core,
@@ -577,6 +607,7 @@ const eventActions = createEventActions({
 });
 
 const activityActions = createActivityActions({
+  getProfileId: () => state.activePlayerProfileId,
   elements,
   customEventId: CUSTOM_EVENT_ID,
   normalizedPlayer,
@@ -614,6 +645,12 @@ const activityActions = createActivityActions({
 
 const playerView = createPlayerView({
   elements,
+  recordWithFix,
+  serverScopedValue,
+  writePlayer,
+  getProfileId: () => state.activePlayerProfileId,
+  getCore: () => state.core,
+  maxCharacterBonusForPlayer,
   expandedAreaItemGroups: state.expandedAreaItemGroups,
   isCharacterBonusesCollapsed: () => state.characterBonusesCollapsed,
   setCharacterBonusesCollapsed: (collapsed) => {
@@ -671,6 +708,10 @@ const eventView = createEventView({
 });
 
 const songView = createSongView({
+  getCore:()=>state.core,
+  getProfileId:()=>state.activePlayerProfileId,
+  readPlayer,writePlayer,
+  songLabel,songCoverUrls,
   rows: elements.songRows,
   selectedEventId,
   editableEventSnapshot,
@@ -683,8 +724,14 @@ const songView = createSongView({
 });
 
 // Page controller, form actions, status view, and lifecycle.
+const teamEditor = createTeamEditor({getCore:()=>state.core,getPlayer:safeReadPlayer,getProfileId:()=>state.activePlayerProfileId,writePlayer,onApply:deferred.renderConfigForms,importDraft:calculationActions.loadMainBandDraft,openDetails:c=>readOnlyCardDetails.open(c,{context:'当前档案'})});
+const heroes = createHeroes({readAsset:path=>state.runtime.loadHeaderAsset(path),getCore:()=>state.core,getPlayer:safeReadPlayer,getProfileId:()=>state.activePlayerProfileId});
+const activityUI = createActivityUI({elements,getPlayer:readPlayer,writePlayer,renderForms:deferred.renderConfigForms,eventSnapshot:editableEventSnapshot,activityModeForEvent,getCore:()=>state.core,getProfileId:()=>state.activePlayerProfileId});
+const equipmentUI = createEquipmentUI({elements,getPlayer:readPlayer,getProfileId:()=>state.activePlayerProfileId,writePlayer,renderForms:deferred.renderConfigForms,areaItemGroups,areaItemLabel});
 const pageController = createPageController({
   elements,
+  onRender: player => {activityUI.render(player);equipmentUI.render(player);archiveUI.render();void heroes.update();calculationActions.syncProfileResult();},
+  renderTeams: teamEditor.renderTeams,
   normalizePlayer: normalizedPlayer,
   editableEventSnapshot,
   normalizedActivityMode,
@@ -709,6 +756,8 @@ const pageController = createPageController({
   cardRarity,
   safeReadPlayer,
 });
+
+const archiveUI=createArchiveUI({state,elements,readPlayer,writePlayer,refreshProfiles:refreshPlayerProfiles,renderForms:player=>pageController.renderConfigForms(player),setError:status.setError,setStatus:status.setStatus});
 
 const formActions = createFormActions({
   elements,
@@ -767,4 +816,11 @@ const { bootstrap } = createAppLifecycle({
   setError: status.setError,
 });
 
+document.addEventListener('player-config-change', () => {calculationActions.syncProfileResult();void heroes.update();});
+document.addEventListener('game-language-change', () => {
+  pageController.renderConfigForms(readPlayer());
+  if (state.lastDiagnostic) renderResultSummary(state.lastDiagnostic.result, {diagnostic:state.lastDiagnostic});
+});
 await bootstrap();
+pageController.activatePage(location.hash.slice(1) || 'activity');
+window.addEventListener('hashchange', () => pageController.activatePage(location.hash.slice(1)));

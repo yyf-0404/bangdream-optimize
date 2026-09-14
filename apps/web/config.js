@@ -10,6 +10,8 @@ globalThis.BANGDREAM_OPTIMIZE_CONFIG = {
   gameDataBaseUrl: '/game-data',
   desktopDownloadsUrl: '/downloads/',
   apiBaseUrl: defaultApiBaseUrl,
+  // Optional fixed-origin header PNG channel; defaults to apiBaseUrl (or same origin).
+  // headerAssetApiBaseUrl: 'https://your-api.example',
   assetOriginUrl: 'https://bestdori.com',
   assetBaseUrl: 'https://bestdori.com/assets',
   assetServer: 'jp',

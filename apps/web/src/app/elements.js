@@ -1,7 +1,7 @@
 export function queryElements(document) {
   const byId = (id) => document.getElementById(id);
   const all = (selector) => document.querySelectorAll(selector);
-  const calculateButtonSelector = '.calculate-submit[type="submit"][form="controls"], #controls .primary[type="submit"]';
+  const calculateButtonSelector = '.calculate-submit[type="submit"][form="controls"], #controls .primary[type="submit"], [data-calculation-submit]';
 
   return {
     form: byId('controls'),
@@ -36,6 +36,7 @@ export function queryElements(document) {
     deletePlayerProfile: byId('delete-player-profile'),
     importMainBand: byId('import-main-band'),
     openBestdoriProfileDialog: byId('open-bestdori-profile'),
+    quickImportProfile: byId('quick-import-profile'),
     exportCompactProfile: byId('export-compact-profile'),
     exportProfileDialog: byId('export-profile-dialog'),
     exportProfilePayload: byId('export-profile-payload'),
@@ -142,6 +143,7 @@ export function queryElements(document) {
     refreshCoreGameData: byId('refresh-core-game-data'),
     syncAllGameData: byId('sync-all-game-data'),
     openDesktopDownloads: byId('open-desktop-downloads'),
+    retryDesktopDownloads: byId('retry-desktop-downloads'),
     desktopDownloadsDialog: byId('desktop-downloads-dialog'),
     desktopDownloadsList: byId('desktop-downloads-list'),
     desktopDownloadsStatus: byId('desktop-downloads-status'),

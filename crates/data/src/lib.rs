@@ -1,3 +1,5 @@
+#[cfg(feature = "native-cache")]
+pub mod hero_asset;
 pub mod bestdori;
 #[cfg(feature = "native-cache")]
 pub mod cache;

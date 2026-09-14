@@ -24,27 +24,15 @@ test('PT maximize summary shows integer averages without ranges or sample counts
   assert.doesNotMatch(resultViewSource, /resultStat\('样本数'/);
 });
 
-test('specified-team song metrics use four columns and fold on narrow screens', () => {
-  assert.match(
-    resultViewSource,
-    /details\.classList\.toggle\('has-detailed-score'/,
-  );
-  assert.match(
-    stylesSource,
-    /\.result-song-details\.has-detailed-score\s*\{[\s\S]*?grid-template-columns:\s*repeat\(4,/,
-  );
-  assert.match(
-    stylesSource,
-    /\.result-song-details\.has-detailed-score\s*>\s*\.result-item:first-child\s*\{[\s\S]*?border-left:\s*0/,
-  );
-  assert.match(
-    stylesSource,
-    /@media \(max-width:\s*620px\)[\s\S]*?\.result-song-details\.has-detailed-score\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,/,
-  );
-  assert.match(
-    stylesSource,
-    /\.result-song-details\.has-detailed-score\s*>\s*\.result-item:nth-child\(odd\)\s*\{[\s\S]*?border-left:\s*0/,
-  );
+test('specified-team songs show cover, team and an open score range', () => {
+  assert.match(resultViewSource, /composition-song-info/);
+  assert.match(resultViewSource, /range.open=true/);
+  assert.match(resultViewSource, /最低分数/);
+  assert.match(resultViewSource, /平均分数/);
+  assert.match(resultViewSource, /最高分数/);
+  assert.match(resultViewSource, /song.scoreDistribution.minScore/);
+  assert.match(resultViewSource, /song.scoreDistribution.maxScore/);
+  assert.match(resultViewSource, /formatScoreDistributionAverage/);
 });
 
 test('grid separators never draw on the first visual column', () => {
@@ -97,18 +85,18 @@ test('result metrics only display total elapsed time', () => {
 
 test('PT maximize result includes challenge CP, regular fire, and per-song medley selectors', () => {
   assert.match(resultViewSource, /resource: 200, multiplier: 1/);
-  assert.match(resultViewSource, /segmented-control result-multiplier-control/);
-  assert.match(resultViewSource, /\$\{option\.resource\} CP \/ \$\{option\.multiplier\} 倍/);
+  assert.match(resultViewSource, /resource-options result-multiplier-control/);
+  assert.match(resultViewSource, /\$\{option\.resource\} CP · ×\$\{option\.multiplier\}/);
   assert.match(resultViewSource, /0, multiplier: 1/);
   assert.match(resultViewSource, /3, multiplier: 15/);
   assert.match(resultViewSource, /10, multiplier: 40/);
-  assert.match(resultViewSource, /\$\{option\.resource\} 火 \/ \$\{option\.multiplier\} 倍/);
+  assert.match(resultViewSource, /\$\{option\.resource\} 火 · ×\$\{option\.multiplier\}/);
   assert.match(resultViewSource, /perSongResource: 3, multiplier: 45/);
-  assert.match(resultViewSource, /每曲倍率选择/);
+  assert.match(resultViewSource, /组曲每曲火倍率/);
   assert.match(resultViewSource, /result-multiplier-control-medley/);
   assert.match(
     resultViewSource,
-    /每曲 \$\{option\.perSongResource\} 火 \/ \$\{option\.multiplier\} 倍/,
+    /每曲 \$\{option\.perSongResource\} 火 · ×\$\{option\.multiplier\}/,
   );
   assert.match(resultViewSource, /formatScaledAverageInteger/);
   assert.match(resultViewSource, /formatScaledAverageFixed/);
@@ -122,8 +110,9 @@ test('PT maximize result places scenario and multiplier before its overview', ()
 });
 
 test('result item selection has its own heading', () => {
-  assert.match(resultViewSource, /title\.textContent = '道具选择'/);
-  assert.match(resultViewSource, /result-section result-items-section/);
+  assert.match(resultViewSource, /heading\.id='result-equipment-heading'/);
+  assert.match(resultViewSource, /designIcon\('equipment'\)\+'道具选择'/);
+  assert.match(resultViewSource, /section.className='item-selection'/);
 });
 
 test('teammate parameters follow the leader selection at the same section level', () => {

@@ -2,8 +2,7 @@
 
 use bangdream_optimize_core::{
     BuildResult, ItemSearchOptions, PlayerConfig, PtEvaluateRequest, PtEvaluateResult,
-    PtMaximizeRequest, PtMaximizeResult,
-    ScoreRangeRequest, ScoreRangeResult, Server,
+    PtMaximizeRequest, PtMaximizeResult, ScoreRangeRequest, ScoreRangeResult, Server,
 };
 use bangdream_optimize_desktop::{
     DesktopConfig, DesktopGameDataSource, DesktopOptimizer, DesktopReferenceData,
@@ -34,17 +33,40 @@ struct UserConfigList {
 }
 
 #[tauri::command]
-fn load_player_config(state: State<'_, AppState>) -> Result<Option<Value>, String> {
-    optimizer(&state)?
-        .load_active_user_config_value()
-        .map_err(command_error)
+async fn load_header_asset(path: String) -> Result<Vec<u8>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        bangdream_optimize_desktop::hero_asset::fetch(&path)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn save_player_config(state: State<'_, AppState>, player: Value) -> Result<(), String> {
-    optimizer(&state)?
-        .save_active_user_config_value(player)
-        .map_err(command_error)
+fn load_player_config(
+    state: State<'_, AppState>,
+    config_id: Option<String>,
+) -> Result<Option<Value>, String> {
+    let optimizer = optimizer(&state)?;
+    match config_id {
+        Some(id) => optimizer.load_user_config_value(&id).map_err(command_error),
+        None => optimizer
+            .load_active_user_config_value()
+            .map_err(command_error),
+    }
+}
+
+#[tauri::command]
+fn save_player_config(
+    state: State<'_, AppState>,
+    player: Value,
+    config_id: Option<String>,
+) -> Result<(), String> {
+    let optimizer = optimizer(&state)?;
+    match config_id {
+        Some(id) => optimizer.player_store().save_user_config_value(&id, player),
+        None => optimizer.save_active_user_config_value(player),
+    }
+    .map_err(command_error)
 }
 
 #[tauri::command]
@@ -167,6 +189,11 @@ async fn sync_reference_data(state: State<'_, AppState>) -> Result<DesktopRefere
 }
 
 #[tauri::command]
+async fn sync_card_detail(state: State<'_, AppState>, card_id: u32) -> Result<Value, String> {
+    run_optimizer_task(state, move |optimizer| optimizer.sync_card_detail(card_id)).await
+}
+
+#[tauri::command]
 async fn sync_all_game_data(state: State<'_, AppState>) -> Result<(), String> {
     run_optimizer_task(state, |optimizer| optimizer.sync_all_game_data()).await
 }
@@ -241,7 +268,7 @@ async fn pt_evaluate_for_config(
 async fn save_json_file(file_name: String, text: String) -> Result<bool, String> {
     run_blocking_task(move || {
         let Some(path) = rfd::FileDialog::new()
-            .set_title("导出诊断")
+            .set_title("保存文件")
             .set_file_name(file_name)
             .add_filter("JSON 文件", &["json"])
             .save_file()
@@ -304,8 +331,10 @@ fn main() {
             rename_player_config,
             delete_player_config,
             import_bestdori_player_profile,
+            load_header_asset,
             clear_game_cache,
             sync_reference_data,
+            sync_card_detail,
             sync_all_game_data,
             refresh_core_game_data,
             runtime_info,

@@ -227,6 +227,14 @@ impl BestdoriCachedFilesystemCalculationInputBuilder {
         Ok(())
     }
 
+    pub fn sync_card_detail(&self, card_id: u32) -> Result<Value, DataError> {
+        let path = format!("api/cards/{card_id}.json");
+        if self.sync_remote_file(&path, false)? {
+            self.clear_loaded_calculator()?;
+        }
+        self.read_json(&path)
+    }
+
     pub fn refresh_core(&self) -> Result<(), DataError> {
         if self.refresh_core_inner()? {
             self.clear_loaded_calculator()?;

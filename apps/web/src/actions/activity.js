@@ -6,6 +6,7 @@ const DEFAULT_EVENT_ATTRIBUTES = ATTRIBUTE_VALUES;
 
 export function createActivityActions({
   elements,
+  getProfileId = () => null,
   customEventId,
   normalizedPlayer,
   normalizedCalculationMode,
@@ -39,6 +40,7 @@ export function createActivityActions({
   setStatus,
   setError,
 }) {
+  let eventRequest = 0;
   function parseEventIdFromSearch(value) {
     const trimmed = value.trim();
     const match = trimmed.match(/^(\d+)(?:\b|\s|$|[·-])/);
@@ -151,7 +153,6 @@ export function createActivityActions({
       const previewPlayer = normalizedPlayer(readPlayer());
       previewPlayer.calculationMode = calculationMode;
       renderConfigForms(previewPlayer);
-      const core = await ensureCore({ refreshManifest: true });
       const player = normalizedPlayer(readPlayer());
       const previousEventId = player.currentEvent;
       player.calculationMode = calculationMode;
@@ -159,31 +160,9 @@ export function createActivityActions({
         ? undefined
         : editableEventSnapshot(previousEventId, player);
 
-      if (previousEventId === customEventId) {
-        const key = String(customEventId);
-        if (!eventSupported(event, calculationMode)) {
-          player.eventOverrides[key] = {
-            ...defaultEditableEvent(player.activityMode, calculationMode),
-            ...(player.eventOverrides[key] ?? {}),
-            eventType: defaultEventTypeForMode(player.activityMode, calculationMode),
-          };
-        }
-        player.activityMode = activityModeForEvent(player.eventOverrides[key]);
-        ensureSongListForMode(player, customEventId, player.eventOverrides[key]);
-      } else if (!event || !eventSupported(event, calculationMode)) {
-        const recent = recentSupportedEvent(core?.events, calculationMode);
-        if (!recent) {
-          throw new Error('没有可用于当前计算目标的活动');
-        }
-        player.currentEvent = recent.id;
-        player.activityMode = activityModeForEvent(recent.event);
-        cacheLoadedEventPreset(player, recent.id, recent.event, { overwrite: true });
-        player.eventSongs[String(recent.id)] = defaultSongListForMode(
-          player.activityMode,
-          recent.event,
-          player.eventSongs[String(recent.id)],
-        );
-      } else {
+      // Keep the selected event and its overrides across calculation targets.
+      // Unsupported combinations are explained by validation, never silently replaced.
+      if (event) {
         player.activityMode = activityModeForEvent(event);
         ensureSongListForMode(player, previousEventId, event);
       }
@@ -205,6 +184,7 @@ export function createActivityActions({
   }
 
   async function handleEventSearchChange() {
+    const request=++eventRequest,profileId=getProfileId();
     const input = elements.eventSearch;
     clearFieldValidationMessage(input);
     if (!input.value.trim()) {
@@ -234,9 +214,9 @@ export function createActivityActions({
     setStatus('加载活动预设');
     try {
       const core = await ensureCore({ refreshManifest: true });
-      const player = normalizedPlayer(readPlayer());
       const event = await loadEventRecord(eventId, core);
-      assertSupportedEvent(event, player.calculationMode);
+      if(request!==eventRequest||profileId!==getProfileId())return;
+      const player = normalizedPlayer(readPlayer());
       player.currentEvent = eventId;
       player.activityMode = activityModeForEvent(event);
       cacheLoadedEventPreset(player, eventId, event);
@@ -262,6 +242,7 @@ export function createActivityActions({
   }
 
   function handleCustomEvent() {
+    eventRequest++;
     try {
       const player = normalizedPlayer(readPlayer());
       player.calculationMode = normalizedCalculationMode(
@@ -287,7 +268,7 @@ export function createActivityActions({
     }
     updateCurrentEvent((event) => {
       event.eventAttributeAndCharacterBonus ??= {};
-      event.eventAttributeAndCharacterBonus.parameterPercent = parameterPercent;
+      event.eventAttributeAndCharacterBonus[elements.eventCombinedPercent.dataset?.bonusKind || 'parameterPercent'] = parameterPercent;
     });
   }
 

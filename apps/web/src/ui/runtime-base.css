@@ -1,0 +1,32 @@
+/* Application-only surfaces. Approved page controls have no legacy CSS. */
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+button:disabled{cursor:default}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #98488c;outline-offset:3px}
+dialog{max-width:calc(100vw - 28px);max-height:calc(100dvh - 28px)}
+dialog::backdrop{background:#27233643}
+svg{width:18px;height:18px;flex-shrink:0}
+.page-hero{position:relative;overflow:hidden;isolation:isolate}
+.hero-visual{position:absolute;inset:0;z-index:-1}
+.hero-visual:after{content:'';position:absolute;inset:0;z-index:5;pointer-events:none}
+.hero-cover-scene{position:absolute}
+.hero-cover-choice{position:absolute;z-index:6}
+.hero-event-scene{position:absolute;inset:0;overflow:hidden}
+.hero-event-background,.hero-event-texture{position:absolute;height:100%;width:auto;max-width:none;right:0;top:0}
+.hero-event-foreground{position:absolute;height:100%;width:auto;max-width:none;right:18px;top:0;z-index:3}
+.mobile-calculate,.mobile-status{display:none}
+.result-stale{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:13px 0;color:#a2814c;font-size:12px}
+.result-stale button{border:0;background:#faf6ed;color:#8d713b;padding:6px 12px}
+.mastery-matrix{display:grid;gap:8px;max-width:600px}
+.mastery-row{display:grid;grid-template-columns:38px repeat(5,minmax(0,1fr));gap:12px;align-items:center;font-size:10px;color:#7e7186}
+.mastery-row img{width:26px;height:26px;object-fit:contain}
+.mastery-row input{width:100%;min-width:0;padding:5px;font-size:12px;border:0;border-bottom:1px solid #e4d9e9;background:transparent;text-align:center}
+.config-toolbar-actions{display:flex;gap:10px;flex-wrap:wrap}
+.primary{background:#c20a56;border:0;color:white}
+@media(max-width:680px){.mobile-calculate{display:flex;position:fixed;right:18px;bottom:16px;z-index:32;align-items:center;gap:8px;padding:11px 17px;min-height:44px;box-shadow:0 3px 12px #61486d33}.mastery-row{gap:5px;grid-template-columns:28px repeat(5,minmax(0,1fr))}}
+
+/* Existing texture worker geometry, matching the approved event stage. */
+[data-hero=activity]{height:264px;background:#fff}.hero-event-stage{--scene-scale:.825;position:absolute;right:0;top:0;width:720px;height:320px;transform:scale(var(--scene-scale));transform-origin:right top;isolation:isolate}.hero-event-backdrop{position:absolute;right:0;top:24px;height:272px;width:2880px;overflow:hidden;border-radius:5px;background:linear-gradient(90deg,white 70%,#e5dce8);box-shadow:0 8px 18px #9e8daf26,0 1px 2px #2923331a}.hero-event-backdrop:after{content:'';position:absolute;inset:0;box-shadow:inset 0 0 0 1px #ffffff9c;background:linear-gradient(270deg,#22243624,transparent 375px,#ffffff38 720px),linear-gradient(0deg,#aaa0b03d,transparent 65%)}
+.hero-event-background{position:absolute;right:-12px;top:-12px;width:744px;height:296px;object-fit:cover;object-position:center 42%;filter:blur(4.5px) saturate(.78) contrast(.84) brightness(.98)}.hero-event-quilt{position:absolute;right:0;top:0;width:2880px;height:272px;max-width:none;filter:blur(4.5px) saturate(.78) contrast(.84) brightness(.98)}.hero-event-foreground{position:absolute;right:18px;height:100%;max-width:none;width:auto;top:0;z-index:3;object-fit:contain;filter:drop-shadow(12px 10px 13px #3e2f4936) drop-shadow(-1px -1px 1.2px #fff5)}.hero-event-light{position:absolute;left:308px;top:20px;width:340px;height:280px;z-index:1;border-radius:50%;background:radial-gradient(ellipse,#fff8ef61,#afa2b833 47%,transparent 74%);filter:blur(18px)}.hero-event-mist{position:absolute;inset:auto 0 0;height:25px;background:linear-gradient(0deg,#ffffffe6,transparent);z-index:4}.hero-event-logo{display:block;width:128px;height:49px;object-fit:contain;object-position:left center;margin-top:12px}

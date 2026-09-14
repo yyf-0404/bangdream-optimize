@@ -1,3 +1,5 @@
+import { itemArtUrls } from '../views/player-library.js';
+import { updateShell } from '../ui/shell.js';
 import {
   ptEvaluateLiveVariant,
   ptEvaluateSupportsAuto,
@@ -8,6 +10,8 @@ import { cardPreviewContent } from '../ui/card-preview.js?v=3';
 
 export function createPageController({
   elements,
+  renderTeams,
+  onRender,
   normalizePlayer,
   editableEventSnapshot,
   normalizedActivityMode,
@@ -41,6 +45,7 @@ export function createPageController({
     elements.playerId.value = String(normalized.playerId ?? 0);
     elements.playerServer.value = normalized.server;
     renderPlayerProfileControls(normalized);
+    updateShell(normalized, elements.playerProfile.selectedOptions[0]?.textContent);
     renderCalculationControls(normalized, event);
     elements.eventId.value = normalized.currentEvent == null ? '' : String(normalized.currentEvent);
     elements.eventSearch.value = normalized.currentEvent == null
@@ -336,14 +341,14 @@ export function createPageController({
     const selectedGroup = groups.find((group) =>
       group.key.split(':').slice(1).join(':') === select.value,
     );
-    const image = assetImage(
-      areaItemGroupIconUrls(selectedGroup),
-      'pt-evaluate-item-image',
-      selectedGroup?.label ?? '',
-    );
-    preview.replaceChildren(...(image ? [image] : []));
-    preview.hidden = !image;
-    trigger.classList.toggle('without-image', !image);
+    const images=(selectedGroup?.areaItemIds||[]).map(id=>{
+      const tile=document.createElement('span');tile.className='specified-item-art';
+      const image=assetImage(itemArtUrls(id,player.server),'pt-evaluate-item-image',`道具 ${id}`);
+      const level=document.createElement('small');level.textContent='Lv. '+(player.areaItem?.[id]?.level||0);
+      if(image)tile.append(image);tile.append(level);return tile;
+    });
+    preview.replaceChildren(...images);preview.hidden=!images.length;
+    trigger.classList.toggle('without-image',!images.length);
     name.textContent = selectedGroup?.label ?? '无可用道具';
     rate.textContent = selectedGroup
       ? `加成 ${formatAreaItemRate(selectedGroup.rate)}`
@@ -354,6 +359,7 @@ export function createPageController({
   }
 
   function renderPtEvaluateTeams(player, teams, medley, active) {
+    if (renderTeams) return renderTeams(elements.ptEvaluateTeams, player, teams, medley, active);
     const teamCount = medley ? 3 : 1;
     const fragment = document.createDocumentFragment();
     for (let teamIndex = 0; teamIndex < teamCount; teamIndex += 1) {
@@ -467,8 +473,18 @@ export function createPageController({
   }
 
   function activatePage(page, { render = true } = {}) {
+    const previousPage = activePage();
+    const anchor = document.getElementById(page);
+    const anchorPage = anchor?.closest('[data-page-panel]')?.dataset.pagePanel;
+    if (anchorPage) page = anchorPage;
+    if (!['activity','cards','player','result','archive'].includes(page)) page = 'activity';
+    const hash = `#${anchorPage ? anchor.id : page}`;
+    if (location.hash !== hash) history.pushState(null, '', hash);
+    const breadcrumb = document.querySelector('#page-breadcrumb');
+    if (breadcrumb) breadcrumb.textContent = {activity:'活动配置',cards:'我的卡牌',player:'道具与角色',result:'计算结果',archive:'档案与数据'}[page];
     for (const tab of elements.pageTabs) {
       tab.classList.toggle('active', tab.dataset.page === page);
+      if (tab.dataset.page === page) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current');
     }
     elements.form.classList.toggle('is-result-page', page === 'result');
     for (const panel of elements.pagePanels) {
@@ -482,6 +498,8 @@ export function createPageController({
       }
       renderPageForms(page, safeReadPlayer(), { normalized: true });
     }
+    if (anchorPage) document.getElementById(anchor.id)?.scrollIntoView({block:'start'});
+    else if (previousPage !== page) window.scrollTo({top:0,left:0,behavior:'instant'});
   }
 
   function renderPageForms(page, player, { normalized: alreadyNormalized = false } = {}) {
@@ -502,6 +520,7 @@ export function createPageController({
       default:
         break;
     }
+    onRender?.(normalized);
   }
 
   return {

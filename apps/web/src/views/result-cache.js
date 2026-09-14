@@ -1,12 +1,12 @@
 import { emptyMessage } from '../ui/dom.js?v=3';
-import { buttonIcon } from '../ui/icons.js?v=3';
+import {serverNames} from '../ui/cards/rules.js';
 import {
   compactJoin,
   formatDateTime,
   formatInteger,
 } from '../utils.js?v=3';
 
-export function createResultCacheView({ elements }) {
+export function createResultCacheView({ elements, eventLabel }) {
   function renderResultCache(entries, { activeKey } = {}) {
     const cacheList = elements.resultCacheList;
     cacheList.textContent = '';
@@ -14,10 +14,13 @@ export function createResultCacheView({ elements }) {
       ? [...entries].sort((a, b) => (Number(b?.createdAt) || 0) - (Number(a?.createdAt) || 0))
       : [];
 
+    const count = document.querySelector?.('#result-history-count');if(count)count.textContent=normalized.length;
     if (normalized.length === 0) {
-      cacheList.append(emptyMessage('暂无结果缓存', 'result-cache-empty', 'li'));
+      cacheList.append(emptyMessage('暂无历史结果', 'result-cache-empty', 'li'));
+      elements.clearResultCache.disabled=true;
       return;
     }
+    elements.clearResultCache.disabled=false;
 
     for (const entry of normalized) {
       const item = document.createElement('li');
@@ -29,9 +32,11 @@ export function createResultCacheView({ elements }) {
       const content = document.createElement('div');
       content.className = 'result-cache-content';
 
-      const title = document.createElement('p');
+      const title = document.createElement('h3');
       title.className = 'result-cache-title';
-      title.textContent = formatEventName(entry);
+      title.textContent = {maximize:'最高得分',ptMaximize:'最大 PT（平均）',ptEvaluate:'指定队伍',scoreRange:'控分'}[entry.calculationMode]||'最高得分';
+      const context=document.createElement('p');context.className='result-cache-context';
+      context.textContent=compactJoin([eventLabel?.(entry.eventId, entry.diagnostic?.player)||formatEventName(entry),entry.activityMode==='medley'?'巡回演出':'自由演出',serverNames[entry.server]||entry.server],' · ');
 
       const stats = document.createElement('p');
       stats.className = 'result-cache-stats';
@@ -40,20 +45,20 @@ export function createResultCacheView({ elements }) {
       const ptEvaluate = entry.calculationMode === 'ptEvaluate';
       stats.textContent = compactJoin(scoreRange ? [
         '目标 PT',
-        entry.server ? `服务器 ${entry.server}` : '',
+        '',
         entry.targetDeltaPt == null ? '' : `增量 ${formatInteger(entry.targetDeltaPt)}`,
         entry.playCount == null ? '' : `${entry.playCount} 局`,
         entry.totalFireCost == null ? '' : `火耗 ${entry.totalFireCost}`,
       ] : ptMaximize || ptEvaluate ? [
-        ptEvaluate ? '指定队伍' : '最大PT（平均）',
-        entry.server ? `服务器 ${entry.server}` : '',
-        entry.averagePt == null ? '' : `平均 PT ${formatInteger(Math.round(entry.averagePt))}`,
+        '',
+        '',
+        entry.averagePt == null ? '' : `平均 PT ${formatInteger(Math.round(entry.averagePt*(entry.result?.liveVariant==='medley'?3:1)))}（${entry.result?.liveVariant==='challenge_cp'?'200 CP':'0 火'}）`,
         entry.averageScore == null
           ? ''
           : `平均分数 ${formatInteger(Math.round(entry.averageScore))}`,
         entry.totalStat == null ? '' : `综合力 ${formatInteger(entry.totalStat)}`,
       ] : [
-        entry.server ? `服务器 ${entry.server}` : '',
+        '',
         entry.totalScore == null ? '' : `总分 ${formatInteger(entry.totalScore)}`,
         entry.totalStat == null ? '' : `综合力 ${formatInteger(entry.totalStat)}`,
         entry.songCount == null ? '' : `${entry.songCount} 首`,
@@ -67,7 +72,7 @@ export function createResultCacheView({ elements }) {
       actions.className = 'result-cache-actions';
       const restoreButton = document.createElement('button');
       restoreButton.type = 'button';
-      restoreButton.textContent = '恢复';
+      restoreButton.textContent = '查看结果';
       restoreButton.dataset.resultCacheAction = 'restore';
       restoreButton.dataset.resultCacheKey = String(entry.key);
       restoreButton.className = 'compact-button';
@@ -77,13 +82,13 @@ export function createResultCacheView({ elements }) {
       deleteButton.dataset.resultCacheAction = 'delete';
       deleteButton.dataset.resultCacheKey = String(entry.key);
       deleteButton.className = 'compact-button result-cache-delete';
-      deleteButton.setAttribute('aria-label', '删除此结果缓存');
-      deleteButton.title = '删除此结果缓存';
-      deleteButton.append(buttonIcon('trash'));
+      deleteButton.setAttribute('aria-label', '删除此历史结果');
+      deleteButton.title = '删除此历史结果';
+      deleteButton.textContent='删除';
       actions.append(restoreButton, deleteButton);
 
-      content.append(title, stats, time);
-      item.append(content, actions);
+      content.append(title, context, stats, time, actions);
+      item.append(content);
       cacheList.append(item);
     }
   }

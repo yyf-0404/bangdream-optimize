@@ -1,3 +1,4 @@
+import { gameText } from '../ui/preferences.js';
 import {
   cardIconUrls as buildCardIconUrls,
   cardTrainingStatusList as cardTrainingStatusListForCard,
@@ -133,6 +134,8 @@ export function createGameMeta({
 
   function maxAreaItemLevel(areaItemId) {
     const areaItem = recordWithFix('areaItems', 'areaItemsFix', areaItemId);
+    const currentServerLevel = Number(Array.isArray(areaItem?.level) ? areaItem.level[serverIndex()] : areaItem?.level);
+    if (Number.isInteger(currentServerLevel) && currentServerLevel > 0) return currentServerLevel;
     const levels = Object.keys(areaItem?.performance ?? {})
       .map(Number)
       .filter(Number.isInteger);
@@ -174,18 +177,7 @@ export function createGameMeta({
   }
 
   function localizedText(value, fallback) {
-    if (Array.isArray(value)) {
-      const preferred = value[serverIndex()];
-      if (hasText(preferred)) {
-        return String(preferred);
-      }
-      const first = value.find(hasText);
-      return first == null ? fallback : String(first);
-    }
-    if (hasText(value)) {
-      return String(value);
-    }
-    return fallback;
+    return gameText(value, fallback);
   }
 
   function serverScopedValue(value) {
@@ -200,8 +192,8 @@ export function createGameMeta({
   }
 
   function eventDateRange(event) {
-    const start = parseEventDate(serverScopedValue(event?.startAt));
-    const end = parseEventDate(serverScopedValue(event?.endAt));
+    const start = parseEventDate(Array.isArray(event?.startAt) ? event.startAt[serverIndex()] : event?.startAt);
+    const end = parseEventDate(Array.isArray(event?.endAt) ? event.endAt[serverIndex()] : event?.endAt);
     if (!start && !end) {
       return undefined;
     }

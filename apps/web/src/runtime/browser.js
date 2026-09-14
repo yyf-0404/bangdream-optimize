@@ -12,7 +12,6 @@ import {
   selectPlayerConfig,
 } from '../storage/user.js?v=3';
 import { submitFeedbackRequest } from '../data/feedback.js?v=2';
-import { fetchBangDreamUserDataRequest } from '../data/bangdream-import.js?v=1';
 
 const ASSET_VERSION = '5';
 
@@ -48,6 +47,13 @@ export async function createBrowserRuntime({ onProgress } = {}) {
 
   return {
     kind: 'browser',
+    loadHeaderAsset: async path => {
+      const base = (config.headerAssetApiBaseUrl ?? config.apiBaseUrl ?? '').replace(/\/$/, '');
+      const response = await fetch(base + '/bestdori/header/' + path, {signal:AbortSignal.timeout(12000)});
+      if (!response.ok) throw new Error(`头图接口请求失败（HTTP ${response.status}）`);
+      if (!response.headers.get('content-type')?.includes('image/png')) throw new Error('头图接口未返回 PNG，请检查 Nginx 的 /bestdori/header/ 反向代理配置');
+      return response.blob();
+    },
     samplePlayerConfig,
     loadPlayerConfig,
     savePlayerConfig,
@@ -60,11 +66,6 @@ export async function createBrowserRuntime({ onProgress } = {}) {
     clearLocalCache: clearPlayerConfigCache,
     importBestdoriPlayerProfile: ({ playerId, server, mode = 3 }) =>
       fetchBestdoriPlayerProfile([config.apiBaseUrl], { playerId, server, mode }),
-    importBangDreamUserData: ({ userId }) =>
-      fetchBangDreamUserDataRequest({
-        apiBaseUrl: config.apiBaseUrl,
-        userId,
-      }),
     submitFeedback: (payload, attachments) =>
       submitFeedbackRequest({
         apiBaseUrl: config.feedbackApiBaseUrl ?? config.apiBaseUrl,
@@ -78,6 +79,7 @@ export async function createBrowserRuntime({ onProgress } = {}) {
       apiBaseUrl: config.apiBaseUrl,
     }),
     syncEventData: (eventId) => gameData.syncEvent(eventId),
+    syncCardDetail: (cardId) => gameData.syncCardDetail(cardId),
     syncReferenceData: ({ refreshManifest = false } = {}) =>
       gameData.syncCore({ refreshManifest }),
     saveJsonFile: ({ fileName, text }) => {

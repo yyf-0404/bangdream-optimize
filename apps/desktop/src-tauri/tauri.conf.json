@@ -3,6 +3,9 @@
   "productName": "bangdream-optimize",
   "version": "../../web/package.json",
   "identifier": "dev.bangdream.optimize",
+  "bundle": {
+    "icon": ["icons/icon.ico", "icons/icon.png"]
+  },
   "build": {
     "frontendDist": "../../web"
   },

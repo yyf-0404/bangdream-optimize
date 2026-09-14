@@ -17,6 +17,9 @@ export function createStatusView({
   function setStatus(message) {
     elements.status.textContent = message;
     elements.status.classList.remove('error');
+    const phase = ['准备计算', '同步数据', '计算中'].includes(message);
+    const runState = globalThis.document?.querySelector?.('#result-run-state');
+    if (phase && runState) { runState.textContent=message; runState.dataset.phase='running'; }
   }
 
   function setError(error) {
@@ -24,9 +27,7 @@ export function createStatusView({
     elements.status.textContent = `错误: ${message}`;
     elements.status.classList.add('error');
     appendLog(`错误: ${message}`);
-    elements.result.textContent = '';
-    renderResultSummary(null);
-    renderMetrics(null);
+    // A failed edit or import does not discard the last completed calculation.
   }
 
   function setGameDataError(error) {

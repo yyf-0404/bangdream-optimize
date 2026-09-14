@@ -15,17 +15,21 @@ const PLAYER_PROFILES_KEY = 'player-config-profiles';
 const ACTIVE_PLAYER_PROFILE_KEY = 'active-player-config-id';
 const DEFAULT_PROFILE_ID = 'default';
 
-export async function loadPlayerConfig() {
+export async function loadPlayerConfig(configId) {
   const db = await openDatabase();
-  const { activeId } = await ensurePlayerProfiles(db);
-  return (await getValue(db, playerProfileKey(activeId))) ?? samplePlayerConfig();
+  const { activeId, profiles } = await ensurePlayerProfiles(db);
+  const id=configId??activeId;
+  if (!profiles.some(profile=>profile.id===id)) throw new Error(`配置不存在：${id}`);
+  return (await getValue(db, playerProfileKey(id))) ?? samplePlayerConfig();
 }
 
-export async function savePlayerConfig(player) {
+export async function savePlayerConfig(player, configId) {
   const db = await openDatabase();
-  const { activeId } = await ensurePlayerProfiles(db);
-  await putValue(db, playerProfileKey(activeId), player);
-  await touchPlayerProfile(db, activeId);
+  const { activeId, profiles } = await ensurePlayerProfiles(db);
+  const targetId = configId ?? activeId;
+  if (!profiles.some(profile => profile.id === targetId)) throw new Error(`配置不存在：${targetId}`);
+  await putValue(db, playerProfileKey(targetId), player);
+  await touchPlayerProfile(db, targetId);
 }
 
 export async function listPlayerConfigs() {

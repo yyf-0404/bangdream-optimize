@@ -4,7 +4,7 @@ const DB_NAME = 'bangdream-optimize-result-cache-v1';
 const DB_VERSION = 1;
 const STORE = 'result-cache';
 const CACHE_KEY = 'entries';
-const CACHE_SCHEMA_VERSION = 6;
+const CACHE_SCHEMA_VERSION = 7;
 
 export const RESULT_CACHE_LIMIT = 20;
 
@@ -14,17 +14,25 @@ export function createResultCacheStorage({ limit = RESULT_CACHE_LIMIT } = {}) {
   async function loadResultCache() {
     const db = await openDatabase();
     const result = await getValue(db, CACHE_KEY);
-    return normalizeEntries(result).slice(0, resultCacheLimit);
+    const normalized = boundedEntries(result);
+    // One-time removal of old result formats only; player storage is a separate database.
+    if (Array.isArray(result) && normalized.length !== result.length) await putValue(db, CACHE_KEY, normalized);
+    return normalized;
   }
 
   async function saveResultCache(entries) {
     const db = await openDatabase();
-    await putValue(db, CACHE_KEY, normalizeEntries(entries).slice(0, resultCacheLimit));
+    await putValue(db, CACHE_KEY, boundedEntries(entries));
   }
 
   async function clearResultCache() {
     const db = await openDatabase();
     await deleteValue(db, CACHE_KEY);
+  }
+
+  function boundedEntries(entries) {
+    const counts = new Map();
+    return normalizeEntries(entries).filter(entry => {const n=(counts.get(entry.profileId)||0)+1;counts.set(entry.profileId,n);return n<=resultCacheLimit;});
   }
 
   return {
@@ -50,7 +58,7 @@ function normalizeEntry(entry) {
   }
   const key = String(entry.key || '').trim();
   const cacheVersion = Number(entry.cacheVersion);
-  if (!key || (cacheVersion !== 2 && cacheVersion !== CACHE_SCHEMA_VERSION)) {
+  if (!key || (cacheVersion !== CACHE_SCHEMA_VERSION || !entry.profileId)) {
     return undefined;
   }
   const calculationMode = ['scoreRange', 'ptMaximize', 'ptEvaluate'].includes(entry.calculationMode)
@@ -59,6 +67,7 @@ function normalizeEntry(entry) {
   const result = cloneJson(entry.result);
   return {
     cacheVersion: CACHE_SCHEMA_VERSION,
+    profileId: String(entry.profileId),
     key,
     eventId: Number(entry.eventId) || 0,
     eventLabel: typeof entry.eventLabel === 'string' ? entry.eventLabel : `活动 ${Number(entry.eventId) || 0}`,

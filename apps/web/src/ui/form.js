@@ -1,3 +1,4 @@
+import { language } from './preferences.js';
 import { attributeIconUrls, assetImage } from '../assets/index.js?v=3';
 import { emptyMessage, inputCell as baseInputCell } from './dom.js?v=3';
 import { clearFieldValidationMessage, setFieldValidationMessage } from './validation.js?v=3';
@@ -22,6 +23,7 @@ export function createFormCells({
   const songSearchFrameBudgetMs = 8;
   const songSearchWarmupBudgetMs = 12;
   let cachedSongRecords;
+  let cachedLanguage;
   let cachedSongIds = [];
   let cachedSongEntries = new Map();
   let songSearchWarmupRecords;
@@ -374,7 +376,8 @@ export function createFormCells({
 
   function songRecordIds() {
     const records = getSongRecords() ?? {};
-    if (records !== cachedSongRecords) {
+    if (records !== cachedSongRecords || cachedLanguage !== language()) {
+      cachedLanguage = language();
       cachedSongRecords = records;
       cachedSongIds = Object.keys(records).sort(numericStringSort);
       cachedSongEntries = new Map();
@@ -391,7 +394,7 @@ export function createFormCells({
         id: songId,
         label,
         value,
-        search: value.toLowerCase(),
+        search: (value+' '+(getSongRecords()[songId]?.musicTitle||[]).join(' ')).toLowerCase(),
       });
     }
     return cachedSongEntries.get(songId);

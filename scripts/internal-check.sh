@@ -24,7 +24,6 @@ fi
 
 node --check apps/web/src/main.js
 node --check apps/web/src/actions/feedback.js
-node --check apps/web/src/data/bangdream-import.js
 node --check apps/web/src/data/calculation-errors.js
 node --check apps/web/src/data/diagnostics.js
 node --check apps/web/src/data/feedback.js

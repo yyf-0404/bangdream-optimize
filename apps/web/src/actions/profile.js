@@ -1,3 +1,6 @@
+import { reviewImport } from '../ui/import-review.js';
+import {openImportSource,openExportFlow} from '../ui/archive-flows.js';
+import { requestProfileDetails } from '../ui/profile-dialog.js';
 import { confirmDialog } from '../ui/confirm.js?v=3';
 import { createCompactProfileCodec } from '../data/compact-profile.js?v=3';
 import { copyTextToClipboard } from '../ui/clipboard.js?v=3';
@@ -7,6 +10,7 @@ export function createProfileActions({
   state,
   elements,
   normalizedPlayer,
+  initializePlayerDefaults = player => ({player}),
   normalizedServer,
   parseEntityId,
   parseNonNegativeInteger,
@@ -29,10 +33,20 @@ export function createProfileActions({
   setStatus,
   setError,
 }) {
+  const selectedTarget=()=>state.viewedPlayerProfileId||state.activePlayerProfileId;
+  const targetName=id=>state.playerProfiles.find(p=>p.id===id)?.name||'所选档案';
+  const readTarget=async id=>id===state.activePlayerProfileId?readPlayer():state.runtime.loadPlayerConfig(id);
+  let importTarget,exportTarget;
+  async function commitTarget(id,player){
+    if(!state.playerProfiles.some(p=>p.id===id))throw new Error('目标档案已不存在，请重新选择');
+    if(id===state.activePlayerProfileId)writePlayer(player);else await state.runtime.savePlayerConfig(player,id);
+    await refreshPlayerProfiles();renderConfigForms(readPlayer());
+    document.dispatchEvent(new CustomEvent('profile-content-changed',{detail:{id}}));
+  }
   let copyToastTimer;
   let copyToastElement;
   let isImportingMainBand = false;
-  const importMainBandLabel = elements.importMainBand?.textContent?.trim() || '从游戏账号导入配置';
+  const importMainBandLabel = elements.importMainBand?.textContent?.trim() || '导入主乐队';
   const importMainBandIcon = elements.importMainBand
     ?.querySelector('.button-icon')
     ?.cloneNode(true);
@@ -130,6 +144,7 @@ export function createProfileActions({
       );
       await refreshPlayerProfiles();
       elements.playerProfileName.value = profile.name;
+      renderConfigForms(readPlayer());
       setStatus('配置名已更新');
     } catch (error) {
       setError(error);
@@ -174,12 +189,14 @@ export function createProfileActions({
 
   async function handleNewPlayerProfile() {
     try {
+      const options=await requestProfileDetails({name:nextProfileName('新档案')});if(!options)return;
+      const previous=state.activePlayerProfileId;
       await savePlayerNow();
-      const name = nextProfileName('新配置');
       await state.runtime.createPlayerConfig({
-        name,
-        player: state.runtime.samplePlayerConfig(),
+        name:options.name,
+        player: {...initializePlayerDefaults(state.runtime.samplePlayerConfig()).player,server:options.server},
       });
+      if(!options.activate)await state.runtime.selectPlayerConfig(previous);
       const player = await state.runtime.loadPlayerConfig();
       writePlayer(player, { autosave: false });
       await refreshPlayerProfiles();
@@ -192,12 +209,15 @@ export function createProfileActions({
 
   async function handleCopyPlayerProfile() {
     try {
-      await savePlayerNow();
-      const player = readPlayer();
+      const target=selectedTarget(),player = await readTarget(target);
+      const options=await requestProfileDetails({name:nextProfileName(`${targetName(target)} 副本`),server:player.server,copy:true});if(!options)return;
+      const previous=state.activePlayerProfileId;await savePlayerNow();
+      const latest={...await readTarget(target),server:options.server};
       await state.runtime.duplicatePlayerConfig({
-        name: nextProfileName(`${activeProfileName()} 副本`),
-        player,
+        name: options.name,
+        player:latest,
       });
+      if(!options.activate)await state.runtime.selectPlayerConfig(previous);
       const copied = await state.runtime.loadPlayerConfig();
       writePlayer(copied, { autosave: false });
       await refreshPlayerProfiles();
@@ -209,8 +229,9 @@ export function createProfileActions({
   }
 
   async function handleDeletePlayerProfile() {
+    const target=selectedTarget();
     try {
-      if (!state.activePlayerProfileId) {
+      if (!target) {
         return;
       }
       if (state.playerProfiles.length <= 1) {
@@ -218,14 +239,14 @@ export function createProfileActions({
       }
       const confirmed = await confirmDialog({
         title: '删除配置',
-        lines: [`将删除配置“${activeProfileName()}”。`],
+        lines: [`将删除配置“${targetName(target)}”。`],
         confirmText: '确认删除',
         danger: true,
       });
       if (!confirmed) {
         return;
       }
-      const player = await state.runtime.deletePlayerConfig(state.activePlayerProfileId);
+      const player = await state.runtime.deletePlayerConfig(target);
       writePlayer(player, { autosave: false });
       await refreshPlayerProfiles();
       renderConfigForms(player);
@@ -236,6 +257,7 @@ export function createProfileActions({
   }
 
   async function handleImportMainBand() {
+    const importProfileId = selectedTarget();
     if (isImportingMainBand) {
       return;
     }
@@ -245,46 +267,22 @@ export function createProfileActions({
       isImportingMainBand = true;
       setImportMainBandState(true);
       await ensureCore();
-      const playerId = parseEntityId(playerIdInput.value, '玩家 ID');
-      const server = normalizedServer(elements.playerServer.value);
-      if (server !== 'cn') {
-        setStatus('导入主乐队配置');
-        const profile = await fetchBestdoriPlayerProfile(playerId, server);
-        const player = normalizedPlayer(readPlayer());
-        player.playerId = playerId;
-        player.server = server;
-        importMainBandCards(player, profile);
-        importMainBandCharacterBonuses(player, profile);
-        importEnabledAreaItems(player, profile);
-        writePlayer(player);
-        renderConfigForms(player);
-        setStatus('主乐队配置已导入');
-        return;
-      }
-      setStatus('从游戏账号导入配置');
-      const imported = await importBangDreamUserData(playerId);
-      const player = normalizedPlayer(readPlayer());
+      const source=await readTarget(importProfileId);
+      const playerId = parseEntityId(String(source.playerId), '玩家 ID');
+      const server = normalizedServer(source.server);
+      setStatus('导入主乐队配置');
+      const profile = await fetchBestdoriPlayerProfile(playerId, server);
+      const player = normalizedPlayer(await readTarget(importProfileId));
       player.playerId = playerId;
-      player.server = 'cn';
-      player.cardList = {
-        ...player.cardList,
-        ...(imported.cardList ?? {}),
-      };
-      player.areaItem = {
-        ...player.areaItem,
-        ...(imported.areaItem ?? {}),
-      };
-      player.characterBouns = {
-        ...player.characterBouns,
-        ...(imported.characterBouns ?? {}),
-      };
-      writePlayer(player);
-      renderConfigForms(player);
-      setStatus(
-        `游戏账号配置已导入：${Object.keys(imported.cardList ?? {}).length} 张卡牌，`
-        + `${Object.keys(imported.areaItem ?? {}).length} 个区域道具，`
-        + `${Object.keys(imported.characterBouns ?? {}).length} 个角色加成`,
-      );
+      player.server = server;
+      importMainBandCards(player, profile);
+      importMainBandCharacterBonuses(player, profile);
+      importEnabledAreaItems(player, profile);
+      if (!state.playerProfiles.some(p=>p.id===importProfileId)) throw new Error('目标档案已不存在，请重新导入');
+      if (!await reviewImport(await readTarget(importProfileId),player)) return;
+      await commitTarget(importProfileId,player);
+      renderConfigForms(readPlayer());
+      setStatus('主乐队配置已导入');
     } catch (error) {
       if (error instanceof Error && /玩家 ID/.test(error.message)) {
         setFieldValidationMessage(playerIdInput, error);
@@ -298,17 +296,36 @@ export function createProfileActions({
     }
   }
 
-  function handleOpenBestdoriProfileDialog() {
-    if (!elements.bestdoriProfileDialog?.showModal) {
-      setError('当前浏览器不支持弹窗，无法使用粘贴导入');
-      return;
-    }
-    elements.bestdoriProfileJson.value = '';
-    elements.bestdoriProfileDialog.showModal();
-    elements.bestdoriProfileJson.focus();
+  async function handleOpenBestdoriProfileDialog() {
+    return openImportForTarget(selectedTarget());
+  }
+
+  async function handleQuickImport() {
+    return openImportForTarget(state.activePlayerProfileId);
+  }
+
+  async function openImportForTarget(target) {
+    try{
+      const original=await readTarget(target),name=targetName(target);
+      openImportSource({profile:{...original,name},onRead:async source=>{
+        await ensureCore();
+        const before=normalizedPlayer(await readTarget(target));let imported;
+        if(source.source==='paste')imported=source.format==='base64'?compactProfileToPlayer(await parseCompactExport(source.text),before):bestdoriProfileToPlayerConfig(parseBestdoriProfileExport(source.text),before);
+        else{
+          const id=parseEntityId(String(source.playerId),'玩家 ID');imported=structuredClone(before);imported.server=normalizedServer(source.server);imported.playerId=id;
+          const data=await fetchBestdoriPlayerProfile(id,imported.server);importMainBandCards(imported,data);importMainBandCharacterBonuses(imported,data);importEnabledAreaItems(imported,data);
+        }
+        if(!state.playerProfiles.some(p=>p.id===target))throw new Error('目标档案已不存在，请重新导入');
+        const review=await reviewImport(before,imported,{...source,name,allowNew:true});if(!review)return false;
+        if(review.destination==='new'){await savePlayerNow();await state.runtime.createPlayerConfig({name:review.name,player:imported});writePlayer(await state.runtime.loadPlayerConfig(),{autosave:false});await refreshPlayerProfiles();renderConfigForms(readPlayer());}
+        else await commitTarget(target,imported);
+        setStatus('配置已导入');return {name:review.destination==='new'?review.name:name,cards:Object.keys(imported.cardList||{}).length,items:Object.keys(imported.areaItem||{}).length,characters:Object.keys(imported.characterBouns||{}).length};
+      }});
+    }catch(error){setError(error);}
   }
 
   async function handleImportBestdoriProfile() {
+    const importProfileId = (importTarget||selectedTarget());
     try {
       await ensureCore();
       const text = elements.bestdoriProfileJson.value.trim();
@@ -317,11 +334,12 @@ export function createProfileActions({
       }
 
       const bestdoriProfile = parseBestdoriProfileExport(text);
-      const player = normalizedPlayer(readPlayer());
+      const player = normalizedPlayer(await readTarget(importProfileId));
       const imported = bestdoriProfileToPlayerConfig(bestdoriProfile, player);
-      writePlayer(imported);
-      activatePage('activity', { render: false });
-      renderConfigForms(imported, { page: 'activity' });
+      if (!state.playerProfiles.some(p=>p.id===importProfileId)) throw new Error('目标档案已不存在，请重新导入');
+      if (!await reviewImport(player,imported)) return;
+      await commitTarget(importProfileId,imported);
+
       elements.bestdoriProfileJson.value = '';
       closeBestdoriProfileDialog();
       setStatus(
@@ -334,6 +352,7 @@ export function createProfileActions({
   }
 
   async function handleImportCompactProfile() {
+    const importProfileId = (importTarget||selectedTarget());
     try {
       const text = elements.bestdoriProfileJson.value.trim();
       if (!text) {
@@ -341,10 +360,11 @@ export function createProfileActions({
       }
 
       const compact = await parseCompactExport(text);
-      const imported = compactProfileToPlayer(compact, normalizedPlayer(readPlayer()));
-      writePlayer(imported);
-      activatePage('activity', { render: false });
-      renderConfigForms(imported, { page: 'activity' });
+      const imported = compactProfileToPlayer(compact, normalizedPlayer(await readTarget(importProfileId)));
+      if (!state.playerProfiles.some(p=>p.id===importProfileId)) throw new Error('目标档案已不存在，请重新导入');
+      if (!await reviewImport(await readTarget(importProfileId),imported)) return;
+      await commitTarget(importProfileId,imported);
+
       elements.bestdoriProfileJson.value = '';
       closeBestdoriProfileDialog();
       setStatus(
@@ -358,15 +378,13 @@ export function createProfileActions({
   }
 
   async function handleExportCompactProfile() {
-    if (!elements.exportProfileDialog?.showModal) {
-      setError('当前浏览器不支持弹窗，无法展示导出内容');
-      return;
-    }
-    if (elements.exportProfilePayload) {
-      elements.exportProfilePayload.value = '';
-    }
-    elements.exportProfileDialog.showModal();
-    elements.exportProfilePayload?.focus();
+    const target=selectedTarget();
+    try{const player=await readTarget(target),name=targetName(target);
+      openExportFlow({profile:{...player,name,cards:Object.keys(player.cardList||{}).length,items:Object.keys(player.areaItem||{}).length},getPayload:async format=>{
+        if(format==='bestdori')return JSON.stringify({name,...playerToBestdoriProfileExport(player)});
+        const data=await compressProfilePayload(buildCompactProfilePayload(player));return JSON.stringify({v:data.version??1,t:data.type,d:data.data});
+      },save:payload=>state.runtime.saveJsonFile(payload),copy:async payload=>{await copyTextToClipboard(payload);setStatus('配置已生成并复制');}});
+    }catch(error){setError(error);}
   }
 
   function handleCloseExportProfileDialog() {
@@ -388,7 +406,7 @@ export function createProfileActions({
     try {
       button.disabled = true;
       setStatus('正在导出配置');
-      const player = readPlayer();
+      const player = await readTarget(exportTarget||selectedTarget());
       const payload = buildCompactProfilePayload(player);
       const compressed = await compressProfilePayload(payload);
       const exportPayload = {
@@ -434,8 +452,8 @@ export function createProfileActions({
         button.disabled = true;
       }
       setStatus('正在导出 Bestdori 配置');
-      const player = readPlayer();
-      const profileName = activeProfileName?.();
+      const player = await readTarget(exportTarget||selectedTarget());
+      const profileName = targetName(exportTarget||selectedTarget());
       const exportPayload = {
         ...(profileName ? { name: profileName } : {}),
         ...playerToBestdoriProfileExport(player),
@@ -475,17 +493,11 @@ export function createProfileActions({
     throw new Error('当前运行时不支持导入 Bestdori 玩家资料');
   }
 
-  async function importBangDreamUserData(userId) {
-    if (typeof state.runtime?.importBangDreamUserData === 'function') {
-      return state.runtime.importBangDreamUserData({ userId });
-    }
-    throw new Error('当前运行时不支持游戏账号导入');
-  }
-
   return {
     handleCopyPlayerProfile,
     handleDeletePlayerProfile,
     handleOpenBestdoriProfileDialog,
+    handleQuickImport,
     handleImportBestdoriProfile,
     handleImportCompactProfile,
     handleCloseBestdoriProfileDialog,
