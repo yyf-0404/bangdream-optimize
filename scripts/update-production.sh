@@ -12,6 +12,7 @@ BACKEND_SERVICE="${BANGDREAM_OPTIMIZE_BACKEND_SERVICE:-bangdream-optimize-backen
 NGINX_SERVICE="${BANGDREAM_OPTIMIZE_NGINX_SERVICE:-nginx}"
 HEALTH_URL="${BANGDREAM_OPTIMIZE_HEALTH_URL:-http://127.0.0.1:3100/health}"
 HEALTH_TIMEOUT="${BANGDREAM_OPTIMIZE_HEALTH_TIMEOUT_SECONDS:-600}"
+PUBLIC_URL="${BANGDREAM_OPTIMIZE_PUBLIC_URL:-}"
 ASSUME_YES=0
 
 usage() {
@@ -34,6 +35,7 @@ Options:
   --nginx-service <name>    systemd Nginx unit.
   --health-url <url>        Backend health-check URL.
   --health-timeout <sec>    Health-check timeout (default: 600).
+  --public-url <url>        Verify the public header PNG proxy after deployment.
   -h, --help                Show this help message.
 
 The same settings can be supplied through these environment variables:
@@ -44,6 +46,7 @@ The same settings can be supplied through these environment variables:
   BANGDREAM_OPTIMIZE_NGINX_SERVICE
   BANGDREAM_OPTIMIZE_HEALTH_URL
   BANGDREAM_OPTIMIZE_HEALTH_TIMEOUT_SECONDS
+  BANGDREAM_OPTIMIZE_PUBLIC_URL
 USAGE
 }
 
@@ -106,6 +109,11 @@ while [[ $# -gt 0 ]]; do
     --health-timeout)
       [[ $# -ge 2 ]] || die "--health-timeout requires a value"
       HEALTH_TIMEOUT="$2"
+      shift 2
+      ;;
+    --public-url)
+      [[ $# -ge 2 && "$2" =~ ^https?:// ]] || die "--public-url requires an HTTP(S) URL"
+      PUBLIC_URL="$2"
       shift 2
       ;;
     -h|--help)
@@ -205,6 +213,13 @@ log "Restarting Nginx"
 "${SUDO[@]}" systemctl restart "$NGINX_SERVICE"
 "${SUDO[@]}" systemctl is-active --quiet "$BACKEND_SERVICE"
 "${SUDO[@]}" systemctl is-active --quiet "$NGINX_SERVICE"
+
+if [[ -n "$PUBLIC_URL" ]]; then
+  log "Checking the public header PNG proxy"
+  bash scripts/check-header-proxy.sh "$PUBLIC_URL"
+else
+  echo 'Public header proxy NOT checked. Pass --public-url https://your-domain to verify the active Nginx route.'
+fi
 
 log "Update completed at commit $new_commit"
 echo "Backend: $HEALTH_URL"

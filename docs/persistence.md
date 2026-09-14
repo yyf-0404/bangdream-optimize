@@ -114,7 +114,7 @@ IndexedDB object store 为 `settings`，主要键如下：
 3. 项目内 `var/game-data`；
 4. Bestdori 原始 API。
 
-账号导入 API 地址不参与游戏数据缓存的数据源选择。
+Bestdori 主乐队公开资料请求不参与游戏数据缓存的数据源选择。
 
 ## 新增字段检查清单
 

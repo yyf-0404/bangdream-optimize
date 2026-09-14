@@ -36,8 +36,7 @@ JSON 编辑器仅用于直接编辑当前 schema。
 
 侧栏反馈表单通过后端 `/api/feedback` 发送邮件。网页端默认使用
 `feedbackApiBaseUrl ?? apiBaseUrl`，生产同域部署时两者都可为空；桌面端必须在
-`config.desktop.js` 中设置 `feedbackApiBaseUrl`，且该地址与
-`bangDreamImportApiBaseUrl` 相互独立。反馈可上传 `png/jpg/jpeg/gif/webp`、
+`config.desktop.js` 中设置 `feedbackApiBaseUrl`。反馈可上传 `png/jpg/jpeg/gif/webp`、
 `txt/log/json/zip/pdf`，最多 3 个，单个不超过 5 MiB、总计不超过 10 MiB。
 SMTP 账户和密码只存在于后端环境变量。
 
@@ -99,7 +98,7 @@ cargo run -p bangdream-optimize-sync-bestdori -- \
 ./scripts/run-web.sh
 ```
 
-需要账号导入 API 或由后端托管 `/game-data` 时，再启动后端：
+需要 Bestdori 主乐队资料代理、反馈服务或由后端托管 `/game-data` 时，再启动后端：
 
 ```bash
 ./scripts/run-server.sh
@@ -149,7 +148,7 @@ server {
     proxy_set_header X-Real-IP $remote_addr;
   }
 
-  location = /bangdream/user-data/import {
+  location /bestdori/header/ {
     proxy_pass http://127.0.0.1:3100;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -173,5 +172,4 @@ server {
 
 上线注意：
 - 前端配置为 `gameDataBaseUrl: '/game-data'`，`apiBaseUrl: ''`，确保请求为同源，不写死 `127.0.0.1`。
-- 国服游戏账号导入启用时，保留 `/bangdream/user-data/import` 到后端的反代。
 - 最高得分与目标 PT 搜索均在本地 WASM 中执行，不需要 `/v1` 计算路由。

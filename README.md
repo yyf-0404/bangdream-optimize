@@ -20,6 +20,10 @@
 
 后端默认监听 `http://127.0.0.1:3100`，网页端默认监听 `http://127.0.0.1:8080`。
 
+前端已接入统一的活动、卡牌、道具与角色、结果、档案五页布局。实施及验收记录见
+[前端接入记录](docs/frontend-redesign-progress.md)。开发预览也可使用
+`python scripts/serve-web.py --port 8093`；仍需已有的 `apps/web/pkg` 和 `var/game-data`。
+
 首次运行前请先准备 Rust/Cargo 等基础环境：
 
 - `docs/environment.md`
@@ -27,10 +31,7 @@
 生产部署建议将前端与后端同域部署，并将 `apiBaseUrl` 置空（如
 `globalThis.BANGDREAM_OPTIMIZE_CONFIG = { apiBaseUrl: '' }`），
 使前端请求走同源：`/game-data/...`。
-国服游戏账号导入默认开启，默认读取项目内
-`var/bangdream-account/persist.json`；该真实文件被 `.gitignore` 忽略，只提交
-`var/bangdream-account/persist.example.json`。部署时还需要同源反代
-`/bangdream/user-data/import` 到后端。
+所有服务器（含国服）统一通过 Bestdori 导入主乐队公开资料；该流程不读取完整持有卡牌列表。
 
 生产环境静态部署（Nginx）可直接参考：
 
@@ -43,7 +44,7 @@
 - `apps/web` 的静态托管
 - `/game-data/` 的后端反向代理
 - `/bestdori/player/` 的同源 API 反向代理
-- `/bangdream/user-data/import` 的同源 API 反向代理
+- `/bestdori/header/` 的活动头图 PNG 通道（轻量纹理补全）
 - `/api/feedback` 的同源反馈 API 反向代理
 - 反馈附件上传所需的 12 MiB 请求体上限
 - SPA 回退配置

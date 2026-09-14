@@ -71,8 +71,7 @@
 - `BANGDREAM_OPTIMIZE_GAME_DATA_BASE_URL`：启用静态镜像同步，例如 `https://example.com/game-data`。
 - `BANGDREAM_OPTIMIZE_GAME_DATA_CACHE_ROOT`：静态镜像缓存本地目录。
 - `BANGDREAM_OPTIMIZE_BESTDORI_ROOT`：启用本地 Bestdori 文件加载。
-- `BANGDREAM_OPTIMIZE_ENABLE_CALC_ROUTES`：设置为 `false` 时仅用于代理类部署，关闭计算路由；默认 `true`。该模式仍保留 `/bestdori/player/...`，默认也保留 `/bangdream/user-data/import`，除非显式设置 `BANGDREAM_OPTIMIZE_ENABLE_BD_IMPORT=false`。
-- `BANGDREAM_OPTIMIZE_ENABLE_BD_IMPORT`、`BANGDREAM_OPTIMIZE_BD_PERSIST`、`BANGDREAM_OPTIMIZE_BD_PERSIST_DIR`：国服游戏账号导入默认开启，后端使用固定 persist 登录态，前端只提交 `userId`。默认 persist 路径为 `var/bangdream-account/persist.json`。
+- `BANGDREAM_OPTIMIZE_ENABLE_CALC_ROUTES`：设置为 `false` 时仅用于代理类部署，关闭计算路由；默认 `true`。该模式仍保留 `/bestdori/player/...`，所有服务器（含国服）统一通过 Bestdori 导入主乐队公开资料。
 
 默认 `BANGDREAM_OPTIMIZE_BESTDORI_ROOT` 目录结构：
 

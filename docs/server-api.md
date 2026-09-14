@@ -42,9 +42,7 @@ globalThis.BANGDREAM_OPTIMIZE_CONFIG = {
 ```
 
 前端计算不访问 `/v1/`，默认由浏览器 WASM 使用 `/game-data` 本地计算。
-导入 Bestdori 玩家资料会访问同源 `/bestdori/player/*`，国服游戏账号导入会访问
-同源 `/bangdream/user-data/import`，前端反馈会访问同源 `/api/feedback`。生产同域部署
-需要将这三个路径反代到后端。
+所有服务器（含国服）的主乐队公开资料导入使用同源 `/bestdori/player/*`，前端反馈使用同源 `/api/feedback`。生产同域部署需要将这两个路径反代到后端。
 只有需要对外暴露后端计算 API 时，才需要同时反代 `/v1`。
 可直接参考 `docs/nginx-reverse-proxy.conf` 的可编辑示例。
 
@@ -65,16 +63,9 @@ globalThis.BANGDREAM_OPTIMIZE_CONFIG = {
 - `BANGDREAM_OPTIMIZE_ENABLE_CALC_ROUTES=false`：关闭
   `/v1/maximize`、`/v1/score-range`、`/v1/pt-maximize`、`/v1/pt-evaluate`、
   `/v1/calc-result` 与候选计算路由，仅保留
-  `/bestdori/player/...`、`/game-data`、`/api/feedback` 与站点根目录；若同时开启
-  国服游戏账号导入，也会保留
-  `/bangdream/user-data/import`。该模式适用于仅作导入/静态代理且不对外暴露计算 API
+  `/bestdori/player/...`、`/bestdori/header/...`、`/game-data`、`/api/feedback` 与站点根目录。该模式适用于仅作导入/静态代理且不对外暴露计算 API
   的部署。
 - `BANGDREAM_OPTIMIZE_WEB_ROOT`：显式让后端进程同时提供静态 Web 根目录。
-- `BANGDREAM_OPTIMIZE_ENABLE_BD_IMPORT=false`：关闭默认开启的国服游戏账号数据导入接口。
-- `BANGDREAM_OPTIMIZE_BD_PERSIST`：覆盖固定 apk-reverse `persist.json` 路径；默认
-  `var/bangdream-account/persist.json`。
-- `BANGDREAM_OPTIMIZE_BD_PERSIST_DIR`：覆盖固定 persist 目录，后端读取其中的
-  `persist.json`。
 - `BANGDREAM_OPTIMIZE_FEEDBACK_SMTP_HOST`：设置后启用反馈邮件，例如
   `mail.example.com`。
 - `BANGDREAM_OPTIMIZE_FEEDBACK_SMTP_PORT`：SMTPS 端口，默认 `465`。
@@ -196,69 +187,6 @@ curl https://calc.example.com/api/feedback \
 部署时还需要把 `/api/feedback` 反代到后端，并允许 12 MiB 请求体。反馈限流依赖代理提供的真实客户端
 地址时，应确保 Nginx/Caddy 覆盖客户端传入的转发头后再启用
 `BANGDREAM_OPTIMIZE_FEEDBACK_TRUST_PROXY_HEADERS=true`。
-
-## 导入国服游戏账号数据
-
-该接口默认开启。后端读取固定 `persist.json`，刷新 Unity 登录态，
-拉取 `/suite/user/{userId}`，并返回 `PlayerConfig` 形状的数据补丁。
-前端只传玩家 ID；不要把 persist、access key、token 或请求头暴露给浏览器。
-
-默认真实 persist 路径为 `var/bangdream-account/persist.json`，该文件被
-`.gitignore` 忽略。仓库只提交 `var/bangdream-account/persist.example.json`，
-部署时复制 example 并填入真实值：
-
-```bash
-cp var/bangdream-account/persist.example.json var/bangdream-account/persist.json
-```
-
-```bash
-cargo run -p bangdream-optimize-server --release
-```
-
-如需关闭该接口：
-
-```bash
-BANGDREAM_OPTIMIZE_ENABLE_BD_IMPORT=false \
-cargo run -p bangdream-optimize-server --release
-```
-
-```http
-POST /bangdream/user-data/import
-Content-Type: application/json
-
-{
-  "userId": 1008159056
-}
-```
-
-响应：
-
-```json
-{
-  "status": "ok",
-  "data": {
-    "playerId": 1008159056,
-    "server": "cn",
-    "cardList": {},
-    "areaItem": {},
-    "characterBouns": {}
-  }
-}
-```
-
-若国服上游接口返回 HTTP 405，接口会返回“请使用自己的设备登陆一次该账号后重试”；
-网页端和桌面端会直接显示该提示。
-
-该接口面向受控后端部署；错误响应不会返回 `access_key`、`X-Token`、persist
-路径或原始响应头。
-
-同域 Web/桌面部署时，Nginx 需要将
-`/bangdream/user-data/import` 反代到后端进程。参考
-`docs/nginx-reverse-proxy.conf` 中的 exact location 配置。
-
-`characterBouns.potential` 来自 `/suite/user` field `401`。
-`characterBouns.characterTask` 来自 field `456` 的完整角色任务加成倍率表；
-后端不会用稀疏的 field `430` 记录冒充完整任务加成。
 
 ## 计算玩家
 

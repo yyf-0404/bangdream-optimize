@@ -14,7 +14,7 @@ Web 端不需要运行时计算后端。
 ## 生产部署
 
 生产环境建议使用 Nginx 托管前端静态文件，并将 `/game-data/`、
-`/bestdori/player/`、`/bangdream/user-data/import` 与 `/api/feedback`
+`/bestdori/player/`、`/bestdori/header/` 与 `/api/feedback`
 反向代理到后端。
 后端负责挂载 `BANGDREAM_OPTIMIZE_GAME_DATA_ROOT` 并提供 `/game-data`。
 
@@ -65,10 +65,6 @@ sudo nano /etc/bangdream-optimize/backend.env
 `BANGDREAM_OPTIMIZE_GAME_DATA_ROOT=/var/bangdream-optimize/game-data`。
 如果不希望后端启动时同步 game-data，可设置
 `BANGDREAM_OPTIMIZE_GAME_DATA_SYNC_ENABLED=0`。
-国服游戏账号导入默认开启，默认读取项目内
-`var/bangdream-account/persist.json`。仓库只提交
-`var/bangdream-account/persist.example.json`，部署时需要复制 example 并填入真实值。
-如果要关闭该接口，设置 `BANGDREAM_OPTIMIZE_ENABLE_BD_IMPORT=false`。
 
 4. 初始化 game-data 挂载目录
 
@@ -106,9 +102,7 @@ globalThis.BANGDREAM_OPTIMIZE_CONFIG = {
 ```
 
 该部署下，前端计算在浏览器 WASM 内完成，不访问 `/v1/`；导入
-Bestdori 玩家资料会访问同源 `/bestdori/player/`，国服游戏账号导入会访问同源
-`/bangdream/user-data/import`，反馈表单会访问同源 `/api/feedback`，因此 Nginx
-需要保留这三个 API 反代。
+Bestdori 主乐队公开资料（含国服）使用同源 `/bestdori/player/`，头图素材使用 `/bestdori/header/`，反馈表单使用 `/api/feedback`，因此 Nginx 需要保留这些 API 反代。
 
 7. 构建并发布前端
 
@@ -140,7 +134,7 @@ sudo systemctl reload nginx
 - 从 `/var/www/bangdream-optimize/web` 托管前端；
 - 将 `/game-data/` 反代到 `http://127.0.0.1:3100`；
 - 将 `/bestdori/player/` 反代到 `http://127.0.0.1:3100`；
-- 将 `/bangdream/user-data/import` 反代到 `http://127.0.0.1:3100`；
+- 将 `/bestdori/header/` 反代到 `http://127.0.0.1:3100`，供活动头图纹理补全读取 PNG；
 - 将 `/api/feedback` 反代到 `http://127.0.0.1:3100`，并允许 12 MiB 请求体以支持附件；
 - 对其他路径做 SPA 回退。
 
@@ -379,3 +373,19 @@ cargo run -p bangdream-optimize-sync-bestdori -- \
 
 CLI 对 `version` 与 `generatedAt` 使用 Unix 秒数。
 浏览器同步端只比较 `files` 下的元数据，因此无论是 Unix 秒还是 ISO 时间戳都可用于手工 manifest。
+
+## 活动头图纹理补全
+
+前端先加载当前活动完整背景和 `trim_eventtop`，再在独立 Web Worker 中以边缘纹理块合成延展背景。
+Bestdori 的图片响应不提供可直接用于 Canvas 的跨域许可，因此生产环境需要反代
+`/bestdori/header/` 到本项目后端；上面的 Nginx 示例已包含此路由。
+前后端跨域部署时可通过 `BANGDREAM_OPTIMIZE_CONFIG.headerAssetApiBaseUrl` 单独指定通道地址，
+省略时使用 `apiBaseUrl`，再回退同源。Tauri 使用本机命令读取同一组白名单 PNG。
+
+此通道只访问 `https://bestdori.com` 的指定活动／卡牌 PNG 路径，不接受任意 URL、不跟随重定向，
+单图最多 4 MiB，服务端缓存最多 8 MiB／12 张、24 小时。浏览器纹理缓存最多 8 MiB／8 张。
+开发服务器 `scripts/serve-web.py` 提供同样的受限通道。
+启动开发服务器的进程需要具备访问 Bestdori 的网络权限；浏览器能显示远程图片并不代表服务器可以读取它。
+在受限执行环境中启动时，需要通过获准的联网执行方式运行该进程；仅重启浏览器无效。每次重新启动预览后，至少选择一个尚未缓存纹理的活动，确认图片代理返回 PNG、页面 `.hero-event-stage` 的 `data-texture-state` 为 `ready`，且前景和阴影图片的自然尺寸非零。
+若 `/bestdori/header/` 返回 502，先检查开发服务日志中的上游错误和进程联网权限。此时直接显示的跨域原图无法参与 Canvas 纹理计算或人物透明边界测量。
+通道或图片失败时保留可用原画及页面操作；纯静态托管而不提供该通道时，跨域原图可能无法生成纹理补全。
