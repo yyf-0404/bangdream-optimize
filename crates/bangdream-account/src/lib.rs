@@ -1,3 +1,10 @@
+mod apk;
+mod credentials;
+mod version_config;
+pub use credentials::{
+    AccountChannel, CredentialImportRequest, CredentialImportResult, CredentialImporter,
+};
+
 use aes::{
     cipher::{generic_array::GenericArray, BlockDecrypt, BlockEncrypt, KeyInit},
     Aes128,
@@ -72,6 +79,8 @@ struct LoginSession {
 
 #[derive(Debug, Error)]
 pub enum ImportError {
+    #[error("{0}")]
+    Account(String),
     #[error("failed to read Bang Dream persist file: {0}")]
     ReadPersist(#[from] std::io::Error),
     #[error("failed to parse Bang Dream persist file: {0}")]
@@ -436,7 +445,7 @@ where
     let mut player = PlayerConfig {
         mongo_id: None,
         player_id: i64::try_from(user_id).unwrap_or(i64::MAX),
-        current_event: Some(287),
+        current_event: None,
         event_songs: BTreeMap::new(),
         event_presets: BTreeMap::new(),
         event_overrides: BTreeMap::new(),
@@ -892,6 +901,9 @@ fn parse_fields(buf: &[u8]) -> Result<Vec<ProtoField>, ImportError> {
     while off < buf.len() {
         let key = read_varint(buf, &mut off)?;
         let field = key >> 3;
+        if field == 0 || field >= (1 << 29) {
+            return Err(ImportError::Protobuf("invalid field number".to_owned()));
+        }
         let wire = (key & 7) as u8;
         let value = match wire {
             0 => ProtoValue::Varint(read_varint(buf, &mut off)?),
@@ -924,6 +936,9 @@ fn read_varint(buf: &[u8], off: &mut usize) -> Result<u64, ImportError> {
     while *off < buf.len() {
         let b = buf[*off];
         *off += 1;
+        if shift == 63 && b > 1 {
+            return Err(ImportError::Protobuf("varint overflow".to_owned()));
+        }
         value |= u64::from(b & 0x7f) << shift;
         if b < 0x80 {
             return Ok(value);
@@ -937,7 +952,7 @@ fn read_varint(buf: &[u8], off: &mut usize) -> Result<u64, ImportError> {
 }
 
 fn read_exact<'a>(buf: &'a [u8], off: &mut usize, size: usize) -> Result<&'a [u8], ImportError> {
-    if *off + size > buf.len() {
+    if size > buf.len().saturating_sub(*off) {
         return Err(ImportError::Protobuf("length overrun".to_owned()));
     }
     let data = &buf[*off..*off + size];

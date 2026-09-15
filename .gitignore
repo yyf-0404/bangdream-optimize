@@ -19,3 +19,7 @@
 *.pyo
 *.log
 ~$*.xlsx
+
+# Automatically refreshed public CN client-version configuration
+/var/bangdream-account/client-version.json
+/var/bangdream-account/.client-version-*.tmp

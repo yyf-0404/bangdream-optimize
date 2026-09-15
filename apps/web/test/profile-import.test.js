@@ -58,7 +58,7 @@ test('profile account actions use Bestdori for CN and leave the archive unchange
 
 test('CN account import advertises public main-band scope and keeps configuration paste available', () => {
   for (const server of servers) {
-    const markup = importSourceMarkup({...flowHelpers, d: {source: 'account', server, playerId: '', format: 'base64'}, p: {server, name: 'Test'}});
+    const markup = importSourceMarkup({...flowHelpers, d: {source: 'account', server, method: 'public', playerId: '', format: 'base64'}, p: {server, name: 'Test'}});
     assert.match(markup, /仅导入主乐队的公开资料/);
     assert.match(markup, /公开资料不包含完整持有卡牌列表/);
     assert.match(markup, /value="cn"/);

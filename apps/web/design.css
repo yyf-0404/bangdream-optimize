@@ -7,7 +7,7 @@
 @import url('./src/ui/approved/result.css') layer(approved);
 @import url('./src/ui/approved/archive.css') layer(approved);
 @import url('./src/ui/approved/sidebar.css') layer(approved);
-@import url('./src/ui/plumbing.css') layer(plumbing);
+@import url('./src/ui/plumbing.css?v=2') layer(plumbing);
 @import url('./src/ui/select.css') layer(plumbing);
 @import url('./src/ui/feedback.css') layer(plumbing);
 @import url('./src/ui/custom-cards/custom-cards.css') layer(plumbing);

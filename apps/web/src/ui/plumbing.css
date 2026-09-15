@@ -195,3 +195,17 @@ body{overflow-x:clip}
 #player-library .member-bonus-value{font-size:12px;font-weight:500;font-variant-numeric:tabular-nums;color:var(--material-ink)}
 #player-library .member-bonus-value[data-bonus^="characterTask"]{color:#627589}
 @media(max-width:480px){#player-library .accepted-character-library .members{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 8px}#player-library .accepted-character-library .member{padding:6px 0;gap:5px}#player-library .member-bonus-matrix{grid-template-columns:24px repeat(3,minmax(0,1fr));gap:4px 2px;font-size:10px}#player-library .member-bonus-value{font-size:11px}}
+
+/* CN account import follows the archive's compact, thin-rule form language. */
+:is(#archive-design,#archive-dialog-host) .cn-import-options{display:flex;flex-wrap:wrap;gap:10px 24px;align-items:center}
+:is(#archive-design,#archive-dialog-host) .cn-import-options label{display:inline-flex;align-items:center;gap:8px;min-height:32px;cursor:pointer;font-size:13px;color:#665271}
+:is(#archive-design,#archive-dialog-host) .cn-import-options input{accent-color:#9860a9;width:15px;height:15px;margin:0}
+:is(#archive-design,#archive-dialog-host) .cn-import-options label:hover{color:#a23b85}
+:is(#archive-design,#archive-dialog-host) .cn-account-fields{margin-top:18px;gap:14px}
+:is(#archive-design,#archive-dialog-host) .cn-account-fields .cn-channel{margin:0}
+:is(#archive-design,#archive-dialog-host) .cn-account-fields .dialog-note{margin:6px 0 0}
+:is(#archive-design,#archive-dialog-host) #import-error:empty,:is(#archive-design,#archive-dialog-host) #import-progress:empty{display:none}
+:is(#archive-design,#archive-dialog-host) #import-error{outline-offset:4px}
+:is(#archive-design,#archive-dialog-host) #import-form [aria-invalid=true]{border-color:#bf3d63;outline-color:#bf3d63}
+:is(#archive-design,#archive-dialog-host) .import-summary:has(.cn-account-identity){flex-wrap:wrap;gap:8px 10px}
+:is(#archive-design,#archive-dialog-host) .cn-account-identity{flex-basis:100%;font-size:12px;line-height:1.6;font-weight:400;color:#756b7c;overflow-wrap:anywhere}

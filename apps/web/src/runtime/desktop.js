@@ -33,6 +33,12 @@ export async function createDesktopRuntime() {
       invokeJson(invoke, 'rename_player_config', { configId, name }),
     deletePlayerConfig: async (configId) =>
       (await invokeJson(invoke, 'delete_player_config', { configId })) ?? samplePlayerConfig(),
+    importCnAccount: async (credentials, {signal} = {}) => {
+      signal?.throwIfAborted();
+      const result = await invokeJson(invoke, 'import_cn_account', {credentials});
+      signal?.throwIfAborted();
+      return result;
+    },
     importBestdoriPlayerProfile: async ({ playerId, server, mode = 3 }) => {
       const payload = await invokeJson(invoke, 'import_bestdori_player_profile', {
         playerId,

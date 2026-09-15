@@ -1,4 +1,4 @@
-import { createRuntime } from './runtime/index.js?v=7';
+import { createRuntime } from './runtime/index.js?v=8';
 import { characterIconUrls } from './assets/index.js?v=3';
 import {
   areaItemGroupIconUrls,
@@ -58,7 +58,7 @@ import {
 import { createPageController } from './app/page.js?v=6';
 import { createPlayerStore } from './app/player.js?v=3';
 import { createPlayerView } from './views/player-library.js';
-import { createProfileActions } from './actions/profile.js?v=3';
+import { createProfileActions } from './actions/profile.js?v=5';
 import { createProfileView } from './views/profile.js?v=3';
 import {
   createReferenceView,

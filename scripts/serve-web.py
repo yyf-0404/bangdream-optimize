@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import argparse
+import json
+from urllib.error import HTTPError
 import functools
 import posixpath
 import re
@@ -20,10 +22,45 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 class WebStaticHandler(SimpleHTTPRequestHandler):
-    def __init__(self, *args, web_root: Path, game_data_root: Path, **kwargs):
+    def __init__(self, *args, web_root: Path, game_data_root: Path, api_port: int = 3100, **kwargs):
+        self.api_port = api_port
         self.web_root = web_root
         self.game_data_root = game_data_root
         super().__init__(*args, directory=str(web_root), **kwargs)
+
+    def do_POST(self):
+        # Development only: one fixed account endpoint, forwarded to the local Rust backend.
+        # Request bodies must never be printed, cached, or written to temporary files.
+        if self.path != "/api/import/cn-account":
+            self.send_error(404)
+            return
+        try:
+            size = int(self.headers.get("Content-Length", "0"))
+            if not 0 < size <= 8192 or self.headers.get_content_type() != "application/json":
+                raise ValueError("Invalid account request")
+            data = self.rfile.read(size)
+            request = Request(f"http://127.0.0.1:{self.api_port}/api/import/cn-account", data=data,
+                              headers={"Content-Type": "application/json"}, method="POST")
+            try:
+                response = build_opener(NoRedirect).open(request, timeout=240)
+            except HTTPError as error:
+                response = error
+            with response:
+                status = response.code
+                body = response.read(8 * 1024 * 1024 + 1)
+                if response.headers.get_content_type() != "application/json" or len(body) > 8 * 1024 * 1024:
+                    raise ValueError("Invalid account response")
+        except Exception:
+            status = 502
+            body = json.dumps({"status": "error", "message": f"账号导入服务未就绪，请先启动本地 Rust 后端（端口 {self.api_port}）"}, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def do_GET(self):
         if not self.path.startswith("/bestdori/header/"):
@@ -86,6 +123,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Serve web UI and /game-data.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=8080, type=int)
+    parser.add_argument("--api-port", default=3100, type=int)
     parser.add_argument("--web-root", default="apps/web")
     parser.add_argument("--game-data-root", default="var/game-data")
     return parser.parse_args()
@@ -105,6 +143,7 @@ def main():
         WebStaticHandler,
         web_root=web_root,
         game_data_root=game_data_root,
+        api_port=args.api_port,
     )
     server = ThreadingHTTPServer((args.host, args.port), handler)
     print(f"Serving web UI from {web_root}")

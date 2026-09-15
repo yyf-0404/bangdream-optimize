@@ -5,8 +5,8 @@ use bangdream_optimize_core::{
     PtMaximizeRequest, PtMaximizeResult, ScoreRangeRequest, ScoreRangeResult, Server,
 };
 use bangdream_optimize_desktop::{
-    DesktopConfig, DesktopGameDataSource, DesktopOptimizer, DesktopReferenceData,
-    DesktopRuntimeInfo, UserConfigProfile,
+    CredentialImportRequest, CredentialImportResult, DesktopConfig, DesktopGameDataSource,
+    DesktopOptimizer, DesktopReferenceData, DesktopRuntimeInfo, UserConfigProfile,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -31,6 +31,18 @@ struct AppState {
 struct UserConfigList {
     profiles: Vec<UserConfigProfile>,
     active_id: Option<String>,
+}
+
+#[tauri::command]
+async fn import_cn_account(
+    state: State<'_, AppState>,
+    credentials: CredentialImportRequest,
+) -> Result<CredentialImportResult, String> {
+    let importer = optimizer(&state)?.account_importer();
+    tauri::async_runtime::spawn_blocking(move || {
+        importer.import(credentials).map_err(|err| err.to_string())
+    })
+    .await.map_err(|_| "账号读取未完成，请稍后重试".to_owned())?
 }
 
 #[tauri::command]
@@ -333,6 +345,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            import_cn_account,
             load_player_config,
             save_player_config,
             list_player_configs,

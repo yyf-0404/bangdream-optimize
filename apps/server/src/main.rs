@@ -1,3 +1,4 @@
+mod cn_account;
 mod feedback;
 
 use axum::{
@@ -1297,6 +1298,10 @@ fn build_app(
         get(bestdori_player),
     );
     app = app.route("/bestdori/header/{*path}", get(header_asset));
+    app = app.route(
+        "/api/import/cn-account",
+        post(cn_account::import_account).layer(DefaultBodyLimit::max(8192)),
+    );
     app = app.route(
         "/api/feedback",
         post(submit_feedback).layer(DefaultBodyLimit::max(12 * 1024 * 1024)),

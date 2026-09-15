@@ -1,6 +1,6 @@
 [package]
 name = "bangdream-optimize-server"
-version = "0.4.1"
+version = "0.4.2"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -8,6 +8,7 @@ repository.workspace = true
 [dependencies]
 async-trait.workspace = true
 axum.workspace = true
+bangdream-optimize-bangdream-account.workspace = true
 bangdream-optimize-core.workspace = true
 bangdream-optimize-data = { workspace = true, features = ["native-cache"] }
 bangdream-optimize-service.workspace = true

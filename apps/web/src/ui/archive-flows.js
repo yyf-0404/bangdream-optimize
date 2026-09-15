@@ -1,5 +1,5 @@
 import {designFragment} from './approved/templates.js';
-import {importSourceMarkup,importDoneMarkup,exportMarkup,archiveIcon} from './approved/archive-flows.js';
+import {importSourceMarkup,importDoneMarkup,exportMarkup,archiveIcon} from './approved/archive-flows.js?v=3';
 import {serverIconUrls} from '../assets/index.js';
 
 export const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -19,18 +19,39 @@ export function createArchiveFlow(title,caption){
 
 export function openImportSource({profile,onRead}){
  const {dialog,body}=createArchiveFlow('导入配置','先核对，再应用');
- const d={source:'account',server:profile.server,playerId:profile.playerId||'',format:'base64',text:''};let busy=false;
+ const d={source:'account',server:profile.server,method:'credentials',channel:'',account:'',playerId:profile.playerId||'',format:'base64',text:''};
+ const controller=new AbortController();let busy=false;
+ dialog.addEventListener('close',()=>{controller.abort();const password=body.querySelector('#import-password');if(password)password.value='';},{once:true});
  function paint(){
   body.innerHTML=importSourceMarkup({...flowHelpers,d,p:profile});
-  const form=body.querySelector('form');form.noValidate=false;
-  const sync=()=>{d.playerId=body.querySelector('#import-id')?.value??d.playerId;d.text=body.querySelector('#import-text')?.value??d.text;};
+  const form=body.querySelector('form');
+  const sync=()=>{d.playerId=body.querySelector('#import-id')?.value??d.playerId;d.text=body.querySelector('#import-text')?.value??d.text;d.account=body.querySelector('#import-account')?.value??d.account;};
   body.querySelectorAll('[data-source]').forEach(b=>b.onclick=()=>{if(busy)return;sync();d.source=b.dataset.source;paint();});
-  body.querySelectorAll('[name=import-server]').forEach(input=>input.onchange=()=>{sync();d.server=input.value;paint();});
-  const format=body.querySelector('#import-format');if(format)format.onchange=()=>{sync();d.format=format.value;paint();};
+  for(const [name,key] of [['import-server','server'],['import-method','method']]) body.querySelectorAll(`[name=${name}]`).forEach(input=>input.onchange=()=>{if(busy)return;sync();d[key]=input.value;paint();});
+  body.querySelectorAll('[name=import-channel]').forEach(input=>input.onchange=()=>{d.channel=input.value;});
+  const format=body.querySelector('#import-format');if(format)format.onchange=()=>{if(busy)return;sync();d.format=format.value;paint();};
   body.querySelectorAll('[data-close-flow]').forEach(b=>b.onclick=()=>dialog.close());
-  form.onsubmit=async e=>{e.preventDefault();if(busy)return;sync();const error=body.querySelector('#import-error');error.textContent='';const input=body.querySelector(d.source==='account'?'#import-id':'#import-text');if(d.source==='account'?!/^[1-9]\d*$/.test(String(d.playerId)):!d.text.trim()){error.textContent=d.source==='account'?'请输入有效的玩家 ID':'请粘贴配置内容';input.focus();return;}
-   busy=true;const button=form.querySelector('[type=submit]');button.disabled=true;button.textContent='正在读取…';
-   try{const result=await onRead({...d});if(result){dialog.querySelector('h2').textContent='导入完成';body.innerHTML=importDoneMarkup({...flowHelpers,p:result});body.querySelectorAll('[data-close-flow],a').forEach(b=>b.addEventListener('click',()=>dialog.close()));}}catch(e){error.textContent=e.message||String(e);input.focus();}finally{busy=false;if(dialog.open){button.disabled=false;button.textContent='读取并预览';}}
+  form.onsubmit=async e=>{
+   e.preventDefault();if(busy)return;sync();
+   const error=body.querySelector('#import-error'),progress=body.querySelector('#import-progress');error.textContent='';
+   form.querySelectorAll('[aria-invalid]').forEach(el=>el.removeAttribute('aria-invalid'));
+   const credentials=d.source==='account'&&d.server==='cn'&&d.method==='credentials';
+   const invalid=(selector,message)=>{error.textContent=message;const input=body.querySelector(selector);input?.setAttribute('aria-invalid','true');input?.focus();};
+   if(credentials){
+    if(!d.account.trim())return invalid('#import-account','请输入 Bilibili 账号');
+    if(!body.querySelector('#import-password').value)return invalid('#import-password','请输入密码');
+    if(!d.channel)return invalid('[name=import-channel]','请选择游戏账号所在的 bili安卓或 iOS 渠道');
+   }else if(d.source==='account'?!/^[1-9]\d*$/.test(String(d.playerId)):!d.text.trim())return invalid(d.source==='account'?'#import-id':'#import-text',d.source==='account'?'请输入有效的玩家 ID':'请粘贴配置内容');
+   busy=true;const button=form.querySelector('[type=submit]');
+   const controls=[...form.querySelectorAll('input,textarea,select,button:not([data-close-flow])')];controls.forEach(el=>el.disabled=true);
+   button.textContent='正在读取…';progress.textContent=credentials?'正在连接国服并读取资料，版本失效时会自动更新配置。':'';
+   const source={...d};if(credentials){source.password=body.querySelector('#import-password').value;body.querySelector('#import-password').value='';}
+   try{
+    const result=await onRead(source,{signal:controller.signal});
+    if(!dialog.open||controller.signal.aborted)return;
+    if(result){dialog.querySelector('h2').textContent='导入完成';body.innerHTML=importDoneMarkup({...flowHelpers,p:result});body.querySelectorAll('[data-close-flow],a').forEach(b=>b.addEventListener('click',()=>dialog.close()));}
+   }catch(e){if(dialog.open&&!controller.signal.aborted){error.textContent=e.message||String(e);error.focus();}}
+   finally{delete source.password;busy=false;if(dialog.open){controls.forEach(el=>el.disabled=false);button.textContent='读取并预览';progress.textContent='';}}
   };
  }
  paint();dialog.showModal();

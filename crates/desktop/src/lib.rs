@@ -1,4 +1,7 @@
 use async_trait::async_trait;
+pub use bangdream_optimize_bangdream_account::{
+    CredentialImportRequest, CredentialImportResult, CredentialImporter,
+};
 use bangdream_optimize_core::{
     BuildResult, ItemSearchOptions, PlayerConfig, PtEvaluateRequest, PtEvaluateResult,
     PtMaximizeRequest, PtMaximizeResult, ScoreRangeRequest, ScoreRangeResult, Server,
@@ -290,6 +293,15 @@ impl DesktopOptimizer {
 
     pub fn clear_game_cache(&self) -> Result<(), DataError> {
         self.calculator.clear_game_cache()
+    }
+
+    pub fn account_importer(&self) -> CredentialImporter {
+        let info = self.calculator.game_data_info();
+        let cards = info.root.or(info.cache_root)
+            .and_then(|root| BestdoriFilesystemConfig::from_root(root).cards_dir);
+        CredentialImporter::new(cards).with_version_config(
+            self.player_store.root().join("bangdream-account/client-version.json"),
+        )
     }
 
     pub fn runtime_info(&self) -> DesktopRuntimeInfo {

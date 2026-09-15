@@ -1,5 +1,6 @@
-import { reviewImport } from '../ui/import-review.js';
-import {openImportSource,openExportFlow} from '../ui/archive-flows.js';
+import { mergeCnAccountImport } from '../data/cn-account.js';
+import { reviewImport } from '../ui/import-review.js?v=3';
+import {openImportSource,openExportFlow} from '../ui/archive-flows.js?v=3';
 import { requestProfileDetails } from '../ui/profile-dialog.js';
 import { confirmDialog } from '../ui/confirm.js?v=3';
 import { createCompactProfileCodec } from '../data/compact-profile.js?v=3';
@@ -307,16 +308,26 @@ export function createProfileActions({
   async function openImportForTarget(target) {
     try{
       const original=await readTarget(target),name=targetName(target);
-      openImportSource({profile:{...original,name},onRead:async source=>{
+      openImportSource({profile:{...original,name},onRead:async (source,{signal})=>{
         await ensureCore();
-        const before=normalizedPlayer(await readTarget(target));let imported;
+        signal.throwIfAborted();
+        let before=normalizedPlayer(await readTarget(target)),imported,identity;
         if(source.source==='paste')imported=source.format==='base64'?compactProfileToPlayer(await parseCompactExport(source.text),before):bestdoriProfileToPlayerConfig(parseBestdoriProfileExport(source.text),before);
+        else if(source.server==='cn'&&source.method==='credentials'){
+          let data;
+          try{data=await state.runtime.importCnAccount({account:source.account,password:source.password,channel:source.channel},{signal});}
+          finally{delete source.password;}
+          signal.throwIfAborted();before=normalizedPlayer(await readTarget(target));
+          imported=mergeCnAccountImport(before,data);identity={name:data.name,gameUid:data.gameUid,rank:data.rank,channel:data.channel};
+        }
         else{
           const id=parseEntityId(String(source.playerId),'玩家 ID');imported=structuredClone(before);imported.server=normalizedServer(source.server);imported.playerId=id;
           const data=await fetchBestdoriPlayerProfile(id,imported.server);importMainBandCards(imported,data);importMainBandCharacterBonuses(imported,data);importEnabledAreaItems(imported,data);
         }
         if(!state.playerProfiles.some(p=>p.id===target))throw new Error('目标档案已不存在，请重新导入');
-        const review=await reviewImport(before,imported,{...source,name,allowNew:true});if(!review)return false;
+        signal.throwIfAborted();
+        const review=await reviewImport(before,imported,{source:source.source,format:source.format,name,identity,signal,allowNew:true});if(!review)return false;
+        signal.throwIfAborted();
         if(review.destination==='new'){await savePlayerNow();await state.runtime.createPlayerConfig({name:review.name,player:imported});writePlayer(await state.runtime.loadPlayerConfig(),{autosave:false});await refreshPlayerProfiles();renderConfigForms(readPlayer());}
         else await commitTarget(target,imported);
         setStatus('配置已导入');return {name:review.destination==='new'?review.name:name,customCount:Object.keys(imported.customCards||{}).length,cards:Object.keys(imported.cardList||{}).length,items:Object.keys(imported.areaItem||{}).length,characters:Object.keys(imported.characterBouns||{}).length};
