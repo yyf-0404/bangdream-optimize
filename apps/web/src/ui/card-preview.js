@@ -11,10 +11,11 @@ export function cardPreviewContent({
   attribute,
   imageUrls,
   config,
+  player,
   captain = false,
   order,
 }) {
-  if (presenter) return presenter({id, config, captain, order});
+  if (presenter) return presenter({id, config, player, captain, order});
   const content = document.createElement('span');
   content.className = 'card-preview-content';
 
@@ -55,11 +56,12 @@ export function cardPreviewItem({
   interactive = false,
   leading,
   config,
+  player,
   captain = false,
   order,
 }) {
   if (presenter) {
-    const item = presenter({id, config, captain, order});
+    const item = presenter({id, config, player, captain, order});
     if (className) item.classList.add(...className.split(/\s+/).filter(Boolean));
     item.classList.toggle('is-selected', selected);
     if (interactive) { item.dataset.cardId = id; item.tabIndex = 0; }

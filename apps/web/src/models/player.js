@@ -7,6 +7,7 @@ import {
   positiveIntegerOrUndefined,
 } from '../utils.js?v=3';
 import { CUSTOM_EVENT_ID } from './event.js?v=3';
+import {normalizeCustomCards,nextCustomCardId} from './custom-cards.js';
 import {
   PLAYER_CONFIG_SCHEMA_VERSION,
   normalizePtMaximizeConfig,
@@ -49,6 +50,8 @@ export function createPlayerModel({
       eventPresets: normalizedEventPresets(player.eventPresets),
       eventOverrides: normalizedEventOverrides(player.eventOverrides, calculationMode),
       cardList: normalizedCards(player.cardList),
+      customCards: normalizeCustomCards(player.customCards),
+      nextCustomCardId: nextCustomCardId(player),
       areaItem: normalizedAreaItems(player.areaItem),
       characterBouns: normalizedCharacterBonuses(player.characterBouns),
     };

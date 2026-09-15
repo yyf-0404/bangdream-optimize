@@ -27,8 +27,10 @@ const BESTDORI_PROFILE_AREA_ITEM_IDS = {
   MyGO: [97, 98, 99, 100, 101, 102, 103],
   Everyone: [73, 74, 75, 76, 77, 78, 79],
   Magazine: [80, 81, 82],
-  Plaza: [56, 60, 57, 58],
-  Menu: [70, 69, 66, 67],
+  // Bestdori attribute order: Powerful, Cool, Happy, Pure.
+  // Plaza is the outdoor set; Menu is the food set.
+  Plaza: [70, 66, 67, 69],
+  Menu: [56, 57, 58, 60],
 };
 
 export function createBestdoriProfileImporter({
@@ -248,7 +250,7 @@ export function createBestdoriProfileImporter({
         }
         const raw = integerOrZero(areaItem?.[String(areaItemId)]?.level);
         const capped = Math.min(raw, maxAreaItemLevel(areaItemId));
-        levels.push(Math.max(0, capped - 1));
+        levels.push(capped > 0 ? capped - 1 : null);
       });
       items[name] = encodeBestdoriRunLength(levels);
     }
@@ -320,6 +322,10 @@ export function createBestdoriProfileImporter({
     for (const [name, areaItemIds] of Object.entries(BESTDORI_PROFILE_AREA_ITEM_IDS)) {
       const levels = Array.isArray(items[name]) ? items[name] : [];
       areaItemIds.forEach((areaItemId, index) => {
+        if (levels[index] == null) {
+          if (index < levels.length) areaItem[String(areaItemId)] = {level: 0};
+          return;
+        }
         const rawLevel = Number(levels[index]);
         if (!Number.isFinite(rawLevel) || rawLevel < 0 || !recordWithFix('areaItems', 'areaItemsFix', areaItemId)) {
           return;
@@ -406,7 +412,7 @@ function decompressBestdoriProfile(compression, data) {
 function decompressBestdoriProfileV2(data) {
   const cards = data?.cards;
   const items = data?.items ?? {};
-  if (!cards?.ids) {
+  if (typeof cards?.ids !== 'string') {
     throw new Error('Bestdori Profile 压缩数据缺少卡牌 ID');
   }
 

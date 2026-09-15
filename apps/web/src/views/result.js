@@ -837,6 +837,7 @@ function resultSkillCard(cardId, { isCaptain, orderIndex }, deps) {
     title: deps.cardLabel(cardId),
     leading: orderBadge,
     config: playerCard,
+    player: deps.player,
     captain: isCaptain,
     order: Number.isInteger(orderIndex) ? orderIndex + 1 : undefined,
   });

@@ -8,7 +8,7 @@
     <link rel="icon" type="image/svg+xml" href="./assets/brand.svg?v=1" />
     <link rel="apple-touch-icon" href="./icon.png?v=4" />
     <meta name="theme-color" content="#d9467c" />
-    <link rel="stylesheet" href="./design.css?v=53" />
+    <link rel="stylesheet" href="./design.css?v=59" />
     <link
       rel="preconnect"
       href="https://fonts.googleapis.com"
@@ -23,7 +23,7 @@
       rel="stylesheet"
     />
     <script src="./config.js?v=3"></script>
-    <script type="module" src="./src/main.js?v=53"></script>
+    <script type="module" src="./src/main.js?v=59"></script>
   </head>
   <body>
     <main class="app-shell">
@@ -69,7 +69,7 @@
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2h11A2.5 2.5 0 0 1 20 4.5v10a2.5 2.5 0 0 1-2.5 2.5H10l-4.4 3.3A1 1 0 0 1 4 19.5v-15ZM6.5 4a.5.5 0 0 0-.5.5v13l3.1-2.3a1 1 0 0 1 .6-.2h7.8a.5.5 0 0 0 .5-.5v-10a.5.5 0 0 0-.5-.5h-11ZM8 8a1 1 0 1 1 0-2h8a1 1 0 1 1 0 2H8Zm0 4a1 1 0 1 1 0-2h5a1 1 0 1 1 0 2H8Z"/></svg>
             <span class="button-label">反馈</span>
           </button>
-          <button class="primary calculate-submit" type="submit" form="controls">
+          <button class="primary calculate-submit" type="submit" form="controls" disabled>
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.8a1.5 1.5 0 0 1 2.3-1.27l8.1 5.2a1.5 1.5 0 0 1 0 2.54l-8.1 5.2A1.5 1.5 0 0 1 8 16.2V5.8Z"/></svg>
             <span class="button-label">计算</span>
           </button>
@@ -104,7 +104,7 @@
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3a1 1 0 0 0-1 1v1H5a1 1 0 1 0 0 2h14a1 1 0 1 0 0-2h-3V4a1 1 0 0 0-1-1H9Zm1 2h4V5h-4Zm-3 4a1 1 0 0 0-1 1v8.5A2.5 2.5 0 0 0 8.5 21h7a2.5 2.5 0 0 0 2.5-2.5V10a1 1 0 1 0-2 0v8.5a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5V10a1 1 0 0 0-1-1Zm3 2a1 1 0 0 1 1 1v4a1 1 0 1 1-2 0v-4a1 1 0 0 1 1-1Zm4 0a1 1 0 0 1 1 1v4a1 1 0 1 1-2 0v-4a1 1 0 0 1 1-1Z"/></svg>
                 清空本地配置缓存
               </button>
-              <button class="primary calculate-submit" type="submit" form="controls">
+              <button class="primary calculate-submit" type="submit" form="controls" disabled>
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.8a1.5 1.5 0 0 1 2.3-1.27l8.1 5.2a1.5 1.5 0 0 1 0 2.54l-8.1 5.2A1.5 1.5 0 0 1 8 16.2V5.8Z"/></svg>
                 <span class="button-label">计算</span>
               </button>
@@ -737,7 +737,7 @@
                     <h2>计算结果</h2>
                     <div class="panel-actions">
                       <button type="button" id="export-diagnostics">导出诊断</button>
-                      <button type="button" id="copy-result">复制</button>
+                      <button type="button" id="save-result-image" class="primary" title="将当前结果图片复制到剪贴板" disabled>保存结果图片</button>
                       <button type="button" id="feedback-result" class="inverse-action">反馈</button>
                     </div>
                   </div>

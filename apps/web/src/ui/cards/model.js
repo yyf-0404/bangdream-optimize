@@ -1,9 +1,20 @@
 import { cardTrainingStatusList, normalizeTrainingStatus } from '../../assets/index.js';
 import { gameText } from '../preferences.js';
 import { profilePreference } from '../preferences.js';
+import { customCardLabel, safeCustomImage } from '../../models/custom-cards.js';
 
 const servers = ['jp','en','tw','cn','kr'];
 export function cardModel(core, player, cardId, configOverride, profileId) {
+  const custom = player?.customCards?.[cardId];
+  if (custom) {
+    const d=custom.definition,g=configOverride??custom.growth,character=core?.characters?.[d.characterId];
+    return {id:Number(cardId),custom:true,customConfig:custom,enabled:custom.enabled,displayId:customCardLabel(cardId),
+      image:safeCustomImage(custom.editor?.image),record:{characterId:d.characterId,rarity:d.rarity,attribute:d.attribute,stat:{...d.levelStats,training:d.trainingStat,episodes:d.episodeStats}},
+      rawConfig:structuredClone(g),unknown:false,characterId:d.characterId,title:custom.editor?.name||customCardLabel(cardId),name:gameText(character?.characterName,`角色 ${d.characterId}`),
+      band:d.bandId,rarity:d.rarity,attribute:d.attribute,searchText:[customCardLabel(cardId),custom.editor?.name,...(character?.characterName||[])].join(' '),
+      releaseDates:{},owned:true,maxLevel:Math.max(...Object.keys(d.levelStats).map(Number)),level:g.level,skill:g.skillLevel,capabilities:[custom.editor?.fixed?[true]:[false,true],[1,1]],
+      growth:{trained:g.training,illustTrained:true,mastery:g.limitBreakRank,episodes:[...g.episodes]}};
+  }
   const id = Number(cardId), record = core?.cards?.[id] ?? core?.cardsFix?.[id];
   const config = configOverride ?? player?.cardList?.[id];
   const saved = config ?? profilePreference(profileId, 'removedGrowth', {})[id] ?? {};

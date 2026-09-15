@@ -2022,6 +2022,8 @@ mod tests {
             )]),
             event_presets: BTreeMap::new(),
             event_overrides: BTreeMap::new(),
+            custom_cards: Default::default(),
+            next_custom_card_id: 0,
             card_list: (1..=5)
                 .map(|id| {
                     (

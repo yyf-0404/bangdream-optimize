@@ -1,3 +1,5 @@
+import {isSupportedEventType} from '../models/event.js';
+
 export const eventTypeNames = {
   mission_live: '任务 Live · 协力',
   live_try: 'Live Try · EX',
@@ -35,6 +37,10 @@ export function mountEventSelection({root, target, elements, getPlayer, getProfi
   filters.classList.add('bo-event-filters');
   filters.querySelector('legend').textContent = '筛选类型';
   row.after(filters);
+  const warning = document.createElement('p');
+  warning.className = 'event-type-warning';
+  warning.setAttribute('role', 'status');
+  filters.after(warning);
 
   let renderedPlayer;
   function renderChoices(player = renderedPlayer) {
@@ -78,6 +84,7 @@ export function mountEventSelection({root, target, elements, getPlayer, getProfi
     dialog.innerHTML = '<form method="dialog"><header class="pb-dialog-header"><div><p class="pb-eyebrow">自定义活动</p><h2 id="event-type-dialog-title">更改活动类型</h2></div><button type="button" class="pb-icon-button" aria-label="关闭活动类型选择">×</button></header><div class="event-type-dialog-body"><fieldset><legend>活动类型</legend><div class="event-type-options"></div></fieldset><p class="pb-help">演出设置与加成模型将随活动类型更新。</p></div><footer class="pb-dialog-footer"><button type="button" class="pb-link" data-cancel>取消</button><button type="submit" class="pb-primary">应用类型</button></footer></form>';
     const options = dialog.querySelector('.event-type-options');
     for (const [value, name] of Object.entries(eventTypeNames)) {
+      if (!isSupportedEventType(value, player.calculationMode)) continue;
       const label = document.createElement('label');
       const radio = document.createElement('input');
       radio.type = 'radio';
@@ -98,7 +105,7 @@ export function mountEventSelection({root, target, elements, getPlayer, getProfi
         return;
       }
       const type = dialog.querySelector('input:checked')?.value;
-      if (!type) return;
+      if (!type || !isSupportedEventType(type, getPlayer().calculationMode)) return;
       if (type !== current) changeCustomType(type);
       dialog.close();
     };
@@ -113,5 +120,7 @@ export function mountEventSelection({root, target, elements, getPlayer, getProfi
     renderChoices(player);
     typeField.querySelector('[role=status]').textContent = eventTypeNames[event.eventType] || event.eventType;
     change.hidden = Number(player.currentEvent) !== 0;
+    warning.hidden = isSupportedEventType(event.eventType, player.calculationMode);
+    warning.textContent = warning.hidden ? '' : '最高得分仅支持挑战 Live、竞演 Live 和巡回演出。请更换活动或计算目标。';
   }};
 }

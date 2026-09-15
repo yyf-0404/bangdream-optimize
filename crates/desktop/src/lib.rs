@@ -1,9 +1,9 @@
-pub use bangdream_optimize_data::hero_asset;
 use async_trait::async_trait;
 use bangdream_optimize_core::{
     BuildResult, ItemSearchOptions, PlayerConfig, PtEvaluateRequest, PtEvaluateResult,
     PtMaximizeRequest, PtMaximizeResult, ScoreRangeRequest, ScoreRangeResult, Server,
 };
+pub use bangdream_optimize_data::hero_asset;
 use bangdream_optimize_data::{
     update_published_score_range_chart_meta, BestdoriCachedFilesystemCalculator,
     BestdoriFilesystemCalculator, BestdoriFilesystemConfig, BestdoriStaticMirrorConfig, DataError,
@@ -816,6 +816,66 @@ mod tests {
     }
 
     #[test]
+    fn custom_cards_persist_and_calculate_through_the_native_filesystem_path() {
+        let fixture = TestDir::new();
+        let game_data_root = fixture.path().join("game-data");
+        write_game_data_fixture(&game_data_root);
+        let optimizer = DesktopOptimizer::new(DesktopConfig {
+            user_data_root: fixture.path().join("user-data"),
+            game_data: DesktopGameDataSource::Filesystem {
+                root: game_data_root,
+            },
+        })
+        .unwrap();
+        let mut custom_player = player();
+        custom_player.card_list.clear();
+        custom_player.next_custom_card_id = 1_000_000_006;
+        for character in 1..=5u32 {
+            let id = 1_000_000_000 + character;
+            let card = serde_json::from_value(serde_json::json!({
+                "uid": format!("native-{character}"), "enabled": true,
+                "definition": {
+                    "cardId": id, "characterId": character, "bandId": 1, "rarity": 5, "attribute": "cool",
+                    "levelStats": {"60":{"performance":1000,"technique":2000,"visual":3000}},
+                    "trainingStat":{"performance":100,"technique":100,"visual":100},
+                    "episodeStats":[{"performance":10,"technique":20,"visual":30},{"performance":40,"technique":50,"visual":60}],
+                    "skill":{"durations":[5,5.5,6,6.5,7],"scoreUp":{"default":1.3},"rateup":false}
+                },
+                "growth":{"level":60,"training":true,"illustTrainingStatus":true,"episodes":[true,false],"limitBreakRank":2,"skillLevel":5},
+                "editor":{"name":"Native custom","image":"data:image/png;base64,aGVsbG8=","fixed":false}
+            })).unwrap();
+            custom_player.custom_cards.insert(id.to_string(), card);
+        }
+        optimizer
+            .save_active_player_config(custom_player.clone())
+            .unwrap();
+        let loaded = optimizer.load_active_player_config().unwrap().unwrap();
+        assert_eq!(loaded.custom_cards, custom_player.custom_cards);
+        assert_eq!(
+            loaded.next_custom_card_id,
+            custom_player.next_custom_card_id
+        );
+        optimizer.save_player_config(loaded.clone()).unwrap();
+        let result = optimizer
+            .calculate_for_player(123, Server::Jp, None, ItemSearchOptions::default())
+            .unwrap();
+        assert!(result.total_score > 0);
+        assert!(result.songs[0]
+            .team_card_ids
+            .iter()
+            .all(|id| *id > 1_000_000_000));
+        custom_player
+            .custom_cards
+            .get_mut("1000000001")
+            .unwrap()
+            .enabled = false;
+        optimizer.save_player_config(custom_player).unwrap();
+        assert!(optimizer
+            .calculate_for_player(123, Server::Jp, None, ItemSearchOptions::default())
+            .is_err());
+    }
+
+    #[test]
     fn filesystem_calculator_cache_reloads_after_clear() {
         let fixture = TestDir::new();
         let game_data_root = fixture.path().join("game-data");
@@ -1096,6 +1156,8 @@ mod tests {
             )]),
             event_presets: BTreeMap::new(),
             event_overrides: BTreeMap::new(),
+            custom_cards: Default::default(),
+            next_custom_card_id: 0,
             card_list: (1..=5)
                 .map(|id| {
                     (

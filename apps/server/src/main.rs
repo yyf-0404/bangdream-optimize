@@ -1345,12 +1345,17 @@ async fn header_asset(Path(path): Path<String>) -> axum::response::Response {
     if !bangdream_optimize_data::hero_asset::allowed_path(&path) {
         return StatusCode::BAD_REQUEST.into_response();
     }
+    let content_type = bangdream_optimize_data::hero_asset::content_type(&path);
     match tokio::task::spawn_blocking(move || bangdream_optimize_data::hero_asset::fetch(&path))
         .await
     {
         Ok(Ok(bytes)) => (
             [
-                (axum::http::header::CONTENT_TYPE, "image/png"),
+                (axum::http::header::CONTENT_TYPE, content_type),
+                (
+                    axum::http::header::CONTENT_SECURITY_POLICY,
+                    "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+                ),
                 (axum::http::header::CACHE_CONTROL, "public, max-age=86400"),
             ],
             bytes,

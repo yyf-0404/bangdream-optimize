@@ -180,7 +180,7 @@ export function queryElements(document) {
     resultSummary: byId('result-summary'),
     resultCacheList: byId('result-cache-list'),
     metrics: byId('metrics'),
-    copyResult: byId('copy-result'),
+    saveResultImage: byId('save-result-image'),
     feedbackResult: byId('feedback-result'),
     clearResultCache: byId('clear-result-cache'),
     exportDiagnostics: byId('export-diagnostics'),

@@ -554,8 +554,8 @@ const downloadActions = createDownloadActions({
 // Page views.
 const loadCardDetail = id => state.runtime.syncCardDetail(id);
 const readOnlyCardDetails = createCardDetails({loadCardDetail});
-configureCardPresentation(({id,config,captain,order}) => {
-  const card = cardModel(state.core, safeReadPlayer(), id, config, state.activePlayerProfileId);
+configureCardPresentation(({id,config,player,captain,order}) => {
+  const card = cardModel(state.core, player ?? safeReadPlayer(), id, config, state.activePlayerProfileId);
   return createCardBrief(card, {captain,order,onOpen:c=>readOnlyCardDetails.open(c,{context:config?'本次计算':'当前档案'})});
 });
 const cardView = createCardView({

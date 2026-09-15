@@ -142,8 +142,8 @@ await assertRejectsMessage(
 );
 
 await assertRejectsMessage(
-  codec.parseCompactProfileExport(JSON.stringify({ v: 3, t: 'gz+b64', d: 'abc' })),
-  /不支持的配置版本：3/,
+  codec.parseCompactProfileExport(JSON.stringify({ v: 4, t: 'gz+b64', d: 'abc' })),
+  /不支持的配置版本：4/,
 );
 
 await assertRejectsMessage(

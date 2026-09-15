@@ -20,6 +20,7 @@ use std::{
     time::Duration,
 };
 use tauri::{AppHandle, Manager, State};
+use tauri_plugin_clipboard_manager::ClipboardExt;
 
 struct AppState {
     optimizer: Mutex<DesktopOptimizer>,
@@ -265,6 +266,15 @@ async fn pt_evaluate_for_config(
 }
 
 #[tauri::command]
+async fn copy_result_image(app: AppHandle, bytes: Vec<u8>) -> Result<(), String> {
+    run_blocking_task(move || {
+        let image = tauri::image::Image::from_bytes(&bytes).map_err(command_error)?;
+        app.clipboard().write_image(&image).map_err(command_error)
+    })
+    .await
+}
+
+#[tauri::command]
 async fn save_json_file(file_name: String, text: String) -> Result<bool, String> {
     run_blocking_task(move || {
         let Some(path) = rfd::FileDialog::new()
@@ -313,6 +323,7 @@ where
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             let optimizer = DesktopOptimizer::new(desktop_config(app.handle())?)
                 .map_err(|err| setup_error(err.to_string()))?;
@@ -343,6 +354,7 @@ fn main() {
             pt_maximize_for_config,
             pt_evaluate_for_config,
             save_json_file,
+            copy_result_image,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run bangdream-optimize desktop app");
@@ -402,6 +414,8 @@ fn default_player_config() -> PlayerConfig {
         event_songs: BTreeMap::new(),
         event_presets: BTreeMap::new(),
         event_overrides: BTreeMap::new(),
+        custom_cards: Default::default(),
+        next_custom_card_id: 0,
         card_list: BTreeMap::new(),
         area_item: BTreeMap::new(),
         character_bouns: BTreeMap::new(),

@@ -538,6 +538,152 @@ mod tests {
         assert!(result.total_score > 0);
     }
 
+    fn custom_payload() -> WebCalculationPayload {
+        let mut p = payload();
+        let data = BestdoriData::from_values(
+            cards_json(),
+            characters_json(),
+            skills_json(),
+            area_items_json(),
+        )
+        .unwrap();
+        for (_, mut definition) in card_definitions(&p.player, &data).unwrap() {
+            let original_id = definition.card_id;
+            let id = 1_000_000_000 + original_id;
+            definition.card_id = id;
+            p.player.custom_cards.insert(id.to_string(), bangdream_optimize_core::CustomCardConfig {
+                uid: format!("custom-{original_id}"), enabled: true, definition,
+                growth: p.player.card_list[&original_id.to_string()].clone(),
+                editor: json!({"name":"Custom","image":"data:image/png;base64,aGVsbG8=","fixed":true}),
+            });
+        }
+        p.player.card_list.clear();
+        p.player.next_custom_card_id = 1_000_000_006;
+        p
+    }
+
+    #[test]
+    fn custom_only_team_matches_equivalent_official_team_without_bestdori_lookups() {
+        let expected = calculate_payload(payload()).unwrap();
+        let mut p = custom_payload();
+        p.cards = json!({});
+        p.skills = json!({});
+        let result = calculate_payload(p).unwrap();
+        assert_eq!(result.total_score, expected.total_score);
+        assert_eq!(result.total_stat, expected.total_stat);
+        assert!(result.songs[0]
+            .team_card_ids
+            .iter()
+            .all(|id| *id > 1_000_000_000));
+    }
+
+    #[test]
+    fn custom_editor_rejects_skill_rules_not_supported_by_the_engine() {
+        let mut p = custom_payload();
+        p.player
+            .custom_cards
+            .get_mut("1000000001")
+            .unwrap()
+            .definition
+            .skill
+            .durations[0] = 6.1;
+        assert!(calculate_payload(p).is_err());
+        let mut p = custom_payload();
+        let skill = &mut p
+            .player
+            .custom_cards
+            .get_mut("1000000001")
+            .unwrap()
+            .definition
+            .skill;
+        skill.rateup = true;
+        skill.score_up.default = 1.3;
+        assert!(calculate_payload(p).is_err());
+    }
+
+    #[test]
+    fn disabled_custom_card_does_not_fill_an_empty_candidate_slot() {
+        let mut p = custom_payload();
+        p.player.custom_cards.get_mut("1000000001").unwrap().enabled = false;
+        assert!(calculate_payload(p).is_err());
+    }
+
+    #[test]
+    fn fresh_custom_profile_can_calculate_without_configured_items() {
+        let mut p = custom_payload();
+        p.player.area_item.clear();
+        let result = calculate_payload(p).unwrap();
+        assert!(result.total_score > 0);
+        let mut p = custom_payload();
+        p.player.area_item.clear();
+        let result = pt_maximize_payload(WebPtMaximizePayload {
+            cards:p.cards,characters:p.characters,skills:p.skills,area_items:p.area_items,
+            cards_fix:None,skills_fix:None,area_items_fix:None,event:p.event,songs:p.songs,charts:p.charts,
+            player:p.player,server:p.server,event_id:p.event_id,
+            request:serde_json::from_value(json!({"eventType":"challenge","liveVariant":"solo","songs":[{"songId":1,"difficulty":3}]})).unwrap(),
+        }).unwrap();
+        assert!(result.team.is_some());
+    }
+
+    #[test]
+    fn custom_unification_checks_only_dimensions_that_are_restricted() {
+        let baseline = calculate_payload(custom_payload()).unwrap().total_score;
+        let calculate = |band, attribute| {
+            let mut p = custom_payload();
+            for c in p.player.custom_cards.values_mut() {
+                c.definition
+                    .skill
+                    .score_up
+                    .unification_activate_effect_value = Some(2.0);
+                c.definition
+                    .skill
+                    .score_up
+                    .unification_activate_condition_band_id = band;
+                c.definition
+                    .skill
+                    .score_up
+                    .unification_activate_condition_type = attribute;
+            }
+            calculate_payload(p).unwrap().total_score
+        };
+        let unrestricted = calculate(None, None);
+        assert!(unrestricted > baseline);
+        assert_eq!(calculate(Some(1), None), unrestricted);
+        assert_eq!(
+            calculate(None, Some(bangdream_optimize_core::Attribute::Cool)),
+            unrestricted
+        );
+        assert_eq!(calculate(Some(2), None), baseline);
+        assert_eq!(
+            calculate(None, Some(bangdream_optimize_core::Attribute::Pure)),
+            baseline
+        );
+    }
+
+    #[test]
+    fn specified_custom_team_keeps_ids_and_rejects_disabled_members() {
+        fn specified() -> WebPtEvaluatePayload {
+            let p = custom_payload();
+            WebPtEvaluatePayload {
+                cards:p.cards, characters:p.characters, skills:p.skills, area_items:p.area_items,
+                cards_fix:None,skills_fix:None,area_items_fix:None,event:p.event,songs:p.songs,charts:p.charts,
+                player:p.player,server:p.server,event_id:p.event_id,
+                request:serde_json::from_value(json!({
+                    "eventType":"challenge","liveVariant":"solo","songs":[{"songId":1,"difficulty":3}],
+                    "teams":[{"cardIds":[1000000001u32,1000000002u32,1000000003u32,1000000004u32,1000000005u32],"captainCardId":1000000003u32}],
+                    "items":{"band":"1","attribute":"cool","magazine":"performance"}
+                })).unwrap(),
+            }
+        }
+        let result = pt_evaluate_payload(specified()).unwrap();
+        let team = result.team.unwrap();
+        assert_eq!(team.captain_card_id, 1_000_000_003);
+        assert!(team.team_card_ids.iter().all(|id| *id > 1_000_000_000));
+        let mut p = specified();
+        p.player.custom_cards.get_mut("1000000003").unwrap().enabled = false;
+        assert!(pt_evaluate_payload(p).is_err());
+    }
+
     fn payload() -> WebCalculationPayload {
         WebCalculationPayload {
             cards: cards_json(),
@@ -590,6 +736,8 @@ mod tests {
             )]),
             event_presets: BTreeMap::new(),
             event_overrides: BTreeMap::new(),
+            custom_cards: Default::default(),
+            next_custom_card_id: 0,
             card_list: (1..=5)
                 .map(|id| {
                     (

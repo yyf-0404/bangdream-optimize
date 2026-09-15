@@ -80,16 +80,17 @@ pub fn prepare_event_context(
         id: event_id.to_string(),
     })?;
     let card_definitions = player_card_definitions(player, data)?;
+    let card_configs = crate::custom_cards::calculation_card_configs(player);
     let cards = prepare_cards(
         &card_definitions,
-        &player.card_list,
+        &card_configs,
         &player.character_bouns,
         &event.event_bonus,
     )?;
     let uses_point_bonus = event_uses_point_bonus(event.event_type);
     let cards_without_event_bonus = prepare_cards(
         &card_definitions,
-        &player.card_list,
+        &card_configs,
         &player.character_bouns,
         &EventBonus::default(),
     )?;
@@ -155,11 +156,11 @@ pub fn initialized_charts(
     Ok(charts)
 }
 
-pub(crate) fn player_card_definitions(
+pub fn player_card_definitions(
     player: &PlayerConfig,
     data: &GameDataSnapshot,
 ) -> Result<Vec<CardDefinition>, DataError> {
-    player
+    let mut definitions: Vec<CardDefinition> = player
         .card_list
         .keys()
         .map(|card_id| {
@@ -177,7 +178,12 @@ pub(crate) fn player_card_definitions(
                     id: card_id.clone(),
                 })
         })
-        .collect()
+        .collect::<Result<_, DataError>>()?;
+    definitions.extend(crate::custom_cards::enabled_custom_definitions(
+        player,
+        &data.card_definitions,
+    )?);
+    Ok(definitions)
 }
 
 #[cfg(test)]

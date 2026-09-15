@@ -83,3 +83,64 @@ export function setFieldValidationMessage(input, message) {
 export function clearFieldValidationMessage(input) {
   return setFieldValidationMessage(input, '');
 }
+
+let clearRevealedError = () => {};
+export function clearValidationReveal() { clearRevealedError(); }
+
+// A control can be replaced while activating its page. Resolve it again after
+// navigation, and focus the visible combobox instead of its hidden native select.
+export function revealValidationError(error, {activatePage, field} = {}) {
+  if (!globalThis.document) return false;
+  const destination = error?.validationTarget;
+  let selector = destination?.selector;
+  if (field?.dataset?.setting) selector = `[data-setting="${field.dataset.setting}"]`;
+  else if (field?.id) selector = `#${field.id}`;
+  if (!selector && !field) return false;
+  const page = destination?.page || field?.closest('[data-page-panel]')?.dataset.pagePanel;
+  const draftValue = field?.value;
+  clearValidationReveal();
+  if (page) activatePage?.(page);
+  let target = (selector && document.querySelector(selector)) || field;
+  if (!target) return false;
+  if (field && target !== field && draftValue !== undefined) target.value = draftValue;
+  const section = target.closest('.bo-section,.activity-selector-card,.page-section,[data-page-panel]');
+  for (let parent = target.parentElement; parent; parent = parent.parentElement) {
+    if (parent.tagName === 'DETAILS') parent.open = true;
+  }
+  const proxy = target.closest('.bo-select')?.querySelector('.bo-select-trigger');
+  if (proxy) target = proxy;
+  if (!target.getClientRects().length) target = section;
+  if (!target) return false;
+  const container = target.closest('.calc-field,.bo-field,.field') || target;
+  const message = document.createElement('p');
+  message.className = 'validation-callout';
+  message.id = 'active-validation-message';
+  message.setAttribute('role', 'alert');
+  message.textContent = error?.message || field?.validationMessage || '请检查此处配置';
+  if (container.matches('input,select,button')) container.after(message);
+  else container.append(message);
+  target.classList.add('validation-focus');
+  const previous = target.getAttribute('aria-describedby');
+  target.setAttribute('aria-describedby', [previous, message.id].filter(Boolean).join(' '));
+  const addedTabIndex = !target.hasAttribute('tabindex') && !target.matches('input,select,button,a');
+  if (addedTabIndex) target.tabIndex = -1;
+  const scope = section || container;
+  const clear = () => {
+    message.remove();
+    target.classList.remove('validation-focus');
+    if (previous) target.setAttribute('aria-describedby', previous);
+    else target.removeAttribute('aria-describedby');
+    if (addedTabIndex) target.removeAttribute('tabindex');
+    scope.removeEventListener('input', clear);
+    scope.removeEventListener('change', clear);
+    clearRevealedError = () => {};
+  };
+  scope.addEventListener('input', clear);
+  scope.addEventListener('change', clear);
+  clearRevealedError = clear;
+  requestAnimationFrame(() => {
+    target.scrollIntoView({block: 'center', behavior: 'auto'});
+    target.focus({preventScroll: true});
+  });
+  return true;
+}

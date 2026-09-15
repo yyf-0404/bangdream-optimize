@@ -18,6 +18,9 @@ export function createConfigActions({
   renderCharacterBonuses,
 }) {
   function ensureOwnedCardCharacterBonuses(player) {
+    for (const card of Object.values(player.customCards ?? {})) {
+      if (card.enabled) player.characterBouns[String(card.definition.characterId)] ??= normalizedCharacterBonus();
+    }
     for (const cardId of Object.keys(player.cardList)) {
       const characterId = cardCharacterId(cardId);
       if (characterId != null) {

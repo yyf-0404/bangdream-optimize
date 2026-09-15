@@ -1,3 +1,5 @@
+import {validationError} from '../models/validation-error.js';
+
 export function createEventContext({
   state,
   elements,
@@ -31,7 +33,7 @@ export function createEventContext({
     const records = {};
     for (const [eventId, event] of Object.entries(state.core.events)) {
       if (
-        !isHiddenEventId(eventId)
+        !isHiddenEventId(eventId) && isSupportedEventType(event.eventType, calculationMode)
       ) {
         records[eventId] = event;
       }
@@ -41,7 +43,7 @@ export function createEventContext({
 
   function assertSupportedEvent(event, calculationMode = selectedCalculationMode()) {
     if (!isSupportedEventType(event?.eventType, calculationMode)) {
-      throw new Error(`不支持的活动类型：${event?.eventType ?? '未知'}`);
+      throw validationError(calculationMode === 'maximize' ? '最高得分仅支持挑战 Live、竞演 Live 和巡回演出，请更换活动或计算目标。' : `不支持的活动类型：${event?.eventType ?? '未知'}`, '#activity-event-select');
     }
   }
 
@@ -50,7 +52,7 @@ export function createEventContext({
       return;
     }
     if (isHiddenEventId(eventId)) {
-      throw new Error(`活动 ${eventId} 不可用`);
+      throw validationError(`活动 ${eventId} 不可用`, '#activity-event-select');
     }
     const event = state.core?.events?.[String(eventId)];
     if (event) {
@@ -71,7 +73,7 @@ export function createEventContext({
     const fromInput = readOptionalInteger(elements.eventId.value);
     const eventId = fromInput ?? player.currentEvent;
     if (eventId == null) {
-      throw new Error('未设置活动 ID');
+      throw validationError('未设置活动 ID', '#activity-event-select');
     }
     return eventId;
   }

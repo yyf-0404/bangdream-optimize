@@ -7,7 +7,8 @@ import {bandOrder,attributeNames} from './cards/rules.js';
 const categories={band:'乐队道具',attribute:'属性道具',magazine:'杂志'};
 const el=(tag,cls,text)=>{const node=document.createElement(tag);node.className=cls||'';if(text!==undefined)node.textContent=text;return node;};
 const keyOf=group=>group.key.split(':').slice(1).join(':');
-export const equipmentAvailable=(group,player)=>!!group&&group.areaItemIds.every(id=>['59','72'].includes(String(id))||Number(player.areaItem?.[id]?.level)>0);
+import {equipmentAvailable} from '../domain/area.js';
+export {equipmentAvailable} from '../domain/area.js';
 
 export function createEquipmentUI({elements,getPlayer,getProfileId,writePlayer,renderForms,areaItemGroups,areaItemLabel}){
  const root=document.querySelector('#aurora-soft-study'),panel=elements.ptEvaluateItemPanel;

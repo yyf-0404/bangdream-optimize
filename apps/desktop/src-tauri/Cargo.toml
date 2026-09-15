@@ -1,6 +1,6 @@
 [package]
 name = "bangdream-optimize-desktop-app"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/yyf-0404/bangdream-optimize"
@@ -17,4 +17,5 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 rfd = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["image-png"] }
+tauri-plugin-clipboard-manager = "2"

@@ -1,8 +1,10 @@
 import {gameText} from '../preferences.js';
+import {customSkillInfo} from '../../models/custom-cards.js';
 
 // Categories follow the user-supplied tsugu drawCardIconSkill reference.
 // https://github.com/yyf-0404/tsugu-bangdream-bot/blob/medley/backend/src/components/skill.ts
 export function cardSkillInfo(card){
+ if(card.custom)return customSkillInfo(card.customConfig,card.skill);
  const id=card.skillId,s=card.skillRecord;
  if(!s)return {id:null,short:'未知',category:'技能资料缺失',value:'—',score:null,notation:'—',extra:[],description:'当前资料没有这张卡牌的技能记录。',duration:null,effects:[]};
  const level=Math.max(0,Math.min(4,(Number(card.skill)||5)-1));

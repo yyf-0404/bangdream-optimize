@@ -1,5 +1,8 @@
+import {validationError, validateAt} from '../models/validation-error.js';
+import {revealValidationError, clearValidationReveal} from '../ui/validation.js';
 import { confirmDialog } from '../ui/confirm.js?v=3';
-import { copyTextToClipboard } from '../ui/clipboard.js?v=3';
+import {copyImageToClipboard} from '../ui/clipboard.js';
+import {renderResultImage, offerResultImage} from '../ui/result-image.js';
 import { totalFireCost } from '../utils.js?v=3';
 import {
   ptEvaluateLiveVariant,
@@ -9,7 +12,8 @@ import {
   withPtMaximizeLiveVariant,
 } from '../models/player-settings.js?v=3';
 import { validatePtEvaluateTeamSelection } from '../models/pt-evaluate-validation.js?v=1';
-import {showResultCopy} from '../ui/result-dialogs.js';
+import {customCardPresentationKey} from '../models/custom-cards.js';
+import {equipmentAvailable} from '../domain/area.js';
 
 export function createCalculationActions({
   state,
@@ -48,7 +52,7 @@ export function createCalculationActions({
   clearPersistedResultCache,
   yieldForPaint = yieldToBrowserPaint,
 }) {
-  const RESULT_CACHE_KEY_VERSION = 7;
+  const RESULT_CACHE_KEY_VERSION = 8;
   const calculateButton = elements.calculateButton;
   const calculateButtons = Array.from(elements.calculateButtons || []);
   const calculateButtonLabel = calculateButton?.querySelector('.button-label');
@@ -92,6 +96,7 @@ export function createCalculationActions({
       eventSearch: player.eventSearch,
       currentEvent: player.currentEvent,
       cards: Object.fromEntries(Object.entries(player.cardList||{}).map(([id,card])=>{const {illustTrainingStatus,...growth}=card;return [id,growth];})),
+      customCards: Object.fromEntries(Object.entries(player.customCards||{}).map(([id,c])=>[id,{uid:c.uid,enabled:c.enabled,definition:c.definition,growth:c.growth,editor:customCardPresentationKey(c)}])),
       areas: player.areaItem,
       chars: player.characterBouns,
       bonuses: player.eventPresets,
@@ -210,20 +215,18 @@ export function createCalculationActions({
     if (isCalculating) {
       return;
     }
+    clearValidationReveal();
     if (elements.form?.checkValidity && !elements.form.checkValidity()) {
-      const firstInvalid = elements.form.querySelector('.is-invalid, :invalid');
-      if (firstInvalid?.focus) {
-        const page=firstInvalid.closest('[data-page-panel]')?.dataset.pagePanel;
-        if(page) activatePage(page);
-        firstInvalid.focus();
-        firstInvalid.reportValidity?.();
-        setStatus(firstInvalid.validationMessage || '请补全标出的计算参数');
-      }
+      const firstInvalid = elements.form.querySelector('input:invalid,select:invalid,textarea:invalid');
+      const error = new Error(firstInvalid?.validationMessage || '请补全标出的计算参数');
+      revealValidationError(error, {activatePage, field: firstInvalid});
+      setError(error);
       return;
     }
     try {
       validatePtEvaluateBeforeCalculation();
     } catch (error) {
+      revealValidationError(error, {activatePage});
       setError(error);
       return;
     }
@@ -237,14 +240,14 @@ export function createCalculationActions({
     try {
       const player = requestPlayer;
       if (requestProfileId !== state.activePlayerProfileId) throw new Error('档案已切换，请重新开始计算');
-      applyEventInputToPlayer(player);
+      validateAt('#activity-event-select', () => applyEventInputToPlayer(player));
       applyScoreRangeInputToPlayer(player);
       applyPtMaximizeInputToPlayer(player);
       applyPtEvaluateInputToPlayer(player);
       const eventId = readCurrentEventId(player, readOptionalInteger(elements.eventId.value));
-      const scoreRangeRequest = player.calculationMode === 'scoreRange' ? readScoreRangeRequest() : undefined;
-      const ptMaximizeRequest = player.calculationMode === 'ptMaximize' ? readPtMaximizeRequest(player, eventId) : undefined;
-      const ptEvaluateRequest = player.calculationMode === 'ptEvaluate' ? readPtEvaluateRequest(player, eventId) : undefined;
+      const scoreRangeRequest = player.calculationMode === 'scoreRange' ? validateAt('#bo-calculation-settings', () => readScoreRangeRequest()) : undefined;
+      const ptMaximizeRequest = player.calculationMode === 'ptMaximize' ? validateAt('#bo-calculation-settings', () => readPtMaximizeRequest(player, eventId)) : undefined;
+      const ptEvaluateRequest = player.calculationMode === 'ptEvaluate' ? validateAt('[data-section=bo-teams]', () => readPtEvaluateRequest(player, eventId)) : undefined;
       setStatus('准备计算');
       await yieldForPaint();
       setStatus('同步数据');
@@ -333,6 +336,7 @@ export function createCalculationActions({
       applyResult(result, diagnostic, cacheKey, requestProfileId, revealResult());
       setStatus(resultCacheSaved ? '完成' : '完成（结果缓存保存失败）');
     } catch (error) {
+      revealValidationError(error, {activatePage});
       setError(error);
     } finally {
       isCalculating = false;
@@ -361,7 +365,7 @@ export function createCalculationActions({
     applyEventInputToPlayer(player);
     applyPtEvaluateInputToPlayer(player);
     const eventId = readCurrentEventId(player, readOptionalInteger(elements.eventId.value));
-    readPtEvaluateRequest(player, eventId);
+    validateAt('[data-section=bo-teams]', () => readPtEvaluateRequest(player, eventId));
   }
 
   async function calculatePtMaximize({ player, eventId, core, request }) {
@@ -397,7 +401,7 @@ export function createCalculationActions({
   function readScoreRangeRequest() {
     const request = readScoreRangeForm({ strict: true });
     if (request.targetTotalPt <= request.currentPt) {
-      throw new Error('目标总 PT 必须大于当前 PT');
+      throw validationError('目标总 PT 必须大于当前 PT', '[data-setting="scoreRange.targetTotalPt"]');
     }
     if (
       elements.scoreRangeMissionSupportPt.required
@@ -475,6 +479,7 @@ export function createCalculationActions({
       applyScoreRangeInputToPlayer(player);
       writePlayer(player);
     } catch (error) {
+      revealValidationError(error, {activatePage});
       setError(error);
     }
   }
@@ -490,7 +495,7 @@ export function createCalculationActions({
   function readPtMaximizeRequest(player, eventId) {
     const eventType = ptMaximizeEventType(player, eventId);
     if (!eventType) {
-      throw new Error('未设置活动类型');
+      throw validationError('未设置活动类型', '#activity-event-select');
     }
     const form = readPtMaximizeForm({
       strict: true,
@@ -659,6 +664,7 @@ export function createCalculationActions({
       writePlayer(player);
       renderConfigForms(player);
     } catch (error) {
+      revealValidationError(error, {activatePage});
       setError(error);
     }
   }
@@ -675,7 +681,7 @@ export function createCalculationActions({
   function readPtEvaluateRequest(player, eventId) {
     const eventType = ptMaximizeEventType(player, eventId);
     if (!eventType) {
-      throw new Error('未设置活动类型');
+      throw validationError('未设置活动类型', '#activity-event-select');
     }
     const form = readPtEvaluateForm({
       strict: true,
@@ -703,7 +709,7 @@ export function createCalculationActions({
     if (liveVariant === 'versus') {
       request.versus = { teamRank: form.versusTeamRank };
     }
-    validatePtEvaluateTeamSelection(player, request, cardCharacterId);
+    validateAt('[data-section=bo-teams]', () => validatePtEvaluateTeamSelection(player, request, cardCharacterId));
     return request;
   }
 
@@ -722,7 +728,7 @@ export function createCalculationActions({
         const value = String(input.value ?? '').trim();
         if (!value) {
           if (strict) {
-            throw new Error(`队伍 ${teamIndex + 1} 的卡位 ${cardIndex + 1} 不能为空`);
+            throw validationError(`队伍 ${teamIndex + 1} 的卡位 ${cardIndex + 1} 不能为空`, '[data-section=bo-teams]');
           }
           return 0;
         }
@@ -753,14 +759,12 @@ export function createCalculationActions({
       magazine: itemValue(elements.ptEvaluateMagazineItem, config?.items?.magazine),
     };
     if (strict && Object.values(items).some((value) => !value)) {
-      throw new Error('必须完整选择乐队、属性和杂志道具');
+      throw validationError('必须完整选择乐队、属性和杂志道具', '[data-section=bo-equipment]');
     }
-    if (strict && [
-      elements.ptEvaluateBandItem,
-      elements.ptEvaluateAttributeItem,
-      elements.ptEvaluateMagazineItem,
-    ].some((select) => select.selectedOptions?.[0]?.dataset.unavailable === '1')) {
-      throw new Error('所选区域道具组包含 0 级道具');
+    const currentPlayer = strict ? readPlayer() : null;
+    if (strict && Object.entries(items).some(([category, value]) => !equipmentAvailable(
+      areaItemGroups(currentPlayer).find(g => g.category === category && g.key.split(':').slice(1).join(':') === value), currentPlayer))) {
+      throw validationError('所选区域道具组包含 0 级道具', '[data-section=bo-equipment]');
     }
     return {
       liveVariantByEventType: withPtEvaluateLiveVariant(
@@ -791,6 +795,7 @@ export function createCalculationActions({
       writePlayer(player);
       renderConfigForms(player);
     } catch (error) {
+      revealValidationError(error, {activatePage});
       setError(error);
     }
   }
@@ -841,6 +846,7 @@ export function createCalculationActions({
         + `${Object.keys(current.characterBouns ?? {}).length} 个角色加成`,
       );
     } catch (error) {
+      revealValidationError(error, {activatePage});
       setError(error);
     } finally {
       button.disabled = false;
@@ -905,6 +911,7 @@ export function createCalculationActions({
       renderResultCachePanel(cacheKey);
       setStatus('已恢复结果缓存');
     } catch (error) {
+      revealValidationError(error, {activatePage});
       setError(error);
     }
   }
@@ -942,6 +949,7 @@ export function createCalculationActions({
       }
       setStatus('已删除结果缓存');
     } catch (error) {
+      revealValidationError(error, {activatePage});
       setError(error);
     }
   }
@@ -972,6 +980,7 @@ export function createCalculationActions({
       renderResultCachePanel(null);
       setStatus('结果缓存已清空');
     } catch (error) {
+      revealValidationError(error, {activatePage});
       setError(error);
     }
   }
@@ -1002,21 +1011,28 @@ export function createCalculationActions({
       : undefined;
   }
 
-  async function handleCopyResult() {
+  async function handleSaveResultImage() {
+    const button = elements.saveResultImage;
+    if (button.disabled) return;
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    button.textContent = '正在生成图片…';
+    const image = renderResultImage(document.querySelector('#result-design'), state.runtime);
+    image.catch(() => {});
     try {
-      if (!state.lastDiagnostic) {
-        throw new Error('还没有可复制的 score_check 数据');
-      }
-      const isFailure = state.lastDiagnostic.status === 'failed'
-        || state.lastDiagnostic.error != null;
-      const payload = isFailure
-        ? state.lastDiagnostic
-        : Array.isArray(state.lastDiagnostic.result)
-          ? state.lastDiagnostic.result
-          : scoreCheckPayloadFromDiagnostic(state.lastDiagnostic);
-      showResultCopy(payload,async text=>{await copyTextToClipboard(text);setStatus(isFailure?'诊断 JSON 已复制':'结果 JSON 已复制');});
+      await copyImageToClipboard(image, state.runtime);
+      setStatus('结果图片已复制，可直接粘贴');
+      const notice = document.querySelector('#result-action-status');
+      notice.textContent = '结果图片已复制，可直接粘贴 ';
+      const preview = document.createElement('button');preview.type='button';preview.className='text-button';preview.textContent='查看图片';
+      const blob = await image;preview.onclick=()=>offerResultImage(blob, state.runtime, {copied:true});notice.append(preview);
     } catch (error) {
-      setError(error);
+      try { offerResultImage(await image, state.runtime); }
+      catch (renderError) { setError(renderError); document.querySelector('#result-action-status').textContent = renderError.message; }
+    } finally {
+      button.disabled = !state.lastDiagnostic?.result;
+      button.removeAttribute('aria-busy');
+      button.textContent = '保存结果图片';
     }
   }
 
@@ -1028,6 +1044,8 @@ export function createCalculationActions({
       const fileName = diagnosticFileName(state.lastDiagnostic);
       const json = JSON.stringify(state.lastDiagnostic, null, 2);
       const result = await state.runtime.saveJsonFile({ fileName, text: json });
+      const notice = globalThis.document?.querySelector('#result-action-status');
+      if (notice) notice.textContent = result === 'cancelled' ? '已取消导出诊断' : `已导出 ${fileName}`;
       if (result === 'cancelled') {
         setStatus('已取消导出诊断');
       } else if (result === 'downloaded') {
@@ -1036,6 +1054,7 @@ export function createCalculationActions({
         setStatus('诊断已导出');
       }
     } catch (error) {
+      revealValidationError(error, {activatePage});
       setError(error);
     }
   }
@@ -1078,7 +1097,7 @@ export function createCalculationActions({
   return {
     syncProfileResult,
     handleCalculate,
-    handleCopyResult,
+    handleSaveResultImage,
     handleExportDiagnostics,
     handleResultCacheAction,
     handleClearResultCache,
@@ -1109,116 +1128,6 @@ function yieldToBrowserPaint() {
     requestAnimationFrame(() => setTimeout(done, 0));
     fallbackTimer = setTimeout(done, 50);
   });
-}
-
-export function scoreCheckPayloadFromDiagnostic(diagnostic) {
-  const result = diagnostic?.result;
-  const player = diagnostic?.player;
-  if (!result || !player) {
-    throw new Error('诊断数据缺少结果或玩家配置');
-  }
-  if (!result.items) {
-    throw new Error('当前结果没有道具选择，无法生成 score_check 数据');
-  }
-
-  const eventId = firstDefinedNumber(
-    diagnostic.eventId,
-    player.currentEvent,
-    result.eventId,
-  );
-  const eventKey = String(eventId);
-  const eventKeys = scoreCheckEventKeys(diagnostic, player, result);
-  const songs = scoreCheckSongs(result);
-
-  return {
-    server: diagnostic.server,
-    eventId,
-    result: scoreCheckResult(result),
-    player: {
-      playerId: Number.isFinite(Number(player.playerId)) ? Number(player.playerId) : 0,
-      currentEvent: eventId,
-      eventSongs: {
-        [eventKey]: songs,
-      },
-      eventPresets: pickObjectKeys(player.eventPresets, eventKeys),
-      eventOverrides: pickObjectKeys(player.eventOverrides, eventKeys),
-      cardList: pickObjectKeys(player.cardList, scoreCheckCardIds(result)),
-      areaItem: cloneJson(player.areaItem ?? {}),
-      characterBouns: cloneJson(player.characterBouns ?? {}),
-    },
-  };
-}
-
-function scoreCheckResult(result) {
-  return {
-    eventId: result.eventId,
-    eventType: result.eventType,
-    totalScore: result.totalScore,
-    totalStat: result.totalStat,
-    songs: (result.songs ?? []).map((song) => ({
-      songId: song.songId,
-      difficulty: song.difficulty,
-      score: song.score,
-      stat: song.stat,
-      teamCardIds: [...(song.teamCardIds ?? [])],
-      captainCardId: song.captainCardId,
-    })),
-    items: cloneJson(result.items),
-  };
-}
-
-function scoreCheckSongs(result) {
-  return (result.songs ?? []).map((song) => ({
-    songId: song.songId,
-    difficulty: song.difficulty,
-  }));
-}
-
-function scoreCheckCardIds(result) {
-  const cardIds = new Set();
-  for (const song of result.songs ?? []) {
-    for (const cardId of song.teamCardIds ?? []) {
-      cardIds.add(String(cardId));
-    }
-  }
-  return cardIds;
-}
-
-function scoreCheckEventKeys(diagnostic, player, result) {
-  const keys = new Set();
-  for (const value of [diagnostic?.eventId, player?.currentEvent, result?.eventId]) {
-    const number = firstDefinedNumber(value);
-    if (number != null) {
-      keys.add(String(number));
-    }
-  }
-  return keys;
-}
-
-function pickObjectKeys(source, keys) {
-  const picked = {};
-  if (!source || typeof source !== 'object') {
-    return picked;
-  }
-  for (const key of keys) {
-    if (Object.prototype.hasOwnProperty.call(source, key)) {
-      picked[key] = cloneJson(source[key]);
-    }
-  }
-  return picked;
-}
-
-function firstDefinedNumber(...values) {
-  for (const value of values) {
-    if (value == null || value === '') {
-      continue;
-    }
-    const number = Number(value);
-    if (Number.isFinite(number)) {
-      return number;
-    }
-  }
-  return undefined;
 }
 
 function cloneJson(value) {

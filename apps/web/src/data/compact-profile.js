@@ -1,3 +1,4 @@
+import {mergeCustomCards} from '../models/custom-cards.js';
 const COMMON_CARD_LEVELS = [1, 20, 30, 50, 60];
 
 export function createCompactProfileCodec({ normalizedPlayer } = {}) {
@@ -10,6 +11,7 @@ export function createCompactProfileCodec({ normalizedPlayer } = {}) {
       c: buildCompactCards(source.cardList),
       b: buildCompactCharacterBonuses(source.characterBouns),
       a: buildCompactAreaItems(source.areaItem),
+      ...(Object.keys(source.customCards||{}).length || source.nextCustomCardId>1_000_000_001 ? {x:{cards:source.customCards,nextId:source.nextCustomCardId}} : {}),
     };
   }
 
@@ -24,7 +26,7 @@ export function createCompactProfileCodec({ normalizedPlayer } = {}) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       throw new Error('配置导入内容必须是 JSON 对象');
     }
-    if (payload.v !== 1 && payload.v !== 2) {
+    if (![1,2,3].includes(payload.v)) {
       throw new Error(`不支持的配置版本：${payload.v}`);
     }
     if (!['gz+b64', 'bit1+b64'].includes(payload.t) && payload.t != null) {
@@ -33,6 +35,7 @@ export function createCompactProfileCodec({ normalizedPlayer } = {}) {
     if (payload.v === 2 && payload.t !== 'bit1+b64') {
       throw new Error(`不支持的配置压缩格式：${payload.t ?? '未指定'}`);
     }
+    if (payload.v === 3 && payload.t !== 'gz+b64') throw new Error('自定义卡牌配置需要 gzip 压缩格式');
     if (typeof payload.d !== 'string' || !payload.d) {
       throw new Error('配置缺少 base64 压缩内容');
     }
@@ -59,8 +62,11 @@ export function createCompactProfileCodec({ normalizedPlayer } = {}) {
     if (!compactProfile || typeof compactProfile !== 'object') {
       throw new Error('配置内容无效');
     }
+    const custom = mergeCustomCards(basePlayer, compactProfile.x?.cards, compactProfile.x?.nextId);
     return normalizedPlayer({
       ...basePlayer,
+      customCards: custom.customCards,
+      nextCustomCardId: custom.nextCustomCardId,
       cardList: compactCardsToPlayer(compactProfile.c),
       characterBouns: compactCharacterBonusesToPlayer(compactProfile.b),
       areaItem: compactAreaItemsToPlayer(compactProfile.a),
@@ -68,6 +74,9 @@ export function createCompactProfileCodec({ normalizedPlayer } = {}) {
   }
 
   async function compressProfilePayload(payload) {
+    // The legacy bit format has no extensible section; gzip preserves custom
+    // definitions, images and the monotonically increasing allocation counter.
+    if (payload.x) return {...await compressProfilePayloadAsGzip(payload),version:3};
     const encoded = encodeBitProfilePayload(payload);
     return {
       version: 2,
@@ -498,6 +507,7 @@ function parseCompactProfilePayloadText(text) {
       c: Array.isArray(payload.c) ? payload.c : [],
       b: Array.isArray(payload.b) ? payload.b : [],
       a: Array.isArray(payload.a) ? payload.a : [],
+      ...(payload.x != null ? {x:payload.x} : {}),
     };
   } catch (error) {
     throw new Error(`Base64 配置内容解析失败：${error.message}`);

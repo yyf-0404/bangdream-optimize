@@ -469,10 +469,27 @@ pub struct PlayerConfig {
     pub event_overrides: BTreeMap<String, Value>,
     #[serde(default)]
     pub card_list: BTreeMap<String, PlayerCardConfig>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub custom_cards: BTreeMap<String, CustomCardConfig>,
+    #[serde(default)]
+    pub next_custom_card_id: u32,
     #[serde(default)]
     pub area_item: BTreeMap<String, AreaItemConfig>,
     #[serde(default)]
     pub character_bouns: BTreeMap<String, CharacterBonusConfig>,
+}
+
+/// User definitions never enter the Bestdori card catalog. Presentation metadata
+/// is preserved in profiles and result snapshots but does not affect scoring.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomCardConfig {
+    pub uid: String,
+    pub enabled: bool,
+    pub definition: super::preparation::CardDefinition,
+    pub growth: PlayerCardConfig,
+    #[serde(default)]
+    pub editor: Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

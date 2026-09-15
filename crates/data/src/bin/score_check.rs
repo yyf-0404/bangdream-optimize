@@ -79,22 +79,15 @@ fn run() -> Result<(), Box<dyn Error>> {
         .events
         .get(&event_id)
         .ok_or("snapshot is missing selected event")?;
-    let card_definitions = diagnostic
-        .player
-        .card_list
-        .keys()
-        .map(|card_id| {
-            let parsed = card_id.parse::<u32>()?;
-            snapshot
-                .card_definitions
-                .get(&parsed)
-                .cloned()
-                .ok_or_else(|| format!("snapshot is missing card definition {parsed}").into())
-        })
-        .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
+    let card_definitions = bangdream_optimize_data::preparation::player_card_definitions(
+        &diagnostic.player,
+        &snapshot,
+    )?;
+    let card_configs =
+        bangdream_optimize_data::custom_cards::calculation_card_configs(&diagnostic.player);
     let prepared = prepare_cards(
         &card_definitions,
-        &diagnostic.player.card_list,
+        &card_configs,
         &diagnostic.player.character_bouns,
         &event.event_bonus,
     )?;

@@ -5,16 +5,17 @@ import { createCardBrief } from './cards/brief.js';
 import { createCardDetails } from './cards/presentation.js';
 import { gameText } from './preferences.js';
 import { teamChoiceReason, placeTeamCard } from './team-rules.js';
+import { createCustomCardPicker } from './custom-cards/picker.js';
 
 const el=(tag,cls,text)=>{const n=document.createElement(tag);n.className=cls||'';if(text!==undefined)n.textContent=text;return n;};
 const btn=(text,fn,cls='')=>{const b=el('button',cls,text);b.type='button';b.onclick=fn;return b;};
 export function createTeamEditor({getCore,getPlayer,getProfileId,writePlayer,onApply,importDraft,openDetails}) {
-  let dialog,catalog,draft,index,slot,profileId,trigger,original,busy=false,generation=0,activeTeamCount=1,onlyAvailable=false;
+  let dialog,catalog,customPicker,draft,index,slot,profileId,trigger,original,busy=false,generation=0,activeTeamCount=1,onlyAvailable=false;
   const details=createCardDetails(),q=s=>dialog.querySelector(s),teams=()=>draft.ptEvaluate.teams.slice(0,activeTeamCount);
   function close(){generation++;busy=false;catalog?.destroy();dialog?.close();dialog?.remove();trigger?.focus({preventScroll:true});}
-  function invalid(c){return teamChoiceReason(c,teams(),index,slot,id=>getCore().cards[id]?.characterId);}
+  function invalid(c){return teamChoiceReason(c,teams(),index,slot,id=>cardModel(getCore(),draft,id).characterId);}
   function changeTeam(value){if(busy)return;index=value;slot=Math.max(0,draft.ptEvaluate.teams[index].findIndex(id=>!id));refresh();}
-  function refresh(){slots();catalog?.refresh();}
+  function refresh(){slots();catalog?.refresh();customPicker?.refresh();}
   function slots(){
     const host=q('.pt-slots'),team=draft.ptEvaluate.teams[index];host.replaceChildren();
     const tabs=q('.pt-tabs');tabs.replaceChildren();tabs.hidden=activeTeamCount===1;
@@ -26,7 +27,7 @@ export function createTeamEditor({getCore,getPlayer,getProfileId,writePlayer,onA
       cell.dataset.slotIndex=at;host.append(cell);
     }
     const id=team[slot],card=id?cardModel(getCore(),draft,id):null;
-    q('.pt-current>p').textContent='正在编辑第 '+(index+1)+' 队 · 卡位 '+(slot+1)+(card?' · '+card.name+' #'+id:' · 选择后移到下一空位');
+    q('.pt-current>p').textContent='正在编辑第 '+(index+1)+' 队 · 卡位 '+(slot+1)+(card?' · '+card.name+' '+(card.displayId||'#'+id):' · 选择后移到下一空位');
     q('[data-team-detail]').disabled=busy||!card||card.unknown;
     q('[data-team-captain]').disabled=busy||!id||slot===2;q('[data-team-remove]').disabled=busy||!id;q('[data-team-clear]').disabled=busy||!team.some(Boolean);
     q('[data-team-import]').disabled=busy;q('[data-team-import]').setAttribute('aria-label','为第 '+(index+1)+' 队导入主乐队');
@@ -48,6 +49,15 @@ export function createTeamEditor({getCore,getPlayer,getProfileId,writePlayer,onA
     for(const [key,id]of Object.entries(bindings))q('#pt-'+id).setAttribute('data-team-'+key,'');
     const scroll=q('.pt-scroll'),available=q('#pt-only-available').closest('label');available.className='pt-available';
     scroll.classList.add('team-editor-scroll');scroll.replaceChildren(available);const library=el('div','team-editor-catalog accepted-card-picker');scroll.append(library);q('#pt-feedback').classList.add('team-editor-status');
+    const sourceTabs=el('div','card-source-tabs'),customHost=el('section');customHost.hidden=true;
+    sourceTabs.setAttribute('role','tablist');sourceTabs.setAttribute('aria-label','指定队伍卡牌来源');
+    sourceTabs.innerHTML='<button type="button" role="tab" id="team-game-tab" aria-controls="team-game-panel" aria-selected="true">游戏卡牌</button><button type="button" role="tab" id="team-custom-tab" aria-controls="team-custom-panel" aria-selected="false" tabindex="-1">自定义卡牌</button>';
+    library.id='team-game-panel';customHost.id='team-custom-panel';[library,customHost].forEach((n,i)=>{n.setAttribute('role','tabpanel');n.setAttribute('aria-labelledby',i?'team-custom-tab':'team-game-tab');});
+    library.before(sourceTabs);library.after(customHost);
+    const selectSource=i=>{library.hidden=i!==0;customHost.hidden=i!==1;[...sourceTabs.children].forEach((b,at)=>{b.setAttribute('aria-selected',String(i===at));b.tabIndex=i===at?0:-1;});};
+    [...sourceTabs.children].forEach((b,i)=>{b.onclick=()=>selectSource(i);b.onkeydown=e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const next=e.key==='Home'?0:e.key==='End'?1:1-i;selectSource(next);sourceTabs.children[next].focus();};});
+    const pick=c=>{if(busy||invalid(c))return;const choice=placeTeamCard(draft.ptEvaluate.teams[index],slot,c.id);draft.ptEvaluate.teams[index]=choice.team;slot=choice.slot;refresh();};
+    customPicker=createCustomCardPicker({host:customHost,getCore,getPlayer:()=>draft,disabledReason:invalid,candidateFilter:c=>!onlyAvailable||!invalid(c),onPick:pick,onDetails:c=>details.open(c,{context:'队伍草稿'})});
     document.querySelector('#aurora-soft-study').append(dialog);
     q('[data-team-close]').onclick=q('[data-team-cancel]').onclick=close;
     dialog.addEventListener('cancel',e=>{e.preventDefault();close();});
@@ -57,7 +67,7 @@ export function createTeamEditor({getCore,getPlayer,getProfileId,writePlayer,onA
     q('[data-team-remove]').onclick=()=>{draft.ptEvaluate.teams[index][slot]=0;refresh();};
     q('[data-team-clear]').onclick=()=>{draft.ptEvaluate.teams[index].fill(0);slot=0;refresh();};
     q('[data-team-next]').onclick=()=>changeTeam(index+1);
-    q('.pt-available input').onchange=e=>{onlyAvailable=e.target.checked;catalog.refresh();};
+    q('.pt-available input').onchange=e=>{onlyAvailable=e.target.checked;catalog.refresh();customPicker.refresh();};
     q('[data-team-import]').onclick=async()=>{
       const token=generation;busy=true;slots();const status=q('.team-editor-status');status.textContent='读取主乐队配置…';
       try{const imported=await importDraft(structuredClone(draft),index);if(token!==generation)return;if(profileId!==getProfileId())throw new Error('档案已切换，请重新打开队伍编辑');draft=imported;status.textContent='已载入主乐队草稿。应用后保存队伍、养成与道具，取消将放弃导入。';}

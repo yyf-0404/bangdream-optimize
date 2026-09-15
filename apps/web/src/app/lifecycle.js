@@ -82,7 +82,7 @@ const CLICK_BINDINGS = [
   ['toggleCharacterBonuses', 'handleToggleCharacterBonuses'],
   ['setCharacterBonuses', 'handleToggleAllCharacterBonuses'],
   ['clearLocalCache', 'handleClearLocalCache'],
-  ['copyResult', 'handleCopyResult'],
+  ['saveResultImage', 'handleSaveResultImage'],
   ['exportDiagnostics', 'handleExportDiagnostics'],
 ];
 
@@ -147,6 +147,7 @@ export function createAppLifecycle({
         await state.runtime.savePlayerConfig(readPlayer());
       }
       renderConfigForms(readPlayer());
+      for (const button of elements.calculateButtons || []) button.disabled = false;
       setStatus('就绪');
       warmupCardSearchIndex?.();
     } catch (error) {

@@ -15,6 +15,8 @@ export async function createDesktopRuntime() {
 
   return {
     kind: 'desktop',
+    loadResultAsset: async path => new Blob([new Uint8Array(await invoke('load_header_asset',{path}))],{type:path.endsWith('.svg')?'image/svg+xml':'image/png'}),
+    copyImage: async blob => invoke('copy_result_image', {bytes: Array.from(new Uint8Array(await blob.arrayBuffer()))}),
     loadHeaderAsset: async path => new Blob([new Uint8Array(await invoke('load_header_asset',{path}))],{type:'image/png'}),
     samplePlayerConfig,
     loadPlayerConfig: async (configId) =>

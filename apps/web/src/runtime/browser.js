@@ -13,7 +13,7 @@ import {
 } from '../storage/user.js?v=3';
 import { submitFeedbackRequest } from '../data/feedback.js?v=2';
 
-const ASSET_VERSION = '5';
+const ASSET_VERSION = '7';
 
 export async function createBrowserRuntime({ onProgress } = {}) {
   const config = readRuntimeConfig();
@@ -47,6 +47,14 @@ export async function createBrowserRuntime({ onProgress } = {}) {
 
   return {
     kind: 'browser',
+    loadResultAsset: async path => {
+      const base = (config.headerAssetApiBaseUrl ?? config.apiBaseUrl ?? '').replace(/\/$/, '');
+      const response = await fetch(base + '/bestdori/header/' + path, {signal:AbortSignal.timeout(15000)});
+      if (!response.ok || !/^image\/(png|svg\+xml)/.test(response.headers.get('content-type') || '')) {
+        throw new Error('结果图片素材读取失败，请确认图片代理服务已更新');
+      }
+      return response.blob();
+    },
     loadHeaderAsset: async path => {
       const base = (config.headerAssetApiBaseUrl ?? config.apiBaseUrl ?? '').replace(/\/$/, '');
       const response = await fetch(base + '/bestdori/header/' + path, {signal:AbortSignal.timeout(12000)});
@@ -257,7 +265,7 @@ function downloadJsonFile(fileName, text) {
   document.body.append(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 async function fetchBestdoriPlayerProfile(apiBaseUrls, { playerId, server, mode }) {

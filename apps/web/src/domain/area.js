@@ -284,3 +284,5 @@ function mergedEntityIds(records = {}, selected = {}) {
     ...(selected ?? {}),
   }).sort(numericStringSort);
 }
+
+export const equipmentAvailable=(group,player)=>!!group&&group.areaItemIds.every(id=>['59','72'].includes(String(id))||Number(player.areaItem?.[id]?.level)>0);

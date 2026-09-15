@@ -187,3 +187,19 @@ if (existsSync(heavyFixtureUrl)) {
   assert.deepEqual(playerWithBase.areaItem['68'], { level: 0 });
   assert.deepEqual(playerWithBase.areaItem['72'], { level: 0 });
 }
+
+// Official Bestdori order is Powerful, Cool, Happy, Pure; the two sets
+// deliberately use different levels to catch reversal and attribute shifts.
+{
+  const p = episodeImporter.bestdoriProfileToPlayerConfig({
+    server: 3, cards: [], items: {Plaza: [0,1,2,3], Menu: [4,5,6,null]},
+  });
+  assert.deepEqual(Object.fromEntries([70,66,67,69,56,57,58,60].map(id=>[id,p.areaItem[id].level])),
+    {70:1,66:2,67:3,69:4,56:5,57:6,58:7,60:0});
+  const roundTrip = parseBestdoriProfileExport(JSON.stringify(episodeImporter.playerToBestdoriProfileExport(p)));
+  assert.deepEqual(roundTrip.items.Plaza,[0,1,2,3]);
+  assert.deepEqual(roundTrip.items.Menu,[4,5,6,null]);
+  const enabled = normalizedPlayer();
+  episodeImporter.importEnabledAreaItems(enabled, {enabledUserAreaItems:{entries:[{areaItemCategory:56,level:4},{areaItemCategory:70,level:7}]}});
+  assert.deepEqual(enabled.areaItem, {56:{level:4},70:{level:7}});
+}

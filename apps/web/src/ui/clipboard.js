@@ -19,6 +19,15 @@ export async function copyTextToClipboard(text, { fallbackInput } = {}) {
   }
 }
 
+export function copyImageToClipboard(imagePromise, runtime) {
+  if (runtime?.copyImage) return imagePromise.then(blob => runtime.copyImage(blob));
+  if (!globalThis.ClipboardItem || !navigator.clipboard?.write) {
+    return Promise.reject(new Error('当前浏览器不支持复制图片'));
+  }
+  // Pass the promise during the click's user activation (required by Safari).
+  return navigator.clipboard.write([new ClipboardItem({'image/png': imagePromise})]);
+}
+
 function temporaryClipboardInput(text) {
   const input = document.createElement('textarea');
   input.value = text;

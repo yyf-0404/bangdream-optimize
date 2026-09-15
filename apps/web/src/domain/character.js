@@ -10,9 +10,9 @@ export function createCharacterBonusHelpers({
 }) {
   function selectedCardCharacterIds(player) {
     return uniqueSortedNumbers(
-      Object.keys(player.cardList)
+      [...Object.keys(player.cardList)
         .map(cardCharacterId)
-        .filter((characterId) => characterId != null),
+        .filter((characterId) => characterId != null), ...Object.values(player.customCards || {}).filter(c=>c.enabled).map(c=>c.definition.characterId)],
     ).map(String);
   }
 

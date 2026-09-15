@@ -658,6 +658,8 @@ mod tests {
             event_songs: BTreeMap::new(),
             event_presets: BTreeMap::new(),
             event_overrides: BTreeMap::new(),
+            custom_cards: Default::default(),
+            next_custom_card_id: 0,
             card_list: BTreeMap::new(),
             area_item: BTreeMap::new(),
             character_bouns: BTreeMap::new(),

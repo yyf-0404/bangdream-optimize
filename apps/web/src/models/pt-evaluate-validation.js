@@ -21,10 +21,12 @@ export function validatePtEvaluateTeamSelection(player, request, cardCharacterId
 
     const characterIds = new Set();
     for (const cardId of cardIds) {
-      if (!Object.hasOwn(player?.cardList ?? {}, String(cardId))) {
+      const custom = player?.customCards?.[cardId];
+      if (custom && !custom.enabled) throw new Error(`${teamLabel}中的自定义卡牌 ${custom.editor?.name || cardId} 已停用`);
+      if (!custom && !Object.hasOwn(player?.cardList ?? {}, String(cardId))) {
         throw new Error(`${teamLabel}中的卡牌 ${cardId} 不在当前配置中`);
       }
-      const characterId = cardCharacterId(cardId);
+      const characterId = custom?.definition.characterId ?? cardCharacterId(cardId);
       if (!Number.isInteger(characterId) || characterId <= 0) {
         throw new Error(`${teamLabel}中的卡牌 ${cardId} 不存在于当前游戏数据`);
       }

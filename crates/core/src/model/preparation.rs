@@ -644,6 +644,24 @@ pub fn calculate_area_item_percent(
         *result.entry_mut(item_type, key) = StatRate::zero();
     }
 
+    // A fresh profile still has a valid unequipped, zero-bonus combination.
+    // Keep configured groups unchanged; only fill categories with no choices.
+    if result.band.is_empty() {
+        result
+            .band
+            .insert(ALL_BAND_KEY.to_owned(), StatRate::zero());
+    }
+    if result.attribute.is_empty() {
+        result
+            .attribute
+            .insert(ALL_ATTRIBUTE_KEY.to_owned(), StatRate::zero());
+    }
+    if result.magazine.is_empty() {
+        result
+            .magazine
+            .insert(PERFORMANCE_KEY.to_owned(), StatRate::zero());
+    }
+
     Ok(result)
 }
 

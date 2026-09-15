@@ -1,3 +1,4 @@
+import {revealValidationError} from './validation.js';
 import {designFragment} from './approved/templates.js';
 import {liveMarkup} from './approved/live-template.js';
 import {calculationMarkup} from './approved/calculation-template.js';
@@ -21,8 +22,7 @@ export function mountDesignControls({root,parameters,legacy,getPlayer,writePlaye
   const invalid=[parameters,live].filter(section=>!section.hidden).flatMap(section=>[...section.querySelectorAll('input,select')]).find(input=>!input.disabled&&!input.checkValidity());
   if(!invalid)return;
   e.preventDefault();e.stopImmediatePropagation();
-  if(root.hidden){const value=invalid.value,path=invalid.dataset.setting,id=invalid.id;document.querySelector('[data-page=activity]').click();const field=[...root.querySelectorAll('input,select')].find(n=>path?n.dataset.setting===path:n.id===id);if(field){field.value=value;field.focus();field.reportValidity();}}
-  else{invalid.focus();invalid.reportValidity();}
+  revealValidationError(new Error(invalid.validationMessage), {field:invalid, activatePage:page=>document.querySelector(`[data-page=${page}]`)?.click()});
  },true);
  let signature='',calcSignature='',calcShape='';
  const save=(path,value)=>{const player=structuredClone(getPlayer()),keys=path.split('.'),last=keys.pop();let target=player;for(const key of keys)target=target[key]??=(/^[0-9]+$/.test(key)?[]:{});target[last]=value;writePlayer(player);renderForms(player);};

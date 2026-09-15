@@ -10,6 +10,7 @@ export function createCardBrief(card,{captain=false,order,onOpen,onIllustrationC
     item.append(id,note,growth);return item;
   }
   item.innerHTML=cardBriefMarkup(card,{captain,order});
+  if(card.custom&&card.enabled===false){item.dataset.disabled='true';const state=document.createElement('small');state.className='cp-inactive';state.textContent='未启用';item.append(state);}
   bindCardBrief(item,{resolve:()=>card,onOpen,onIllustrationChange});
   return item;
 }

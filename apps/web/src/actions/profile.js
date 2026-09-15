@@ -319,7 +319,7 @@ export function createProfileActions({
         const review=await reviewImport(before,imported,{...source,name,allowNew:true});if(!review)return false;
         if(review.destination==='new'){await savePlayerNow();await state.runtime.createPlayerConfig({name:review.name,player:imported});writePlayer(await state.runtime.loadPlayerConfig(),{autosave:false});await refreshPlayerProfiles();renderConfigForms(readPlayer());}
         else await commitTarget(target,imported);
-        setStatus('配置已导入');return {name:review.destination==='new'?review.name:name,cards:Object.keys(imported.cardList||{}).length,items:Object.keys(imported.areaItem||{}).length,characters:Object.keys(imported.characterBouns||{}).length};
+        setStatus('配置已导入');return {name:review.destination==='new'?review.name:name,customCount:Object.keys(imported.customCards||{}).length,cards:Object.keys(imported.cardList||{}).length,items:Object.keys(imported.areaItem||{}).length,characters:Object.keys(imported.characterBouns||{}).length};
       }});
     }catch(error){setError(error);}
   }
@@ -380,7 +380,7 @@ export function createProfileActions({
   async function handleExportCompactProfile() {
     const target=selectedTarget();
     try{const player=await readTarget(target),name=targetName(target);
-      openExportFlow({profile:{...player,name,cards:Object.keys(player.cardList||{}).length,items:Object.keys(player.areaItem||{}).length},getPayload:async format=>{
+      openExportFlow({profile:{...player,name,customCount:Object.keys(player.customCards||{}).length,cards:Object.keys(player.cardList||{}).length,items:Object.keys(player.areaItem||{}).length},getPayload:async format=>{
         if(format==='bestdori')return JSON.stringify({name,...playerToBestdoriProfileExport(player)});
         const data=await compressProfilePayload(buildCompactProfilePayload(player));return JSON.stringify({v:data.version??1,t:data.type,d:data.data});
       },save:payload=>state.runtime.saveJsonFile(payload),copy:async payload=>{await copyTextToClipboard(payload);setStatus('配置已生成并复制');}});

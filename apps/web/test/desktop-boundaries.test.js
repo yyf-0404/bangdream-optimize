@@ -54,3 +54,14 @@ test('desktop cannot accidentally open the web download dialog or fetch a downlo
   await actions.handleOpenDesktopDownloads();
   assert.equal(elements.openDesktopDownloads.hidden,true);
 });
+
+
+test('native result image copying sends PNG bytes through the clipboard command', async () => {
+  const previous=globalThis.__TAURI__,warn=console.warn,calls=[];
+  globalThis.__TAURI__={core:{invoke:async(command,args)=>calls.push({command,args})}};console.warn=()=>{};
+  try {
+    const runtime=await createDesktopRuntime();
+    await runtime.copyImage(new Blob([new Uint8Array([137,80,78,71])],{type:'image/png'}));
+    assert.deepEqual(calls,[{command:'copy_result_image',args:{bytes:[137,80,78,71]}}]);
+  } finally {console.warn=warn;if(previous===undefined)delete globalThis.__TAURI__;else globalThis.__TAURI__=previous;}
+});

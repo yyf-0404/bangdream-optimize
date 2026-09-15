@@ -39,7 +39,7 @@ export function createViewAdapters({
       cardLabel,
       cardName,
       cardRarity,
-      cardConfig: (cardId) => normalizedCardConfig(cardId, (options?.diagnostic?.player ?? readPlayer()).cardList?.[String(cardId)]),
+      cardConfig: (cardId) => {const player=options?.diagnostic?.player??readPlayer();return player.customCards?.[cardId]?.growth??normalizedCardConfig(cardId,player.cardList?.[cardId]);},
       cardIconUrls,
       cardAttribute,
       attributeFallback,

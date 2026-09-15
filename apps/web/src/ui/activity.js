@@ -1,3 +1,4 @@
+import {isSupportedEventType} from '../models/event.js';
 import { mountActivityLayout } from './activity-layout.js';
 import { icon } from './shell.js';
 import { ptEvaluateLiveVariant, ptMaximizeLiveVariant } from '../models/player-settings.js?v=3';
@@ -11,7 +12,7 @@ export function bonusApplication(eventType,mode,live) {
 export function createActivityUI({elements,getPlayer,writePlayer,renderForms,eventSnapshot,activityModeForEvent,getCore,getProfileId}){
   const field=elements.eventCombinedPercent,match=field.closest('.activity-match-bonus');
   const changeCustomType=type=>{
-    const player=getPlayer();if(Number(player.currentEvent)!==0)return;
+    const player=getPlayer();if(Number(player.currentEvent)!==0||!isSupportedEventType(type,player.calculationMode))return;
     player.eventOverrides[0].eventType=type;player.activityMode=activityModeForEvent(player.eventOverrides[0]);writePlayer(player);renderForms(player);
   };
   const parameters=document.createElement('section');parameters.className='activity-parameters';

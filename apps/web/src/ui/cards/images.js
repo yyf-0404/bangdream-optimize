@@ -1,6 +1,7 @@
 import { cardIconUrls } from '../../assets/index.js';
 import { cardGrowth } from './growth.js';
 export function imageSources(card) {
+  if (card.custom) return [card.image || new URL('../../../assets/brand.svg', import.meta.url).href];
   return cardIconUrls({ cardId: card.id, card: card.record, illustTrainingStatus: cardGrowth(card).illustTrained });
 }
 export function setCardImage(image, card) {

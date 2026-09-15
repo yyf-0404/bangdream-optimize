@@ -1,4 +1,5 @@
 export function teamChoiceReason(card, teams, teamIndex, slotIndex, characterOf) {
+  if (card?.custom && !card.enabled) return '此自定义卡牌已停用';
   if (!card?.owned) return '仅可使用持有卡牌';
   if (card.unknown || !card.characterId) return '卡牌资料暂缺';
   if (teams.some((team, index) => index !== teamIndex && team.includes(card.id))) return '已用于其他队伍';

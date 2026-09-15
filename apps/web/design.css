@@ -10,3 +10,30 @@
 @import url('./src/ui/plumbing.css') layer(plumbing);
 @import url('./src/ui/select.css') layer(plumbing);
 @import url('./src/ui/feedback.css') layer(plumbing);
+@import url('./src/ui/custom-cards/custom-cards.css') layer(plumbing);
+
+/* Validation follows the visible section, including controls on another page. */
+.validation-focus{outline:2px solid #b83c61!important;outline-offset:5px;scroll-margin-block:100px}
+.validation-callout,.event-type-warning{font-size:13px;line-height:1.6;color:#982c4e;background:#fff3f6;border-left:3px solid #ba4566;padding:9px 12px;margin:12px 0 4px}
+.validation-callout{flex-basis:100%;grid-column:1/-1}
+#archive-design .archive-use-profile{padding:10px 18px;min-height:42px;font-weight:600;flex-shrink:0}
+
+#result-design #save-result-image{padding:10px 18px;min-height:42px;font-size:14px;font-weight:600;white-space:nowrap}
+#result-design .result-action-status{color:#47756a;font-size:13px;margin:0;padding:0 28px}
+#result-design .result-action-status:empty{display:none}
+.result-image-dialog{max-width:1000px;width:calc(100vw - 32px)}
+.result-image-dialog .dialog-content img{width:100%;height:auto;display:block;border:1px solid #e7e8ed}
+#result-design.result-image-snapshot .heading-actions{display:none}
+@media(max-width:700px){#result-design .page-hero{flex-wrap:wrap}#result-design .heading-actions{flex-wrap:wrap;justify-content:flex-end}#archive-design .detail-heading{flex-wrap:wrap;gap:16px}}
+
+.result-image-dialog{padding:0;max-height:calc(100dvh - 28px);border:1px solid #e7e8ed;border-radius:7px;background:#fff;color:#292a32;font:14px/1.5 Inter,"Noto Sans SC","Microsoft YaHei",sans-serif}
+.result-image-dialog[open]{display:flex;flex-direction:column}
+.result-image-dialog::backdrop{background:rgb(37 30 48 / .3)}
+.result-image-dialog .dialog-top{display:flex;align-items:center;justify-content:space-between;flex:none;padding:14px 20px;border-bottom:1px solid #e7e8ed}
+.result-image-dialog h2{font-size:17px;margin:0}
+.result-image-dialog .icon-button{border:0;background:none;font-size:22px;padding:6px;cursor:pointer;color:#797380}
+.result-image-dialog .dialog-content{overflow:auto;min-height:0;padding:0 20px 20px}
+.result-image-dialog .dialog-bottom{display:flex;align-items:center;justify-content:flex-end;gap:20px;flex:none;padding:12px 20px;border-top:1px solid #e7e8ed}
+.result-image-dialog .text-button{color:#725882;text-decoration:none}
+.result-image-dialog .primary{border:0;border-radius:4px;padding:10px 18px;color:#fff;background:linear-gradient(105deg,#c21670,#9564b6);font:inherit;cursor:pointer}
+.result-image-dialog button:focus-visible,.result-image-dialog a:focus-visible{outline:2px solid #9264ad;outline-offset:3px}

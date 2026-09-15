@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 
-HEADER_PATH = re.compile(r"assets/(jp|cn|en|tw|kr)/(characters/resourceset/[A-Za-z0-9_-]+_rip/card_(normal|after_training)\.png|event/[A-Za-z0-9_-]+/(topscreen_rip/(trim_eventtop|bg_eventtop)|images_rip/logo)\.png)\Z")
+HEADER_PATH = re.compile(r"(?:res/icon/(?:(?:powerful|cool|happy|pure|band_[0-9]+)\.svg|(?:star_[0-9]+|chara_icon_[0-9]+)\.png)|assets/(jp|cn|en|tw|kr)/(characters/resourceset/[A-Za-z0-9_-]+_rip/card_(normal|after_training)\.png|event/[A-Za-z0-9_-]+/(topscreen_rip/(trim_eventtop|bg_eventtop)|images_rip/logo)\.png|thumb/chara/card[A-Za-z0-9_-]*_rip/[A-Za-z0-9_-]+_(normal|after_training)\.png|thumb/areaitem/group00000_rip/areaItemRes[0-9]+\.png|musicjacket/musicjacket[A-Za-z0-9_-]*_rip/assets-star-forassetbundle-startapp-musicjacket-[A-Za-z0-9_-]+-jacket\.png))\Z")
 HEADER_CACHE = {}
 HEADER_LOCK = threading.Lock()
 class NoRedirect(HTTPRedirectHandler):
@@ -40,14 +40,15 @@ class WebStaticHandler(SimpleHTTPRequestHandler):
             else:
                 with build_opener(NoRedirect).open(Request("https://bestdori.com/" + path, headers={"User-Agent": "Mozilla/5.0 BanG-Dream-Optimize/0.3"}), timeout=10) as response:
                     data = response.read(4 * 1024 * 1024 + 1)
-                if len(data) > 4 * 1024 * 1024 or not data.startswith(b"\x89PNG\r\n\x1a\n"):
+                if len(data) > 4 * 1024 * 1024 or not (b"<svg" in data if path.endswith(".svg") else data.startswith(b"\x89PNG\r\n\x1a\n")):
                     raise ValueError("Invalid header PNG")
                 with HEADER_LOCK:
                     while HEADER_CACHE and (len(HEADER_CACHE) >= 12 or sum(len(v[1]) for v in HEADER_CACHE.values()) + len(data) > 8 * 1024 * 1024):
                         HEADER_CACHE.pop(next(iter(HEADER_CACHE)))
                     HEADER_CACHE[path] = (time.monotonic(), data)
             self.send_response(200)
-            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Type", "image/svg+xml" if path.endswith(".svg") else "image/png")
+            self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
