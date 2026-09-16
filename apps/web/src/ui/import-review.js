@@ -12,13 +12,9 @@ export function reviewImport(before,after,options={}){
  const changes=importChanges(before,after),{dialog,body}=createArchiveFlow('核对导入变化','导入配置');dialog.classList.add('wide');
  const d={source:options.source||'paste',format:options.format||'base64',server:after.server,destination:'current',newName:(options.name||'档案')+' 导入'};
  const p={name:options.name||'所选档案',server:before.server};
- const r={customCount:Object.keys(after.customCards||{}).length,cards:Object.keys(after.cardList||{}).length,items:Object.keys(after.areaItem||{}).length,characters:Object.keys(after.characterBouns||{}).length,rows:[['cardList','游戏卡牌'],['customCards','自定义卡牌'],['areaItem','区域道具'],['characterBouns','角色加成']].map(([key,label])=>{const c=changes[key];return [label,`${Object.keys(before[key]||{}).length} → ${Object.keys(after[key]||{}).length}`,`新增 ${c.added} · 修改 ${c.changed} · 移除 ${c.removed}`];})};
+ const r={customCount:Object.keys(after.customCards||{}).length,cards:Object.keys(after.cardList||{}).length,items:Object.keys(after.areaItem||{}).length,characters:Object.keys(after.characterBouns||{}).length,rows:[['cardList','游戏卡牌'],['customCards','自定义卡牌'],['areaItem','区域道具'],['characterBouns','角色加成']].map(([key,label])=>{const c=changes[key];return [label,`${Object.keys(before[key]||{}).length} → ${Object.keys(after[key]||{}).length}`,`新增 ${c.added} · 修改 ${c.changed}${d.source==='account'?'':` · 移除 ${c.removed}`}`];})};
  let result=false;
- function paint(){body.innerHTML=importReviewMarkup({...flowHelpers,d,p,r,isNew:d.destination==='new',importScope:()=>options.identity?`国服账号 · ${options.identity.channel==='ios'?'iOS':'bili安卓'}`:d.source==='account'?'主乐队公开资料':d.format==='base64'?'Base64 配置':'Bestdori Profile'});
-  if(options.identity){
-   const summary=body.querySelector('.import-summary'),text=document.createElement('small');
-   text.className='cn-account-identity';text.textContent=`${options.identity.name||'游戏账号'} · ID ${options.identity.gameUid} · Lv. ${options.identity.rank}`;summary.append(text);
-  }
+ function paint(){body.innerHTML=importReviewMarkup({...flowHelpers,d,p,r,identity:options.identity,isNew:d.destination==='new',importScope:()=>options.identity?`国服账号 · ${options.identity.channel==='ios'?'iOS':'bili安卓'}`:d.source==='account'?'主乐队公开资料':d.format==='base64'?'Base64 配置':'Bestdori Profile'});
   if(!options.allowNew)body.querySelector('input[value=new]').closest('label').remove();
   body.querySelectorAll('[name=destination]').forEach(radio=>radio.onchange=()=>{d.newName=body.querySelector('#import-new-name')?.value??d.newName;d.destination=radio.value;paint();});
   body.querySelector('#import-back').onclick=()=>dialog.close();

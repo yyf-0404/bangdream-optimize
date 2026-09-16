@@ -33,7 +33,15 @@ export function mergeCnAccountImport(before, result) {
   for (const field of ['cardList', 'areaItem', 'characterBouns']) {
     const value = player[field];
     if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(id => !/^[1-9]\d*$/.test(id))) throw new Error('账号资料不完整，已停止导入');
+    if (Object.values(value).some(record => !record || typeof record !== 'object' || Array.isArray(record))) throw new Error('账号资料不完整，已停止导入');
   }
-  return {...structuredClone(before), server: 'cn', playerId: result.gameUid,
-    cardList: structuredClone(player.cardList), areaItem: structuredClone(player.areaItem), characterBouns: structuredClone(player.characterBouns)};
+  const merged = {...structuredClone(before), server: 'cn', playerId: result.gameUid};
+  for (const field of ['cardList', 'areaItem', 'characterBouns']) {
+    merged[field] ??= {};
+    // Missing IDs mean no update; imported values (including zero) replace existing growth.
+    for (const [id, record] of Object.entries(player[field])) {
+      merged[field][id] = {...merged[field][id], ...structuredClone(record)};
+    }
+  }
+  return merged;
 }

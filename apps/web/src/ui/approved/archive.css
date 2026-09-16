@@ -512,6 +512,11 @@
 :is(#archive-design,#archive-dialog-host) .mini-roster span{font-size:11px;color:var(--muted);margin-left:8px}
 :is(#archive-design,#archive-dialog-host) .import-summary{display:flex;align-items:center;gap:9px;margin-bottom:16px;font-size:12px;color:var(--muted)}
 :is(#archive-design,#archive-dialog-host) .import-summary img{width:23px;height:18px}
+:is(#archive-design,#archive-dialog-host) .import-identity{display:flex;flex-wrap:wrap;gap:14px 28px;margin:0 0 22px}
+:is(#archive-design,#archive-dialog-host) .import-identity>div{min-width:0}
+:is(#archive-design,#archive-dialog-host) .import-identity-name{flex:1 1 180px}
+:is(#archive-design,#archive-dialog-host) .import-identity dt{margin:0 0 5px;font-size:11px;color:var(--muted)}
+:is(#archive-design,#archive-dialog-host) .import-identity dd{margin:0;font-size:15px;font-weight:600;line-height:1.5;color:var(--ink);overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
 :is(#archive-design,#archive-dialog-host) .check-disc{width:46px;height:46px;color:var(--good);background:#edf7f2;border-radius:50%;display:grid;place-items:center}
 :is(#archive-design,#archive-dialog-host) .check-disc svg{width:24px;height:24px}
 :is(#archive-design,#archive-dialog-host) .export-options{display:grid;gap:0;margin-bottom:19px}

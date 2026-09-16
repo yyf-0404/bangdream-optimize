@@ -1,6 +1,7 @@
 import {designFragment} from './approved/templates.js';
 import {importSourceMarkup,importDoneMarkup,exportMarkup,archiveIcon} from './approved/archive-flows.js?v=3';
 import {serverIconUrls} from '../assets/index.js';
+import {confirmDialog} from './confirm.js?v=3';
 
 export const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export const servers={cn:'国服',jp:'日服',en:'国际服',tw:'台服',kr:'韩服'};
@@ -44,14 +45,24 @@ export function openImportSource({profile,onRead}){
    }else if(d.source==='account'?!/^[1-9]\d*$/.test(String(d.playerId)):!d.text.trim())return invalid(d.source==='account'?'#import-id':'#import-text',d.source==='account'?'请输入有效的玩家 ID':'请粘贴配置内容');
    busy=true;const button=form.querySelector('[type=submit]');
    const controls=[...form.querySelectorAll('input,textarea,select,button:not([data-close-flow])')];controls.forEach(el=>el.disabled=true);
-   button.textContent='正在读取…';progress.textContent=credentials?'正在连接国服并读取资料，版本失效时会自动更新配置。':'';
-   const source={...d};if(credentials){source.password=body.querySelector('#import-password').value;body.querySelector('#import-password').value='';}
+   const source={...d};let cancelled=false;
    try{
+    if(credentials){
+     const confirmed=await confirmDialog({
+      title:'登录可能导致游戏账号被顶下线',
+      lines:['读取资料需要登录国服账号，可能使游戏中已登录的同一账号退出（顶号）。请先结束正在进行的演出。','确认后才会发送登录请求；读取完成后仍需核对并应用。导入只新增和修改，未返回的卡牌、道具和角色加成会保留。'],
+      confirmText:'继续登录并读取',cancelText:'暂不导入',
+     });
+     cancelled=!confirmed;
+     if(cancelled||!dialog.open||controller.signal.aborted)return;
+     source.password=body.querySelector('#import-password').value;body.querySelector('#import-password').value='';
+    }
+    button.textContent='正在读取…';progress.textContent=credentials?'正在连接国服并读取资料，版本失效时会自动更新配置。':'';
     const result=await onRead(source,{signal:controller.signal});
     if(!dialog.open||controller.signal.aborted)return;
     if(result){dialog.querySelector('h2').textContent='导入完成';body.innerHTML=importDoneMarkup({...flowHelpers,p:result});body.querySelectorAll('[data-close-flow],a').forEach(b=>b.addEventListener('click',()=>dialog.close()));}
    }catch(e){if(dialog.open&&!controller.signal.aborted){error.textContent=e.message||String(e);error.focus();}}
-   finally{delete source.password;busy=false;if(dialog.open){controls.forEach(el=>el.disabled=false);button.textContent='读取并预览';progress.textContent='';}}
+   finally{delete source.password;busy=false;if(dialog.open){controls.forEach(el=>el.disabled=false);button.textContent='读取并预览';progress.textContent='';if(cancelled)button.focus();}}
   };
  }
  paint();dialog.showModal();
