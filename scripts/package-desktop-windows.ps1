@@ -1,3 +1,10 @@
+[CmdletBinding()]
+param(
+    [string] $Target = $env:BANGDREAM_OPTIMIZE_DESKTOP_WINDOWS_TARGET,
+    [ValidateRange(1, 64)]
+    [int] $Jobs = 1
+)
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
@@ -16,7 +23,6 @@ function Invoke-Native {
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-Set-Location $repoRoot
 
 function Ensure-RustTarget {
     param(
@@ -37,7 +43,7 @@ function Ensure-RustTarget {
 }
 
 function Get-DesktopVersion {
-    $package = Get-Content -LiteralPath "apps/web/package.json" -Raw | ConvertFrom-Json
+    $package = Get-Content -LiteralPath "$repoRoot/apps/web/package.json" -Raw | ConvertFrom-Json
     return [string] $package.version
 }
 
@@ -57,7 +63,6 @@ function Get-PlatformName {
     }
 }
 
-$target = $env:BANGDREAM_OPTIMIZE_DESKTOP_WINDOWS_TARGET
 if ([string]::IsNullOrWhiteSpace($target)) {
     $target = "x86_64-pc-windows-msvc"
 }
@@ -73,26 +78,38 @@ if ($target -like "*-pc-windows-*") {
 
 Ensure-RustTarget $target
 
-$outputBinary = "apps/desktop/src-tauri/target/$target/release/$binaryName$extension"
-$packageBinary = "apps/desktop/src-tauri/target/$target/release/$packageName-v$version-$platformName$extension"
+$targetDirectory = Join-Path $repoRoot "apps/desktop/src-tauri/target"
+$outputBinary = "$targetDirectory/$target/release/$binaryName$extension"
+$packageBinary = "$targetDirectory/$target/release/$packageName-v$version-$platformName$extension"
 Write-Host "packaging desktop binary for windows target: $target"
 Write-Host "output binary: $outputBinary"
 Write-Host "package binary: $packageBinary"
 
-Invoke-Native -Command "cargo" -Arguments @(
-    "build",
-    "--manifest-path",
-    "apps/desktop/src-tauri/Cargo.toml",
-    "--release",
-    "--target",
-    $target
-)
+Push-Location $repoRoot
+try {
+    Invoke-Native -Command "cargo" -Arguments @(
+        "build",
+        "--manifest-path",
+        "apps/desktop/src-tauri/Cargo.toml",
+        "--release",
+        "--locked",
+        "--jobs",
+        [string] $Jobs,
+        "--target-dir",
+        $targetDirectory,
+        "--target",
+        $target
+    )
 
-if (-not (Test-Path -LiteralPath $outputBinary -PathType Leaf)) {
-    throw "packaging failed: expected binary not found at $outputBinary"
+    if (-not (Test-Path -LiteralPath $outputBinary -PathType Leaf)) {
+        throw "packaging failed: expected binary not found at $outputBinary"
+    }
+
+    Copy-Item -LiteralPath $outputBinary -Destination $packageBinary -Force
+
+    Write-Host "desktop binary ready: $outputBinary"
+    Write-Host "desktop package ready: $packageBinary"
 }
-
-Copy-Item -LiteralPath $outputBinary -Destination $packageBinary -Force
-
-Write-Host "desktop binary ready: $outputBinary"
-Write-Host "desktop package ready: $packageBinary"
+finally {
+    Pop-Location
+}

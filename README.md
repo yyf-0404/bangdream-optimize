@@ -28,6 +28,10 @@
 
 - `docs/environment.md`
 
+Windows 桌面端一键打包并通过 SSH 上传下载目录：先运行
+`scripts\publish-desktop-windows.bat -InitConfig` 并填写配置，再运行
+`scripts\publish-desktop-windows.bat`。详细参数见 [桌面端发布](docs/release.md#windows-一键打包并上传)。
+
 生产部署建议将前端与后端同域部署，并将 `apiBaseUrl` 置空（如
 `globalThis.BANGDREAM_OPTIMIZE_CONFIG = { apiBaseUrl: '' }`），
 使前端请求走同源：`/game-data/...`。
