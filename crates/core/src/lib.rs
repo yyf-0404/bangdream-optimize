@@ -6,6 +6,8 @@ pub mod pt_evaluate;
 pub mod pt_maximize;
 pub mod score_range;
 pub mod single;
+mod skill_assignment;
+pub mod skill_shuffle;
 pub(crate) mod team_prune;
 mod timing;
 

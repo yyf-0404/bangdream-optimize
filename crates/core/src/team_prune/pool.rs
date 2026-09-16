@@ -586,15 +586,21 @@ fn divided_cross_character_node(
             chart_eligibility_masks,
             charts.len(),
         );
-        let combined_cover = cross_cover(
-            &graphs.contribution_graph,
-            idx,
-            cards,
-            signature,
-            team_count,
-            chart_eligibility_masks,
-            charts.len(),
-        );
+        let combined_cover = if super::hard::cover_optimization_enabled()
+            && graphs.hard_graph.incoming(idx) == graphs.contribution_graph.incoming(idx)
+        {
+            hard_cover
+        } else {
+            cross_cover(
+                &graphs.contribution_graph,
+                idx,
+                cards,
+                signature,
+                team_count,
+                chart_eligibility_masks,
+                charts.len(),
+            )
+        };
         stats.trace.contribution_cover_ms += elapsed_ms(cover_start);
         stats.max_cross_character_cover = stats.max_cross_character_cover.max(hard_cover);
         stats.max_score_contribution_cross_cover =

@@ -1,4 +1,5 @@
 pub mod candidate;
+pub(crate) mod disjoint_bound;
 mod enumeration;
 pub mod error;
 pub(crate) use crate::team_prune as prune;

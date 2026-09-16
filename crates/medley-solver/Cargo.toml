@@ -5,6 +5,14 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# Opt-in inverted-index experiment; normal builds use the AVX2/scalar dispatcher.
+experimental-bitmap-band = []
+# Enables the old scan and feasibility-gate comparisons. Prefix reuse is default.
+experimental-avx2-second-prune = []
+# Same-binary comparison of maximum-score prefix reuse against its original scan.
+experimental-maximize-reuse = []
+
 [dependencies]
 serde.workspace = true
 thiserror.workspace = true

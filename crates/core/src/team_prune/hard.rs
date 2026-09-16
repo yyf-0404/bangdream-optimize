@@ -13,6 +13,21 @@ use bangdream_optimize_team_prune::{
 };
 use std::collections::BTreeMap;
 
+mod cover;
+
+#[inline]
+pub(super) fn cover_optimization_enabled() -> bool {
+    #[cfg(feature = "experimental-cover-prune")]
+    {
+        static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ENABLED.get_or_init(|| {
+            std::env::var("BANGDREAM_OPTIMIZE_COVER_PRUNE").as_deref() != Ok("off")
+        })
+    }
+    #[cfg(not(feature = "experimental-cover-prune"))]
+    true
+}
+
 const TEAM_SIZE: usize = 5;
 const MEDLEY_TEAM_COUNT: usize = 3;
 
@@ -551,6 +566,14 @@ fn precise_cross_cover(
         return 0;
     }
 
+    let optimized = cover_optimization_enabled();
+    let mut is_dominator = Vec::new();
+    if optimized {
+        is_dominator.resize(cards.len(), false);
+        for &idx in incoming {
+            is_dominator[idx] = true;
+        }
+    }
     let mut groups_by_character: BTreeMap<u32, PreciseCoverCharacterGroup> = BTreeMap::new();
     for (card_idx, card) in cards.iter().enumerate() {
         if !signature.allows(card) {
@@ -565,7 +588,12 @@ fn precise_cross_cover(
                 dominator_indices: Vec::new(),
             });
         group.teammate_break_options |= 1_u8 << break_mask;
-        if incoming.contains(&card_idx) {
+        let dominates = if optimized {
+            is_dominator[card_idx]
+        } else {
+            incoming.contains(&card_idx)
+        };
+        if dominates {
             group.dominator_indices.push(card_idx);
         }
     }
@@ -578,6 +606,41 @@ fn precise_cross_cover(
         return 0;
     }
 
+    if optimized {
+        return cover::minimum_cover(
+            &groups,
+            target,
+            signature,
+            dominator_count,
+            team_count,
+            chart_eligibility_masks,
+            chart_count,
+        );
+    }
+    #[cfg(feature = "experimental-cover-prune")]
+    return reference_minimum_cover(
+        &groups,
+        target,
+        signature,
+        dominator_count,
+        team_count,
+        chart_eligibility_masks,
+        chart_count,
+    );
+    #[cfg(not(feature = "experimental-cover-prune"))]
+    unreachable!("production always uses optimized cover")
+}
+
+#[cfg(any(test, feature = "experimental-cover-prune"))]
+fn reference_minimum_cover(
+    groups: &[PreciseCoverCharacterGroup],
+    target: &PreparedCard,
+    signature: MedleyPruneSignature,
+    dominator_count: usize,
+    team_count: usize,
+    chart_eligibility_masks: &[u8],
+    chart_count: usize,
+) -> usize {
     let target_chart_indices = if team_count == 1 {
         vec![0]
     } else {
@@ -587,7 +650,7 @@ fn precise_cross_cover(
         .into_iter()
         .map(|target_chart_idx| {
             precise_cross_cover_for_target_chart(
-                &groups,
+                groups,
                 target,
                 signature,
                 dominator_count,
@@ -601,6 +664,7 @@ fn precise_cross_cover(
         .unwrap_or_default()
 }
 
+#[cfg(any(test, feature = "experimental-cover-prune"))]
 fn precise_cross_cover_for_target_chart(
     groups: &[PreciseCoverCharacterGroup],
     target: &PreparedCard,
@@ -715,6 +779,7 @@ fn signature_required_break_mask(signature: MedleyPruneSignature) -> usize {
     }
 }
 
+#[cfg(any(test, feature = "experimental-cover-prune"))]
 fn other_team_occupancy_options(
     dominator_indices: &[usize],
     chart_eligibility_masks: &[u8],

@@ -296,6 +296,19 @@ fn build_raw_team_candidates_internal(
         }
     }
     let enumerate_ms = elapsed_ms(enumerate_start);
+    #[cfg(feature = "experimental-compressed-score")]
+    if std::env::var_os("BANGDREAM_OPTIMIZE_COMPRESSED_SCORE_TRACE").is_some() {
+        use std::hash::{Hash, Hasher};
+        let mut hash = std::collections::hash_map::DefaultHasher::new();
+        for candidate in &raw_candidates {
+            candidate.raw_indices.hash(&mut hash);
+            candidate.ordered_raw_indices.hash(&mut hash);
+            candidate.captain_raw_indices.hash(&mut hash);
+            candidate.scores.hash(&mut hash);
+            candidate.stat.hash(&mut hash);
+        }
+        eprintln!("raw candidate fingerprint: count={} hash={:016x}", raw_candidates.len(), hash.finish());
+    }
     if raw_candidates.is_empty() {
         return Err(TeamBuildError::NotEnoughCards { count: 0 });
     }

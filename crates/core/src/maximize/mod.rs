@@ -18,6 +18,8 @@ pub use crate::single::mode_candidates;
 
 #[derive(Debug, Error)]
 pub enum CalculationError {
+    #[error("skill-order recommendation error: {0}")]
+    SkillOrder(#[from] crate::DpModelError),
     #[error("event type {event_type:?} is not supported by maximize")]
     UnsupportedEventType { event_type: EventType },
 
@@ -257,6 +259,52 @@ pub fn calculate_best_result_for_items(
         for (song, chart) in result.songs.iter_mut().zip(charts) {
             song.skill_queue_risk = !chart.warning.is_empty();
         }
+    }
+    for (song, chart) in result.songs.iter_mut().zip(charts) {
+        let selected = song
+            .team_card_ids
+            .iter()
+            .map(|id| {
+                cards
+                    .iter()
+                    .find(|card| card.card_id == *id)
+                    .ok_or(CalculationError::NoBuildResult)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let selected: [&PreparedCard; 5] = selected
+            .try_into()
+            .map_err(|_| CalculationError::NoBuildResult)?;
+        let band = selected[0].band_id;
+        let attribute = selected[0].attribute;
+        let mode = match (
+            selected.iter().all(|card| card.band_id == band),
+            selected.iter().all(|card| card.attribute == attribute),
+        ) {
+            (true, true) => crate::SongMode::UnifiedBandAttribute(band, attribute),
+            (true, false) => crate::SongMode::UnifiedBand(band),
+            (false, true) => crate::SongMode::UnifiedAttribute(attribute),
+            (false, false) => crate::SongMode::Mixed,
+        };
+        let skills: [crate::TeamCardSkill; 5] = selected
+            .iter()
+            .map(|card| mode.resolve_skill(card))
+            .collect::<Result<Vec<_>, _>>()?
+            .try_into()
+            .map_err(|_| CalculationError::NoBuildResult)?;
+        let captain = selected
+            .iter()
+            .position(|card| card.card_id == song.captain_card_id)
+            .ok_or(CalculationError::NoBuildResult)?;
+        song.team_order = Some(
+            crate::skill_shuffle::recommend_max_score(
+                chart,
+                &skills,
+                song.stat,
+                event_type == EventType::Medley,
+                captain,
+            )
+            .map_err(crate::DpModelError::from)?,
+        );
     }
     let metrics = result.metrics.get_or_insert_with(Default::default);
     metrics.card_count = cards.len();

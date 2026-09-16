@@ -1,12 +1,12 @@
 use super::candidate::TeamCandidate;
 use super::prune::{best_any_team_score_upper_bound, MedleyCardPruneProfile, MedleyPruneSignature};
 use super::scoring::{
-    build_resolved_candidate, build_resolved_candidate_profiled,
-    resolve_medley_cards_for_signature, selected_resolved_team_signature, MedleyCardInput,
-    RawTeamCandidate, ResolvedCandidateBuildProfile, ResolvedMedleyCardInput, SkillMetaCache,
+    resolve_medley_cards_for_signature, selected_resolved_team_signature, CandidateScorer,
+    MedleyCardInput, RawTeamCandidate, ResolvedCandidateBuildProfile, ResolvedMedleyCardInput,
+    SkillMetaCache,
 };
 use super::team::{TeamBuildError, TeamGenerationOptions};
-use crate::model::chart::{Chart, ExactScoreScratch};
+use crate::model::chart::Chart;
 use crate::model::preparation::PreparedCard;
 use crate::timing::Timer;
 use bangdream_optimize_medley_solver::{MedleySolverInput, TeamMask, WideMedleySolverInput};
@@ -108,7 +108,6 @@ pub(in crate::medley) fn enumerate_signature_pool(
     let active_cards = active_medley_cards(cards, card_stats, active_card_indices);
     let groups = character_groups(&active_cards);
     let mut selected_indices = [0; TEAM_SIZE];
-    let mut exact_score_scratch = ExactScoreScratch::default();
     let prefix_filter = candidate_filter.and_then(|filter| {
         PrefixUpperBoundFilter::new(&active_cards, charts, profiles, signature, &groups, filter)
     });
@@ -142,9 +141,9 @@ pub(in crate::medley) fn enumerate_signature_pool(
         }
     };
 
-    match enumerate_signature_teams(
+    let mut candidate_scorer = CandidateScorer::new(&resolved_cards, charts, options);
+    let result = enumerate_signature_teams(
         &resolved_cards,
-        charts,
         &groups,
         options,
         signature,
@@ -156,9 +155,16 @@ pub(in crate::medley) fn enumerate_signature_pool(
         prefix_filter.as_ref(),
         PrefixUpperBoundState::default(),
         PrefixSignatureState::default(),
-        &mut exact_score_scratch,
+        &mut candidate_scorer,
         &mut stats,
-    ) {
+    );
+    if build_profile_enabled {
+        eprintln!(
+            "medley candidate seed cache: hits={} misses={} collisions={}",
+            candidate_scorer.hits, candidate_scorer.misses, candidate_scorer.collisions,
+        );
+    }
+    match result {
         Ok(()) => {
             stats.candidates_after = candidates.len();
             Ok(stats)
@@ -173,7 +179,6 @@ pub(in crate::medley) fn enumerate_signature_pool(
 #[allow(clippy::too_many_arguments)]
 fn enumerate_signature_teams(
     resolved_cards: &[ResolvedMedleyCardInput],
-    charts: &[Chart],
     groups: &FlatCharacterGroups,
     options: TeamGenerationOptions,
     signature: MedleyPruneSignature,
@@ -185,13 +190,12 @@ fn enumerate_signature_teams(
     prefix_filter: Option<&PrefixUpperBoundFilter>,
     prefix_state: PrefixUpperBoundState,
     signature_state: PrefixSignatureState,
-    exact_score_scratch: &mut ExactScoreScratch,
+    candidate_scorer: &mut CandidateScorer<'_>,
     stats: &mut SignatureEnumerationStats,
 ) -> Result<(), TeamBuildError> {
     if selected_count == TEAM_SIZE {
         return process_complete_signature_team(
             resolved_cards,
-            charts,
             options,
             signature,
             group_start,
@@ -200,7 +204,7 @@ fn enumerate_signature_teams(
             candidate_filter,
             prefix_filter,
             prefix_state,
-            exact_score_scratch,
+            candidate_scorer,
             stats,
         );
     }
@@ -237,15 +241,12 @@ fn enumerate_signature_teams(
                     continue;
                 }
                 process_final_layer_flat_card(
-                    resolved_cards,
-                    charts,
                     groups,
-                    options,
                     flat_pos + lane,
                     selected_indices,
                     candidates,
                     candidate_filter,
-                    exact_score_scratch,
+                    candidate_scorer,
                     stats,
                 )?;
             }
@@ -267,15 +268,12 @@ fn enumerate_signature_teams(
                 continue;
             }
             process_final_layer_flat_card(
-                resolved_cards,
-                charts,
                 groups,
-                options,
                 flat_pos,
                 selected_indices,
                 candidates,
                 candidate_filter,
-                exact_score_scratch,
+                candidate_scorer,
                 stats,
             )?;
         }
@@ -296,7 +294,6 @@ fn enumerate_signature_teams(
         selected_indices[selected_count] = card_idx;
         enumerate_signature_teams(
             resolved_cards,
-            charts,
             groups,
             options,
             signature,
@@ -308,7 +305,7 @@ fn enumerate_signature_teams(
             prefix_filter,
             next_prefix_state,
             next_signature_state,
-            exact_score_scratch,
+            candidate_scorer,
             stats,
         )?;
     }
@@ -319,15 +316,12 @@ fn enumerate_signature_teams(
 #[allow(clippy::too_many_arguments)]
 #[inline]
 fn process_final_layer_flat_card(
-    resolved_cards: &[ResolvedMedleyCardInput],
-    charts: &[Chart],
     groups: &FlatCharacterGroups,
-    options: TeamGenerationOptions,
     flat_pos: usize,
     selected_indices: &[usize; TEAM_SIZE],
     candidates: &mut Vec<RawTeamCandidate>,
     candidate_filter: Option<&CandidateIncumbentFilter>,
-    exact_score_scratch: &mut ExactScoreScratch,
+    candidate_scorer: &mut CandidateScorer<'_>,
     stats: &mut SignatureEnumerationStats,
 ) -> Result<(), TeamBuildError> {
     stats.final_layer_card_checks += 1;
@@ -346,24 +340,7 @@ fn process_final_layer_flat_card(
         .should_profile_next_candidate()
         .then(ResolvedCandidateBuildProfile::default);
     let build_start = Timer::start();
-    let candidate = if let Some(profile) = build_profile.as_mut() {
-        build_resolved_candidate_profiled(
-            resolved_cards,
-            charts,
-            options,
-            &team_indices,
-            exact_score_scratch,
-            profile,
-        )?
-    } else {
-        build_resolved_candidate(
-            resolved_cards,
-            charts,
-            options,
-            &team_indices,
-            exact_score_scratch,
-        )?
-    };
+    let candidate = candidate_scorer.score(&team_indices, build_profile.as_mut())?;
     stats.build_candidate_ms += build_start.elapsed_ms();
     stats.candidate_builds += 1;
     if let Some(profile) = build_profile {
@@ -607,7 +584,6 @@ unsafe fn final_layer_signature_mask_avx2_x86(
 #[inline]
 fn process_complete_signature_team(
     resolved_cards: &[ResolvedMedleyCardInput],
-    charts: &[Chart],
     options: TeamGenerationOptions,
     signature: MedleyPruneSignature,
     group_start: usize,
@@ -616,7 +592,7 @@ fn process_complete_signature_team(
     candidate_filter: Option<&CandidateIncumbentFilter>,
     prefix_filter: Option<&PrefixUpperBoundFilter>,
     prefix_state: PrefixUpperBoundState,
-    exact_score_scratch: &mut ExactScoreScratch,
+    candidate_scorer: &mut CandidateScorer<'_>,
     stats: &mut SignatureEnumerationStats,
 ) -> Result<(), TeamBuildError> {
     stats.leaf_checks += 1;
@@ -641,24 +617,7 @@ fn process_complete_signature_team(
         .should_profile_next_candidate()
         .then(ResolvedCandidateBuildProfile::default);
     let build_start = Timer::start();
-    let candidate = if let Some(profile) = build_profile.as_mut() {
-        build_resolved_candidate_profiled(
-            resolved_cards,
-            charts,
-            options,
-            selected_indices,
-            exact_score_scratch,
-            profile,
-        )?
-    } else {
-        build_resolved_candidate(
-            resolved_cards,
-            charts,
-            options,
-            selected_indices,
-            exact_score_scratch,
-        )?
-    };
+    let candidate = candidate_scorer.score(selected_indices, build_profile.as_mut())?;
     stats.build_candidate_ms += build_start.elapsed_ms();
     stats.candidate_builds += 1;
     if let Some(profile) = build_profile {

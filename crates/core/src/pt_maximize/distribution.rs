@@ -5,6 +5,9 @@ use crate::event_pt::{
     solo_points, versus_multiplayer_points,
 };
 use crate::model::chart::{ExactScoreScratch, ExactSkillWindow, IndependentSkillScoreMatrix};
+use crate::skill_shuffle::{
+    self, DisplayLayout, OrderScores, CAPTAIN_SLOT, ORDER_COUNT, SHUFFLE_PATH_COUNT,
+};
 use crate::{Chart, DpChartModel, TeamCardSkill};
 
 use super::model::{
@@ -16,7 +19,6 @@ use super::model::{
 #[derive(Debug, Default)]
 pub(crate) struct FullTeamScoreScratch {
     exact: ExactScoreScratch,
-    subset_scores: [Vec<i32>; 32],
     score_entries: Vec<(i32, u64)>,
     skill_window_chart: usize,
     skill_windows: Vec<(SkillWindowKey, [ExactSkillWindow; 6])>,
@@ -65,6 +67,7 @@ struct SkillWindowKey {
 pub(crate) struct FullTeamPtSummary {
     pub(crate) captain_index: usize,
     pub(crate) captain_card_id: u32,
+    recommended_team_card_ids: [u32; 5],
     pub(crate) average_pt: AveragePt,
     event_type: crate::EventType,
     live_variant: LiveVariant,
@@ -131,19 +134,15 @@ pub(crate) fn evaluate_full_team_with_scratch(
     } else {
         chart
     };
-    let distributions =
-        full_team_score_distributions_with_scratch(chart, team, stat, is_medley, scratch)?;
-    let mut best: Option<FixedTeamPtEvaluation> = None;
-    for captain in distributions {
-        let evaluation = evaluate_distribution(captain, scenario)?;
-        if best
-            .as_ref()
-            .is_none_or(|current| evaluation.average_pt > current.average_pt)
-        {
-            best = Some(evaluation);
-        }
-    }
-    best.ok_or(PtMaximizeError::EmptyDistribution)
+    let scores = if let Some(matrix) =
+        independent_skill_score_matrix_cached(chart, team, stat, is_medley, scratch)?
+    {
+        skill_shuffle::matrix_order_scores(&matrix)
+    } else {
+        skill_shuffle::exact_order_scores(chart, team, stat, is_medley)?
+    };
+    let summary = best_weighted_layout_summary(&scores, team, scenario, scratch)?;
+    Ok(materialize_full_team_summary(summary, scratch))
 }
 
 pub(crate) fn evaluate_full_team_summary_with_scratch(
@@ -207,27 +206,70 @@ pub(crate) fn evaluate_full_team_summary_with_scratch(
             return Ok(FullTeamPtSummaryOutcome::PrunedByExactUpperBound);
         }
     }
-    let score_summary = prepare_independent_score_histogram(&matrix, captain_index, scratch);
+    let scores = skill_shuffle::matrix_order_scores(&matrix);
+    Ok(FullTeamPtSummaryOutcome::Summary(
+        best_weighted_layout_summary(&scores, team, scenario, scratch)?,
+    ))
+}
+
+fn best_weighted_layout_summary(
+    scores: &OrderScores,
+    team: &[TeamCardSkill; 5],
+    scenario: FixedTeamPtScenario,
+    scratch: &mut FullTeamScoreScratch,
+) -> Result<FullTeamPtSummary, PtMaximizeError> {
+    let mut points = [[0u64; ORDER_COUNT]; 5];
+    for captain in 0..5 {
+        for order in 0..ORDER_COUNT {
+            points[captain][order] = points_for_scenario(scores[captain][order], scenario)?;
+        }
+    }
+    let mut best = None;
+    for (index, layout) in skill_shuffle::tables().layouts.iter().enumerate() {
+        let captain = layout.cards[CAPTAIN_SLOT];
+        let mut pt_sum = 0u128;
+        let mut score_sum = 0i64;
+        for order in &layout.weighted_orders {
+            pt_sum += u128::from(points[captain][order.index]) * u128::from(order.count);
+            score_sum += i64::from(scores[captain][order.index]) * i64::from(order.count);
+        }
+        let ids = layout.cards.map(|card| team[card].card_id);
+        let key = (
+            pt_sum,
+            score_sum,
+            std::cmp::Reverse(team[captain].card_id),
+            std::cmp::Reverse(ids),
+        );
+        if best.as_ref().is_none_or(|(current, _)| key > *current) {
+            best = Some((key, index));
+        }
+    }
+    let (_, index) = best.ok_or(PtMaximizeError::EmptyDistribution)?;
+    let layout = &skill_shuffle::tables().layouts[index];
+    let captain_index = layout.cards[CAPTAIN_SLOT];
+    let distribution = weighted_score_histogram(&scores[captain_index], layout);
+    scratch.score_entries = distribution.entries;
     let point_summary = summarize_points(&scratch.score_entries, scenario)?;
-    Ok(FullTeamPtSummaryOutcome::Summary(FullTeamPtSummary {
+    Ok(FullTeamPtSummary {
         captain_index,
         captain_card_id: team[captain_index].card_id,
-        average_pt: AveragePt::new(point_summary.pt_sum, score_summary.sample_count)?,
-        event_type,
-        live_variant,
-        score_sum: score_summary.score_sum,
-        min_score: score_summary.min_score,
-        max_score: score_summary.max_score,
-        sample_count: score_summary.sample_count,
+        recommended_team_card_ids: layout.cards.map(|card| team[card].card_id),
+        average_pt: AveragePt::new(point_summary.pt_sum, SHUFFLE_PATH_COUNT)?,
+        event_type: scenario.event_type(),
+        live_variant: scenario.live_variant(),
+        score_sum: distribution.score_sum,
+        min_score: distribution.min_score,
+        max_score: distribution.max_score,
+        sample_count: SHUFFLE_PATH_COUNT,
         min_pt: point_summary.min_pt,
         max_pt: point_summary.max_pt,
         average_cp_gain: point_summary
             .cp_sum
-            .map(|cp_sum| AveragePt::new(cp_sum, score_summary.sample_count))
+            .map(|sum| AveragePt::new(sum, SHUFFLE_PATH_COUNT))
             .transpose()?,
         challenge_cp_cost: (scenario == FixedTeamPtScenario::ChallengeCp)
             .then_some(CHALLENGE_CP_COST),
-    }))
+    })
 }
 
 fn meta_score_upper_bound_cached(
@@ -356,6 +398,7 @@ pub(crate) fn materialize_full_team_summary(
         live_variant: summary.live_variant,
         captain_index: summary.captain_index,
         captain_card_id: summary.captain_card_id,
+        recommended_team_card_ids: Some(summary.recommended_team_card_ids),
         score_distribution: ScoreHistogram {
             entries: scratch.score_entries.clone(),
             score_sum: summary.score_sum,
@@ -684,6 +727,7 @@ fn evaluate_cooperative_distribution(
         live_variant: LiveVariant::Cooperative,
         captain_index,
         captain_card_id,
+        recommended_team_card_ids: None,
         score_distribution,
         average_pt: AveragePt::new(pt_sum, sample_count)?,
         min_pt,
@@ -715,35 +759,16 @@ pub(crate) fn fixed_captain_score_distribution(
     if captain_index >= team.len() {
         return Err(PtMaximizeError::InvalidCaptainIndex { captain_index });
     }
-    let mut scratch = FullTeamScoreScratch::default();
-    if let Some(matrix) =
-        chart.independent_skill_score_matrix(team, stat, is_medley, &mut scratch.exact)?
-    {
-        return Ok(CaptainScoreDistribution {
-            captain_index,
-            captain_card_id: team[captain_index].card_id,
-            distribution: independent_score_histogram(&matrix, captain_index, &mut scratch),
-        });
-    }
-
-    let mut histogram = BTreeMap::new();
-    for_each_permutation([0, 1, 2, 3, 4], |order| {
-        let skills = [
-            team[order[0]],
-            team[order[1]],
-            team[order[2]],
-            team[order[3]],
-            team[order[4]],
-            team[captain_index],
-        ];
-        let score = chart.get_score_for_six_skills(&skills, stat, is_medley)?;
-        *histogram.entry(score).or_insert(0) += 1;
-        Ok::<(), PtMaximizeError>(())
-    })?;
+    let scores = skill_shuffle::exact_order_scores(chart, team, stat, is_medley)?;
+    // A specified team already supplies its real display slots. Do not optimize them.
     Ok(CaptainScoreDistribution {
         captain_index,
         captain_card_id: team[captain_index].card_id,
-        distribution: score_histogram(histogram),
+        recommended_team_card_ids: None,
+        distribution: weighted_score_histogram(
+            &scores[captain_index],
+            &skill_shuffle::tables().layouts[0],
+        ),
     })
 }
 
@@ -761,120 +786,78 @@ fn full_team_score_distributions_with_scratch(
     is_medley: bool,
     scratch: &mut FullTeamScoreScratch,
 ) -> Result<Vec<CaptainScoreDistribution>, PtMaximizeError> {
-    if let Some(matrix) =
+    let scores = if let Some(matrix) =
         chart.independent_skill_score_matrix(team, stat, is_medley, &mut scratch.exact)?
     {
-        let captain_index = (0..5)
-            .max_by_key(|&card_idx| (matrix.deltas[card_idx][5], std::cmp::Reverse(card_idx)))
-            .expect("a team always has five cards");
-        return Ok(vec![CaptainScoreDistribution {
-            captain_index,
-            captain_card_id: team[captain_index].card_id,
-            distribution: independent_score_histogram(&matrix, captain_index, scratch),
-        }]);
-    }
-
-    let mut result = Vec::with_capacity(5);
-    for captain_index in 0..5 {
-        let mut histogram = BTreeMap::new();
-        for_each_permutation([0, 1, 2, 3, 4], |order| {
-            let skills = [
-                team[order[0]],
-                team[order[1]],
-                team[order[2]],
-                team[order[3]],
-                team[order[4]],
-                team[captain_index],
-            ];
-            let score = chart.get_score_for_six_skills(&skills, stat, is_medley)?;
-            *histogram.entry(score).or_insert(0) += 1;
-            Ok::<(), PtMaximizeError>(())
-        })?;
-        result.push(CaptainScoreDistribution {
-            captain_index,
-            captain_card_id: team[captain_index].card_id,
-            distribution: score_histogram(histogram),
-        });
-    }
-    Ok(result)
-}
-
-fn independent_score_histogram(
-    matrix: &IndependentSkillScoreMatrix,
-    captain_index: usize,
-    scratch: &mut FullTeamScoreScratch,
-) -> ScoreHistogram {
-    let summary = prepare_independent_score_histogram(matrix, captain_index, scratch);
-    ScoreHistogram {
-        entries: scratch.score_entries.clone(),
-        score_sum: summary.score_sum,
-        min_score: summary.min_score,
-        max_score: summary.max_score,
-        sample_count: summary.sample_count,
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct ScoreSummary {
-    score_sum: i64,
-    min_score: i32,
-    max_score: i32,
-    sample_count: u64,
-}
-
-fn prepare_independent_score_histogram(
-    matrix: &IndependentSkillScoreMatrix,
-    captain_index: usize,
-    scratch: &mut FullTeamScoreScratch,
-) -> ScoreSummary {
-    for state in &mut scratch.subset_scores {
-        state.clear();
-    }
-    scratch.subset_scores[0].push(0);
-    for mask in 0usize..31 {
-        let position = mask.count_ones() as usize;
-        for card_idx in 0..5 {
-            if mask & (1 << card_idx) != 0 {
-                continue;
-            }
-            let next_mask = mask | (1 << card_idx);
-            let delta = matrix.deltas[card_idx][position];
-            debug_assert!(next_mask > mask);
-            let (completed, pending) = scratch.subset_scores.split_at_mut(next_mask);
-            let partials = &completed[mask];
-            let next = &mut pending[0];
-            for &sum in partials {
-                next.push(sum + delta);
-            }
-        }
-    }
-
-    let fixed_score = matrix.base_score + matrix.deltas[captain_index][5];
-    let scores = &mut scratch.subset_scores[31];
-    scores.sort_unstable();
-    scratch.score_entries.clear();
-    scratch.score_entries.reserve(scores.len());
-    for &delta in scores.iter() {
-        let score = fixed_score + delta;
-        match scratch.score_entries.last_mut() {
-            Some((last_score, count)) if *last_score == score => *count += 1,
-            _ => scratch.score_entries.push((score, 1)),
-        }
-    }
-    let sample_count = scores.len() as u64;
-    let score_sum = scratch
-        .score_entries
-        .iter()
-        .map(|&(score, count)| i64::from(score) * count as i64)
-        .sum();
-    let summary = ScoreSummary {
-        min_score: scratch.score_entries.first().map_or(0, |&(score, _)| score),
-        max_score: scratch.score_entries.last().map_or(0, |&(score, _)| score),
-        score_sum,
-        sample_count,
+        skill_shuffle::matrix_order_scores(&matrix)
+    } else {
+        skill_shuffle::exact_order_scores(chart, team, stat, is_medley)?
     };
-    debug_assert_eq!(summary.sample_count, RANDOM_SKILL_ORDER_COUNT);
-    summary
+    let mut result = skill_shuffle::tables()
+        .layouts
+        .iter()
+        .map(|layout| {
+            let captain_index = layout.cards[CAPTAIN_SLOT];
+            CaptainScoreDistribution {
+                captain_index,
+                captain_card_id: team[captain_index].card_id,
+                recommended_team_card_ids: Some(layout.cards.map(|card| team[card].card_id)),
+                distribution: weighted_score_histogram(&scores[captain_index], layout),
+            }
+        })
+        .collect::<Vec<_>>();
+    // First-order stochastic dominance preserves EVERY monotone PT objective,
+    // including rounded three-song totals. A mean-score comparison alone cannot.
+    result.sort_by_key(|value| (value.captain_card_id, value.recommended_team_card_ids));
+    let retained = (0..result.len())
+        .filter(|&i| {
+            !(0..result.len()).any(|j| {
+                i != j
+                    && (result[j].distribution.score_sum > result[i].distribution.score_sum
+                        || j < i)
+                    && stochastically_dominates(&result[j].distribution, &result[i].distribution)
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(retained
+        .into_iter()
+        .map(|index| result[index].clone())
+        .collect())
+}
+
+pub(crate) fn weighted_score_histogram(
+    scores: &[i32; ORDER_COUNT],
+    layout: &DisplayLayout,
+) -> ScoreHistogram {
+    let mut histogram = BTreeMap::new();
+    for order in &layout.weighted_orders {
+        *histogram.entry(scores[order.index]).or_insert(0) += u64::from(order.count);
+    }
+    score_histogram(histogram)
+}
+
+fn stochastically_dominates(left: &ScoreHistogram, right: &ScoreHistogram) -> bool {
+    debug_assert_eq!(left.sample_count, right.sample_count);
+    if left.min_score < right.min_score
+        || left.max_score < right.max_score
+        || left.score_sum < right.score_sum
+    {
+        return false;
+    }
+    let mut right_index = 0;
+    let mut left_count = 0;
+    let mut right_count = 0;
+    for &(score, count) in &left.entries {
+        left_count += count;
+        while right_index < right.entries.len() && right.entries[right_index].0 <= score {
+            right_count += right.entries[right_index].1;
+            right_index += 1;
+        }
+        if left_count > right_count {
+            return false;
+        }
+    }
+    true
 }
 
 fn score_histogram(entries: BTreeMap<i32, u64>) -> ScoreHistogram {
@@ -910,6 +893,7 @@ fn evaluate_distribution(
         live_variant: scenario.live_variant(),
         captain_index: captain.captain_index,
         captain_card_id: captain.captain_card_id,
+        recommended_team_card_ids: captain.recommended_team_card_ids,
         score_distribution: captain.distribution,
         average_pt,
         min_pt: point_summary.min_pt,
@@ -1020,58 +1004,6 @@ mod tests {
     use crate::{ChartNode, ChartNodeType, EventType};
 
     #[test]
-    fn subset_dp_matches_all_one_hundred_twenty_permutations() {
-        let matrix = IndependentSkillScoreMatrix {
-            base_score: 1_000,
-            deltas: [
-                [11, 12, 13, 14, 15, 100],
-                [21, 22, 23, 24, 25, 90],
-                [31, 32, 33, 34, 35, 80],
-                [41, 42, 43, 44, 45, 70],
-                [51, 52, 53, 54, 55, 60],
-            ],
-        };
-        let actual = independent_score_histogram(&matrix, 0, &mut FullTeamScoreScratch::default());
-        let mut expected = BTreeMap::new();
-        for_each_permutation([0, 1, 2, 3, 4], |order| {
-            let score = matrix.base_score
-                + matrix.deltas[0][5]
-                + order
-                    .iter()
-                    .enumerate()
-                    .map(|(position, &card)| matrix.deltas[card][position])
-                    .sum::<i32>();
-            *expected.entry(score).or_insert(0) += 1;
-            Ok::<(), ()>(())
-        })
-        .unwrap();
-        assert_eq!(actual.entries, expected.into_iter().collect::<Vec<_>>());
-        assert_eq!(actual.sample_count, 120);
-        assert_eq!(independent_max_score(&matrix, 0), actual.max_score);
-    }
-
-    #[test]
-    fn direct_mean_formula_matches_histogram_sum() {
-        let matrix = IndependentSkillScoreMatrix {
-            base_score: 50_000,
-            deltas: std::array::from_fn(|card| {
-                std::array::from_fn(|position| (card * 100 + position * 7) as i32)
-            }),
-        };
-        let captain = 4;
-        let histogram =
-            independent_score_histogram(&matrix, captain, &mut FullTeamScoreScratch::default());
-        let direct = 120i64 * i64::from(matrix.base_score)
-            + 24 * matrix
-                .deltas
-                .iter()
-                .map(|row| row[..5].iter().map(|&value| i64::from(value)).sum::<i64>())
-                .sum::<i64>()
-            + 120 * i64::from(matrix.deltas[captain][5]);
-        assert_eq!(histogram.score_sum, direct);
-    }
-
-    #[test]
     fn real_nonqueued_chart_matrix_matches_strict_scorer() {
         let mut nodes = Vec::new();
         for activation in 0..6 {
@@ -1100,22 +1032,24 @@ mod tests {
         let actual = &distributions[0];
 
         let mut expected = BTreeMap::new();
-        for_each_permutation([0, 1, 2, 3, 4], |order| {
-            let skills = [
-                team[order[0]],
-                team[order[1]],
-                team[order[2]],
-                team[order[3]],
-                team[order[4]],
-                team[actual.captain_index],
-            ];
+        let display = actual
+            .recommended_team_card_ids
+            .unwrap()
+            .map(|id| team.iter().position(|card| card.card_id == id).unwrap());
+        for mut path in 0..1024 {
+            let mut order = display.to_vec();
+            for i in 0..5 {
+                let member = order.remove(i);
+                order.insert(path % 4, member);
+                path /= 4;
+            }
+            let skills = std::array::from_fn(|i| team[if i == 5 { display[2] } else { order[i] }]);
             let score = chart
                 .get_score_for_six_skills(&skills, 250_000, false)
                 .unwrap();
             *expected.entry(score).or_insert(0) += 1;
-            Ok::<(), ()>(())
-        })
-        .unwrap();
+        }
+        assert_eq!(actual.distribution.sample_count, 1024);
         assert_eq!(
             actual.distribution.entries,
             expected.into_iter().collect::<Vec<_>>()
@@ -1131,8 +1065,132 @@ mod tests {
     }
 
     #[test]
+    fn weighted_pt_layout_matches_independent_native_path_search() {
+        let team = std::array::from_fn(|i| TeamCardSkill {
+            card_id: (i + 1) as u32,
+            duration: 7.0,
+            score_up: 1.0,
+            rateup: false,
+        });
+        for seed in 0..5 {
+            let matrix = IndependentSkillScoreMatrix {
+                base_score: 500_000,
+                deltas: std::array::from_fn(|card| {
+                    std::array::from_fn(|position| {
+                        ((card * 317 + position * 199 + seed * 137 + card * position * 131) % 997)
+                            as i32
+                            * 13
+                    })
+                }),
+            };
+            let scenario = FixedTeamPtScenario::Solo {
+                event_type: EventType::Challenge,
+                point_bonus_basis_points: 1725,
+                mission_support_pt_bonus: 0,
+            };
+            let actual = best_weighted_layout_summary(
+                &skill_shuffle::matrix_order_scores(&matrix),
+                &team,
+                scenario,
+                &mut FullTeamScoreScratch::default(),
+            )
+            .unwrap();
+            let mut expected = None;
+            for_each_permutation([0, 1, 2, 3, 4], |layout| {
+                let mut pt_sum = 0u128;
+                let mut score_sum = 0i64;
+                for mut path in 0..1024 {
+                    let mut order = layout.to_vec();
+                    for i in 0..5 {
+                        let card = order.remove(i);
+                        order.insert(path % 4, card);
+                        path /= 4;
+                    }
+                    let score = matrix.base_score
+                        + matrix.deltas[layout[2]][5]
+                        + order
+                            .iter()
+                            .enumerate()
+                            .map(|(position, &card)| matrix.deltas[card][position])
+                            .sum::<i32>();
+                    score_sum += i64::from(score);
+                    pt_sum += u128::from(points_for_scenario(score, scenario).unwrap());
+                }
+                let ids = layout.map(|card| team[card].card_id);
+                let key = (
+                    pt_sum,
+                    score_sum,
+                    std::cmp::Reverse(ids[2]),
+                    std::cmp::Reverse(ids),
+                );
+                if expected.is_none_or(|old| key > old) {
+                    expected = Some(key);
+                }
+                Ok::<(), ()>(())
+            })
+            .unwrap();
+            let expected = expected.unwrap();
+            assert_eq!(actual.average_pt, AveragePt::new(expected.0, 1024).unwrap());
+            assert_eq!(actual.score_sum, expected.1);
+            assert_eq!(actual.recommended_team_card_ids, expected.3 .0);
+        }
+    }
+
+    #[test]
+    fn queued_specified_team_uses_given_slots_and_exact_native_paths() {
+        let mut nodes = Vec::new();
+        for i in 0..70 {
+            if i % 10 == 0 && i < 60 {
+                nodes.push(ChartNode {
+                    node_type: ChartNodeType::Skill,
+                    time: i as f64 * 0.25,
+                });
+            }
+            nodes.push(ChartNode {
+                node_type: ChartNodeType::Node,
+                time: i as f64 * 0.25 + 0.1,
+            });
+        }
+        let mut chart = Chart::new(25, nodes);
+        chart.init(0, false).unwrap();
+        let team = std::array::from_fn(|i| TeamCardSkill {
+            card_id: (i + 1) as u32,
+            duration: 3.0 + i as f64 * 0.5,
+            score_up: 0.5 + i as f64 * 0.2,
+            rateup: false,
+        });
+        assert!(chart.team_skills_may_overlap(&team).unwrap());
+        let actual = fixed_captain_score_distribution(&chart, &team, 250_000, false, 2).unwrap();
+        let mut expected = BTreeMap::new();
+        for mut path in 0..1024 {
+            let mut order = vec![0, 1, 2, 3, 4];
+            for i in 0..5 {
+                let card = order.remove(i);
+                order.insert(path % 4, card);
+                path /= 4;
+            }
+            let skills = std::array::from_fn(|i| team[if i == 5 { 2 } else { order[i] }]);
+            *expected
+                .entry(
+                    chart
+                        .get_score_for_six_skills(&skills, 250_000, false)
+                        .unwrap(),
+                )
+                .or_insert(0) += 1;
+        }
+        assert_eq!(actual.distribution, score_histogram(expected));
+        assert_eq!(actual.recommended_team_card_ids, None);
+        let mut swapped = team;
+        swapped.swap(0, 4);
+        let other = fixed_captain_score_distribution(&chart, &swapped, 250_000, false, 2).unwrap();
+        assert_ne!(actual.distribution, other.distribution);
+        assert_eq!(actual.captain_card_id, other.captain_card_id);
+    }
+
+    #[test]
     fn averages_integer_points_instead_of_average_score() {
         let distribution = CaptainScoreDistribution {
+            recommended_team_card_ids: None,
             captain_index: 0,
             captain_card_id: 1,
             distribution: score_histogram(BTreeMap::from([(9_749, 1), (9_751, 1)])),

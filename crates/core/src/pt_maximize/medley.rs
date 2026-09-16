@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 
 use bangdream_optimize_medley_solver::{
     enumerate_medley_band, enumerate_medley_band_wide, solve_medley_seed_with_rounds,
@@ -22,15 +22,18 @@ use crate::{
 };
 
 use super::distribution::full_team_score_distributions;
-use super::model::{compare_nonnegative_averages, RANDOM_SKILL_ORDER_COUNT};
+use super::model::compare_nonnegative_averages;
 use super::{
     AveragePt, CaptainScoreDistribution, PtMaximizeError, PtMaximizeMedleyMetrics,
     PtMaximizeMedleyResult, PtMaximizeMedleyTeamResult, ScoreHistogram,
 };
+use crate::skill_shuffle::{self, SHUFFLE_PATH_COUNT};
 
 const SONG_COUNT: usize = 3;
 const TEAM_SIZE: usize = 5;
 const MEAN_SEED_RANDOM_BUCKET_ROUNDS: usize = 512;
+
+use crate::medley::disjoint_bound;
 
 #[derive(Debug, Clone)]
 struct MedleyCandidate {
@@ -200,11 +203,10 @@ fn search_medley_for_items_seeded(
     let initial_seed_mean = (0..SONG_COUNT)
         .map(|song| seed_candidates[song].mean_numerators[song])
         .sum::<i64>();
-    let initial_mean_band_floor = initial_seed_mean
-        .saturating_sub((MEDLEY_SCORE_DIVISOR as i64) * RANDOM_SKILL_ORDER_COUNT as i64);
-    let fixed_score_floor = (initial_mean_band_floor
-        .saturating_add(RANDOM_SKILL_ORDER_COUNT as i64 - 1)
-        / RANDOM_SKILL_ORDER_COUNT as i64)
+    let initial_mean_band_floor =
+        initial_seed_mean.saturating_sub((MEDLEY_SCORE_DIVISOR as i64) * SHUFFLE_PATH_COUNT as i64);
+    let fixed_score_floor = (initial_mean_band_floor.saturating_add(SHUFFLE_PATH_COUNT as i64 - 1)
+        / SHUFFLE_PATH_COUNT as i64)
         .saturating_sub(1)
         .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
 
@@ -280,7 +282,7 @@ fn search_medley_for_items_seeded(
     metrics.seed_ms += seed_ms;
     let seed_mean = plan_mean_numerator(&candidates, seed_indices);
     let mean_band_floor =
-        seed_mean.saturating_sub((MEDLEY_SCORE_DIVISOR as i64) * RANDOM_SKILL_ORDER_COUNT as i64);
+        seed_mean.saturating_sub((MEDLEY_SCORE_DIVISOR as i64) * SHUFFLE_PATH_COUNT as i64);
     let seed_raw_indices = seed_indices.map(|index| candidates[index].raw_indices);
     let seeded_candidate_count = candidates.len();
     retain_mean_band_candidates_with_required(&mut candidates, mean_band_floor, &seed_raw_indices);
@@ -413,8 +415,8 @@ fn search_medley_for_items_above(
 ) -> Result<Option<EvaluatedPlan>, PtMaximizeError> {
     let options = TeamGenerationOptions::default();
     let mean_floor = mean_numerator_to_match(global_incumbent.average_pt);
-    let fixed_score_floor = (mean_floor.saturating_add(RANDOM_SKILL_ORDER_COUNT as i64 - 1)
-        / RANDOM_SKILL_ORDER_COUNT as i64)
+    let fixed_score_floor = (mean_floor.saturating_add(SHUFFLE_PATH_COUNT as i64 - 1)
+        / SHUFFLE_PATH_COUNT as i64)
         .saturating_sub(1)
         .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
 
@@ -593,7 +595,16 @@ fn retain_mean_band_candidates_with_required(
         .iter()
         .map(|candidate| candidate.mean_numerators)
         .collect::<Vec<_>>();
-    let active_indices = mean_band_candidate_indices(&means, floor);
+    let mut active_indices = mean_band_candidate_indices(&means, floor);
+    if disjoint_bound::enabled() {
+        active_indices = disjoint_bound::candidate_indices(
+            active_indices,
+            |index| candidates[index].raw_indices,
+            |index| means[index],
+            floor,
+            "mean",
+        );
+    }
     if active_indices.len() == candidates.len() {
         return;
     }
@@ -643,7 +654,16 @@ fn retain_raw_score_band_candidates(candidates: &mut Vec<RawTeamCandidate>, floo
         .iter()
         .map(|candidate| candidate.scores)
         .collect::<Vec<_>>();
-    let active_indices = raw_score_band_candidate_indices(&scores, floor);
+    let mut active_indices = raw_score_band_candidate_indices(&scores, floor);
+    if disjoint_bound::enabled() {
+        active_indices = disjoint_bound::candidate_indices(
+            active_indices,
+            |index| candidates[index].raw_indices,
+            |index| scores[index].map(|score| i64::from(score) * SHUFFLE_PATH_COUNT as i64),
+            floor,
+            "raw",
+        );
+    }
     if active_indices.len() == candidates.len() {
         return;
     }
@@ -663,7 +683,7 @@ fn raw_score_band_candidate_indices(scores: &[[i32; SONG_COUNT]], floor: i64) ->
     let maxima: [i64; SONG_COUNT] = std::array::from_fn(|song| {
         scores
             .iter()
-            .map(|values| i64::from(values[song]).saturating_mul(RANDOM_SKILL_ORDER_COUNT as i64))
+            .map(|values| i64::from(values[song]).saturating_mul(SHUFFLE_PATH_COUNT as i64))
             .max()
             .unwrap_or(i64::MIN)
     });
@@ -677,7 +697,7 @@ fn raw_score_band_candidate_indices(scores: &[[i32; SONG_COUNT]], floor: i64) ->
                         .filter(|&other| other != song)
                         .fold(0i64, |sum, other| sum.saturating_add(maxima[other]));
                     i64::from(values[song])
-                        .saturating_mul(RANDOM_SKILL_ORDER_COUNT as i64)
+                        .saturating_mul(SHUFFLE_PATH_COUNT as i64)
                         .saturating_add(other_max)
                         >= floor
                 })
@@ -709,7 +729,7 @@ fn build_mean_candidates(
     charts: &[Chart],
     raw_candidates: Vec<RawTeamCandidate>,
 ) -> Result<Vec<MedleyCandidate>, PtMaximizeError> {
-    let mut scratch = ExactScoreScratch::default();
+    let mut scratch = ExactScoreScratch::compressed();
     raw_candidates
         .into_iter()
         .map(|raw| {
@@ -757,6 +777,15 @@ fn compact_candidate_masks(candidates: &mut [MedleyCandidate]) {
         .map(|(position, raw_idx)| (raw_idx, position))
         .collect::<HashMap<_, _>>();
     let word_count = positions.len().div_ceil(64).max(1);
+    if trace_enabled() {
+        eprintln!(
+            "PT medley compact masks: candidates={} used_cards={} words_per_mask={} bits_per_mask={}",
+            candidates.len(),
+            positions.len(),
+            word_count,
+            word_count * 64,
+        );
+    }
     for candidate in candidates {
         candidate.mask_words = vec![0; word_count];
         for raw_idx in candidate.raw_indices {
@@ -802,25 +831,7 @@ fn best_mean_numerator(
     scratch: &mut ExactScoreScratch,
 ) -> Result<i64, PtMaximizeError> {
     if let Some(matrix) = chart.independent_skill_score_matrix(skills, stat, true, scratch)? {
-        let captain = (0..TEAM_SIZE)
-            .max_by_key(|&idx| {
-                (
-                    matrix.deltas[idx][5],
-                    std::cmp::Reverse(skills[idx].card_id),
-                )
-            })
-            .expect("a team has five cards");
-        return Ok(
-            RANDOM_SKILL_ORDER_COUNT as i64 * i64::from(matrix.base_score)
-                + (RANDOM_SKILL_ORDER_COUNT as i64 / TEAM_SIZE as i64)
-                    * matrix
-                        .deltas
-                        .iter()
-                        .flat_map(|row| row[..TEAM_SIZE].iter())
-                        .map(|&delta| i64::from(delta))
-                        .sum::<i64>()
-                + RANDOM_SKILL_ORDER_COUNT as i64 * i64::from(matrix.deltas[captain][5]),
-        );
+        return Ok(skill_shuffle::matrix_best_mean_numerator(&matrix));
     }
     Ok(full_team_score_distributions(chart, skills, stat, true)?
         .into_iter()
@@ -841,7 +852,7 @@ fn mean_numerator_to_match(average_pt: AveragePt) -> i64 {
         .pt_sum
         .saturating_sub(100u128.saturating_mul(samples));
     let numerator = u128::from(MEDLEY_SCORE_DIVISOR)
-        .saturating_mul(u128::from(RANDOM_SKILL_ORDER_COUNT))
+        .saturating_mul(u128::from(SHUFFLE_PATH_COUNT))
         .saturating_mul(variable_pt_sum);
     numerator.div_ceil(samples).min(i64::MAX as u128) as i64
 }
@@ -851,8 +862,8 @@ fn approximate_mean_seed(candidates: &[MedleyCandidate]) -> Option<[usize; SONG_
         .iter()
         .map(|candidate| {
             candidate.mean_numerators.map(|value| {
-                (value / RANDOM_SKILL_ORDER_COUNT as i64)
-                    .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+                (value / SHUFFLE_PATH_COUNT as i64).clamp(i64::from(i32::MIN), i64::from(i32::MAX))
+                    as i32
             })
         })
         .collect::<Vec<_>>();
@@ -921,19 +932,66 @@ fn evaluate_plan(
             cache,
         )?);
     }
-    let distributions: [Vec<CaptainScoreDistribution>; SONG_COUNT] = distribution_values
+    let mut distributions: [Vec<CaptainScoreDistribution>; SONG_COUNT] = distribution_values
         .try_into()
         .unwrap_or_else(|_| unreachable!("three songs were collected"));
+    for values in &mut distributions {
+        values.sort_by_key(|value| {
+            (
+                std::cmp::Reverse(value.distribution.score_sum),
+                value.captain_card_id,
+                value.recommended_team_card_ids,
+            )
+        });
+    }
+    if distributions.iter().any(Vec::is_empty) {
+        return Err(PtMaximizeError::EmptyDistribution);
+    }
     let mut best: Option<PtMaximizeMedleyResult> = None;
     for first in &distributions[0] {
+        let optimistic_mean = first.distribution.score_sum
+            + distributions[1][0].distribution.score_sum
+            + distributions[2][0].distribution.score_sum;
+        if best
+            .as_ref()
+            .is_some_and(|current| optimistic_mean < mean_numerator_to_match(current.average_pt))
+        {
+            break;
+        }
         for second in &distributions[1] {
+            let optimistic_mean = first.distribution.score_sum
+                + second.distribution.score_sum
+                + distributions[2][0].distribution.score_sum;
+            if best.as_ref().is_some_and(|current| {
+                optimistic_mean < mean_numerator_to_match(current.average_pt)
+            }) {
+                break;
+            }
+            let pair = MedleyPairSummary::new(&first.distribution, &second.distribution)?;
             for third in &distributions[2] {
-                let selected = [first, second, third];
+                let mean = first.distribution.score_sum
+                    + second.distribution.score_sum
+                    + third.distribution.score_sum;
+                if best
+                    .as_ref()
+                    .is_some_and(|current| mean < mean_numerator_to_match(current.average_pt))
+                {
+                    break;
+                }
+                let points = pair.with_third(&third.distribution)?;
+                let average = AveragePt::new(points.0, points.1)?;
+                if best
+                    .as_ref()
+                    .is_some_and(|current| average < current.average_pt)
+                {
+                    continue;
+                }
                 let result = medley_result_for_distributions(
                     candidates,
                     candidate_indices,
                     items,
-                    selected,
+                    [first, second, third],
+                    points,
                 )?;
                 if best
                     .as_ref()
@@ -954,9 +1012,10 @@ fn medley_result_for_distributions(
     candidate_indices: [usize; SONG_COUNT],
     items: &SelectedAreaItems,
     distributions: [&CaptainScoreDistribution; SONG_COUNT],
+    points: (u128, u64),
 ) -> Result<PtMaximizeMedleyResult, PtMaximizeError> {
     let histograms = distributions.map(|value| &value.distribution);
-    let (pt_sum, sample_count) = medley_pt_sum(histograms)?;
+    let (pt_sum, sample_count) = points;
     let min_score = histograms
         .iter()
         .map(|histogram| i64::from(histogram.min_score))
@@ -975,6 +1034,7 @@ fn medley_result_for_distributions(
         .map(|song| {
             let candidate = &candidates[candidate_indices[song]];
             PtMaximizeMedleyTeamResult {
+                recommended_team_card_ids: distributions[song].recommended_team_card_ids,
                 team_card_ids: candidate.card_ids.clone(),
                 captain_card_id: distributions[song].captain_card_id,
                 total_stat: candidate.stat,
@@ -993,51 +1053,70 @@ fn medley_result_for_distributions(
     })
 }
 
+/// Reuse the first two songs' carry thresholds while trying the third layout.
+/// This remains exact for integer PT; no independence of activation positions
+/// or mean-score rounding is assumed. Song shuffles are independent.
+struct MedleyPairSummary {
+    sample_count: u64,
+    base_pt_sum: u128,
+    carry_counts: Vec<u64>,
+}
+
+impl MedleyPairSummary {
+    fn new(first: &ScoreHistogram, second: &ScoreHistogram) -> Result<Self, PtMaximizeError> {
+        if first.sample_count == 0 || second.sample_count == 0 {
+            return Err(PtMaximizeError::EmptyDistribution);
+        }
+        let sample_count = first
+            .sample_count
+            .checked_mul(second.sample_count)
+            .ok_or(PtMaximizeError::EmptyDistribution)?;
+        let divisor = MEDLEY_SCORE_DIVISOR as usize;
+        let mut carry_counts = vec![0u64; divisor + 1];
+        let mut base_pt_sum = 100u128 * u128::from(sample_count);
+        for &(left, left_count) in &first.entries {
+            for &(right, right_count) in &second.entries {
+                let score = left.max(0) as u64 + right.max(0) as u64;
+                let count = left_count * right_count;
+                base_pt_sum += u128::from(score / divisor as u64) * u128::from(count);
+                carry_counts[(score % divisor as u64) as usize] += count;
+            }
+        }
+        for threshold in (0..divisor).rev() {
+            carry_counts[threshold] += carry_counts[threshold + 1];
+        }
+        Ok(Self {
+            sample_count,
+            base_pt_sum,
+            carry_counts,
+        })
+    }
+
+    fn with_third(&self, third: &ScoreHistogram) -> Result<(u128, u64), PtMaximizeError> {
+        if third.sample_count == 0 {
+            return Err(PtMaximizeError::EmptyDistribution);
+        }
+        let sample_count = self
+            .sample_count
+            .checked_mul(third.sample_count)
+            .ok_or(PtMaximizeError::EmptyDistribution)?;
+        let divisor = MEDLEY_SCORE_DIVISOR as usize;
+        let mut pt_sum = self.base_pt_sum * u128::from(third.sample_count);
+        for &(score, count) in &third.entries {
+            let score = score.max(0) as usize;
+            pt_sum += ((score / divisor) as u128 * u128::from(self.sample_count)
+                + u128::from(self.carry_counts[divisor - score % divisor]))
+                * u128::from(count);
+        }
+        Ok((pt_sum, sample_count))
+    }
+}
+
+#[cfg(test)]
 fn medley_pt_sum(
     histograms: [&ScoreHistogram; SONG_COUNT],
 ) -> Result<(u128, u64), PtMaximizeError> {
-    if histograms
-        .iter()
-        .any(|histogram| histogram.sample_count == 0)
-    {
-        return Err(PtMaximizeError::EmptyDistribution);
-    }
-    let sample_count = histograms
-        .iter()
-        .try_fold(1u64, |value, histogram| {
-            value.checked_mul(histogram.sample_count)
-        })
-        .ok_or(PtMaximizeError::EmptyDistribution)?;
-    let divisor = MEDLEY_SCORE_DIVISOR as i32;
-    let mut quotient_sums = [0u128; SONG_COUNT];
-    let remainders: [Vec<(i32, u64)>; SONG_COUNT] = std::array::from_fn(|song| {
-        let mut values = BTreeMap::new();
-        for &(score, count) in &histograms[song].entries {
-            quotient_sums[song] += (score.max(0) / divisor) as u128 * u128::from(count);
-            *values.entry(score.max(0) % divisor).or_insert(0) += count;
-        }
-        values.into_iter().collect()
-    });
-    let total_samples = u128::from(sample_count);
-    let mut pt_sum = 100u128 * total_samples;
-    for song in 0..SONG_COUNT {
-        pt_sum += quotient_sums[song] * (total_samples / u128::from(histograms[song].sample_count));
-    }
-
-    let mut pair_remainders = BTreeMap::<i32, u64>::new();
-    for &(left, left_count) in &remainders[0] {
-        for &(right, right_count) in &remainders[1] {
-            *pair_remainders.entry(left + right).or_insert(0) += left_count * right_count;
-        }
-    }
-    for (pair, pair_count) in pair_remainders {
-        for &(third, third_count) in &remainders[2] {
-            pt_sum += ((pair + third) / divisor) as u128
-                * u128::from(pair_count)
-                * u128::from(third_count);
-        }
-    }
-    Ok((pt_sum, sample_count))
+    MedleyPairSummary::new(histograms[0], histograms[1])?.with_third(histograms[2])
 }
 
 fn better_result(candidate: &PtMaximizeMedleyResult, current: &PtMaximizeMedleyResult) -> bool {
@@ -1055,11 +1134,17 @@ fn better_result(candidate: &PtMaximizeMedleyResult, current: &PtMaximizeMedleyR
             && canonical_result_key(candidate) < canonical_result_key(current))
 }
 
-fn canonical_result_key(result: &PtMaximizeMedleyResult) -> Vec<(Vec<u32>, u32)> {
+fn canonical_result_key(result: &PtMaximizeMedleyResult) -> Vec<(Vec<u32>, u32, Option<[u32; 5]>)> {
     result
         .teams
         .iter()
-        .map(|team| (team.team_card_ids.clone(), team.captain_card_id))
+        .map(|team| {
+            (
+                team.team_card_ids.clone(),
+                team.captain_card_id,
+                team.recommended_team_card_ids,
+            )
+        })
         .collect()
 }
 
@@ -1099,6 +1184,88 @@ mod tests {
     }
 
     #[test]
+    fn joint_layout_search_matches_exhaustive_weighted_three_song_points() {
+        let skills = std::array::from_fn(|i| TeamCardSkill {
+            card_id: i as u32 + 1,
+            duration: 7.0,
+            score_up: 1.0,
+            rateup: false,
+        });
+        let candidates = (0..3)
+            .map(|song| MedleyCandidate {
+                raw_indices: std::array::from_fn(|i| song * 5 + i),
+                mask_words: vec![],
+                card_ids: skills.map(|s| s.card_id).to_vec(),
+                skills,
+                stat: 250_000,
+                mean_numerators: [0; 3],
+            })
+            .collect::<Vec<_>>();
+        let variants: [Vec<CaptainScoreDistribution>; 3] = std::array::from_fn(|song| {
+            (0..6)
+                .map(|variant| {
+                    let base = 900_000 + song as i32 * 1277 + variant as i32 * 793;
+                    let mut entries =
+                        vec![(base, 400), (base + 19_999 - variant as i32 * 1553, 624)];
+                    entries.sort_unstable();
+                    CaptainScoreDistribution {
+                        captain_index: variant % 5,
+                        captain_card_id: skills[variant % 5].card_id,
+                        recommended_team_card_ids: Some(
+                            skill_shuffle::tables().orders[variant].map(|i| skills[i].card_id),
+                        ),
+                        distribution: ScoreHistogram {
+                            min_score: entries[0].0,
+                            max_score: entries[1].0,
+                            score_sum: entries.iter().map(|&(s, n)| i64::from(s) * n as i64).sum(),
+                            sample_count: 1024,
+                            entries,
+                        },
+                    }
+                })
+                .collect()
+        });
+        let mut cache = HashMap::new();
+        for song in 0..3 {
+            cache.insert((song, song), variants[song].clone());
+        }
+        let items = SelectedAreaItems {
+            band: String::new(),
+            attribute: String::new(),
+            magazine: crate::Magazine::Performance,
+        };
+        let actual = evaluate_plan(&candidates, &[], &items, [0, 1, 2], &mut cache)
+            .unwrap()
+            .result;
+        let mut expected = 0u128;
+        for a in &variants[0] {
+            for b in &variants[1] {
+                for c in &variants[2] {
+                    let mut points = 0u128;
+                    for &(x, nx) in &a.distribution.entries {
+                        for &(y, ny) in &b.distribution.entries {
+                            for &(z, nz) in &c.distribution.entries {
+                                points +=
+                                    u128::from(medley_three_song_points(i64::from(x + y + z)))
+                                        * u128::from(nx * ny * nz);
+                            }
+                        }
+                    }
+                    expected = expected.max(points);
+                }
+            }
+        }
+        assert_eq!(
+            actual.average_pt,
+            AveragePt::new(expected, 1024u64.pow(3)).unwrap()
+        );
+        assert!(actual
+            .teams
+            .iter()
+            .all(|team| team.recommended_team_card_ids.is_some()));
+    }
+
+    #[test]
     fn equal_average_pt_prefers_higher_average_score() {
         let result = |score_sum| PtMaximizeMedleyResult {
             teams: Vec::new(),
@@ -1125,7 +1292,7 @@ mod tests {
         let scores = vec![[100, 0, 0], [0, 100, 0], [0, 0, 100], [1, 1, 1]];
 
         assert_eq!(
-            raw_score_band_candidate_indices(&scores, 250 * RANDOM_SKILL_ORDER_COUNT as i64),
+            raw_score_band_candidate_indices(&scores, 250 * SHUFFLE_PATH_COUNT as i64),
             vec![0, 1, 2]
         );
     }
@@ -1144,14 +1311,14 @@ mod tests {
                 pt_sum: 101,
                 sample_count: 1,
             }),
-            MEDLEY_SCORE_DIVISOR as i64 * RANDOM_SKILL_ORDER_COUNT as i64
+            MEDLEY_SCORE_DIVISOR as i64 * SHUFFLE_PATH_COUNT as i64
         );
         assert_eq!(
             mean_numerator_to_match(AveragePt {
                 pt_sum: 701,
                 sample_count: 7,
             }),
-            317_143
+            2_706_286
         );
     }
 }

@@ -8,6 +8,9 @@ use crate::model::schema::Attribute;
 use crate::timing::Timer;
 use std::collections::HashMap;
 
+mod cached;
+pub(in crate::medley) use cached::CandidateScorer;
+
 const TEAM_SIZE: usize = 5;
 const MEDLEY_TEAM_COUNT: usize = 3;
 
@@ -153,6 +156,7 @@ pub(in crate::medley) fn build_resolved_candidate(
         selected_indices,
         scratch,
         None,
+        None,
     )
 }
 
@@ -171,9 +175,11 @@ pub(in crate::medley) fn build_resolved_candidate_profiled(
         selected_indices,
         scratch,
         Some(profile),
+        None,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_resolved_candidate_internal<const PROFILE: bool>(
     cards: &[ResolvedMedleyCardInput],
     charts: &[Chart],
@@ -181,6 +187,7 @@ fn build_resolved_candidate_internal<const PROFILE: bool>(
     selected_indices: &[usize; TEAM_SIZE],
     scratch: &mut ExactScoreScratch,
     mut profile: Option<&mut ResolvedCandidateBuildProfile>,
+    seeds: Option<&[MedleySkillOrder; MEDLEY_TEAM_COUNT]>,
 ) -> Result<RawTeamCandidate, TeamBuildError> {
     let total_start = PROFILE.then(Timer::start);
     let stage_start = PROFILE.then(Timer::start);
@@ -204,7 +211,10 @@ fn build_resolved_candidate_internal<const PROFILE: bool>(
         }
 
         let stage_start = PROFILE.then(Timer::start);
-        let seed = max_meta_order_for_team(&skill_meta);
+        let seed = seeds.map_or_else(
+            || max_meta_order_for_team(&skill_meta),
+            |seeds| seeds[chart_idx],
+        );
         if let (Some(profile), Some(start)) = (profile.as_deref_mut(), stage_start) {
             profile.seed_ms += start.elapsed_ms();
         }
@@ -405,6 +415,13 @@ fn selected_skill_meta(
 }
 
 fn max_meta_order_for_team(skill_meta: &[[f64; TEAM_SIZE + 1]; TEAM_SIZE]) -> MedleySkillOrder {
+    if crate::skill_assignment::enabled() {
+        let (_, order_indices, captain_index) = crate::skill_assignment::maximize_f64(skill_meta);
+        return MedleySkillOrder {
+            order_indices,
+            captain_index,
+        };
+    }
     if skill_meta[1..].iter().all(|row| row == &skill_meta[0]) {
         return MedleySkillOrder {
             order_indices: [0, 1, 2, 3, 4],

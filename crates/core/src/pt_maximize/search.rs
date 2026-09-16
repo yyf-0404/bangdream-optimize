@@ -1000,6 +1000,11 @@ fn mode_meta_upper_can_beat(
     if average_upper != current.evaluation.average_pt {
         return Ok(average_upper > current.evaluation.average_pt);
     }
+    if i128::from(score_upper) * i128::from(current.evaluation.score_distribution.sample_count)
+        > i128::from(current.evaluation.score_distribution.score_sum)
+    {
+        return Ok(true);
+    }
 
     let mut min_team_ids = by_character
         .values()
@@ -1157,6 +1162,11 @@ fn branch_meta_can_beat(
     )?;
     if pt_upper != current.evaluation.average_pt {
         return Ok(pt_upper > current.evaluation.average_pt);
+    }
+    if i128::from(score_upper) * i128::from(current.evaluation.score_distribution.sample_count)
+        > i128::from(current.evaluation.score_distribution.score_sum)
+    {
+        return Ok(true);
     }
 
     let mut min_team_ids = [u32::MAX; 5];
@@ -1901,6 +1911,7 @@ mod tests {
                 magazine: Magazine::Performance,
             },
             evaluation: FixedTeamPtEvaluation {
+                recommended_team_card_ids: None,
                 event_type: EventType::LiveTry,
                 live_variant: LiveVariant::Solo,
                 captain_index: 0,

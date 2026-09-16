@@ -32,7 +32,7 @@
 .team-grid>.cp-card,.pt-summary-grid>.cp-card{width:100%;max-width:112px;justify-self:center}
 .pt-summary-grid>.cp-card{padding:9px 0 12px}.cp-team-actions{display:flex;justify-content:flex-end;margin:6px 0}
 @container cp-card (max-width:76px){.cp-card .cp-skill-row{gap:1px}.cp-card .cp-skill[data-long=true]{font-size:9px}.cp-card .cp-skill[data-long=true]>b{letter-spacing:-.5px}.cp-card .cp-skill-level{gap:1.5px}.cp-card .cp-skill-level small{font-size:8px}.cp-card .cp-skill-level b{font-size:10px}}
-@media(max-width:520px){.team-grid:has(>.cp-card),#aurora-soft-study .pt-summary-grid:has(>.cp-card){grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:18px 14px!important}}
+@media(max-width:520px){.team-grid:not(.is-display-order):has(>.cp-card),#aurora-soft-study .pt-summary-grid:has(>.cp-card){grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:18px 14px!important}}
 @media(pointer:coarse){.cp-card button.cp-flip{width:24px;height:24px;min-height:24px!important;right:0;bottom:0}}
 
 /* One detail layout for editable inventory and readonly team/result snapshots. */
@@ -78,3 +78,5 @@ dialog.cp-detail-dialog{--cp-ink:#423b4b;--cp-muted:#7b7182;--cp-accent:#8f5197;
 
 .cp-card[data-pressed=true] .cp-art{box-shadow:0 0 0 2px #a16bb9}.cp-card[data-disabled=true] .cp-thumb{opacity:.4}
 @media(pointer:coarse){.cp-detail-dialog .cp-state-control,.cp-detail-dialog .cp-owned{min-height:44px}.cp-detail-dialog .cp-detail-close{width:44px;height:44px}}
+
+@media(max-width:520px){#result-design .team-grid.is-display-order{grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:8px!important}#result-design .is-display-order .cp-captain>span{display:none}}

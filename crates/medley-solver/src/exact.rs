@@ -9,6 +9,29 @@ use std::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
+#[cfg(any(test, feature = "experimental-bitmap-band"))]
+#[path = "bitmap_band.rs"]
+mod bitmap_band;
+
+#[cfg(all(test, any(target_arch = "x86", target_arch = "x86_64")))]
+#[path = "band_avx2_tests.rs"]
+mod band_avx2_tests;
+
+#[cfg(all(
+    any(test, feature = "experimental-avx2-second-prune"),
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
+#[path = "second_prune.rs"]
+mod second_prune;
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[path = "reuse_band.rs"]
+mod reuse_band;
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[path = "reuse_max.rs"]
+mod reuse_max;
+
 pub(crate) struct ExactSearchOutcome {
     pub(crate) best_score: Score,
     pub(crate) best_indices: Option<[usize; 3]>,
@@ -91,7 +114,13 @@ fn solve_avx2_internal(
 
         // SAFETY: runtime AVX2 support is checked above. The SIMD path compares
         // four u64 masks at a time, so every narrow TeamMask is supported.
-        Ok(unsafe { solve_avx2_x86(input, meter) })
+        Ok(unsafe {
+            if reuse_max::enabled() {
+                reuse_max::narrow(input)
+            } else {
+                solve_avx2_x86(input, meter)
+            }
+        })
     }
 
     #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
@@ -122,7 +151,13 @@ fn solve_wide_avx2_internal(
 
         // SAFETY: runtime AVX2 support is checked above. Wide masks have
         // already been validated to use the same word count.
-        Ok(unsafe { solve_wide_avx2_x86(input, meter) })
+        Ok(unsafe {
+            if reuse_max::enabled() {
+                reuse_max::wide(input, meter)
+            } else {
+                solve_wide_avx2_x86(input, meter)
+            }
+        })
     }
 
     #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
@@ -526,6 +561,15 @@ pub(crate) fn enumerate_band(
     input: &MedleyBandInput,
     visit: impl FnMut([usize; 3], BandScore) -> MedleyBandVisit,
 ) -> Result<MedleyBandMetrics, MedleySolverError> {
+    #[cfg(feature = "experimental-bitmap-band")]
+    if bitmap_band::enabled() {
+        return Ok(bitmap_band::enumerate(
+            input.floor,
+            &input.scores,
+            input.team_masks.iter().map(std::slice::from_ref),
+            visit,
+        ));
+    }
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
         if avx2_available() {
@@ -541,6 +585,15 @@ pub(crate) fn enumerate_band_wide(
     input: &WideMedleyBandInput,
     visit: impl FnMut([usize; 3], BandScore) -> MedleyBandVisit,
 ) -> Result<MedleyBandMetrics, MedleySolverError> {
+    #[cfg(feature = "experimental-bitmap-band")]
+    if bitmap_band::enabled() {
+        return Ok(bitmap_band::enumerate(
+            input.floor,
+            &input.scores,
+            input.team_masks.iter().map(Vec::as_slice),
+            visit,
+        ));
+    }
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
         if avx2_available() {
@@ -660,7 +713,73 @@ fn enumerate_band_wide_scalar(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx2")]
+unsafe fn enumerate_reuse_narrow(
+    input: &MedleyBandInput,
+    visit: impl FnMut([usize; 3], BandScore) -> MedleyBandVisit,
+) -> MedleyBandMetrics {
+    let masks: Vec<_> = input.team_masks.iter().map(|&mask| [mask]).collect();
+    reuse_band::enumerate(
+        input.floor,
+        &input.scores,
+        &masks,
+        MedleySolverImplementation::Avx2,
+        visit,
+    )
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx2")]
+unsafe fn enumerate_reuse_wide(
+    input: &WideMedleyBandInput,
+    visit: impl FnMut([usize; 3], BandScore) -> MedleyBandVisit,
+) -> MedleyBandMetrics {
+    macro_rules! run {
+        ($words:literal) => {{
+            let masks: Vec<[u64; $words]> = input
+                .team_masks
+                .iter()
+                .map(|mask| std::array::from_fn(|word| mask[word]))
+                .collect();
+            reuse_band::enumerate(
+                input.floor,
+                &input.scores,
+                &masks,
+                MedleySolverImplementation::Avx2Wide,
+                visit,
+            )
+        }};
+    }
+    match input.team_masks.first().map(Vec::len) {
+        Some(1) => run!(1),
+        Some(2) => run!(2),
+        Some(3) => run!(3),
+        Some(4) => run!(4),
+        _ => enumerate_band_wide_avx2_impl::<0>(input, visit),
+    }
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx2")]
 unsafe fn enumerate_band_avx2_x86(
+    input: &MedleyBandInput,
+    visit: impl FnMut([usize; 3], BandScore) -> MedleyBandVisit,
+) -> MedleyBandMetrics {
+    #[cfg(feature = "experimental-avx2-second-prune")]
+    match second_prune::mode() {
+        0 => return enumerate_band_avx2_impl::<0>(input, visit),
+        1 => return enumerate_band_avx2_impl::<1>(input, visit),
+        2 => return enumerate_band_avx2_impl::<2>(input, visit),
+        _ => {}
+    }
+    enumerate_reuse_narrow(input, visit)
+}
+
+#[cfg(all(
+    any(test, feature = "experimental-avx2-second-prune"),
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
+#[target_feature(enable = "avx2")]
+unsafe fn enumerate_band_avx2_impl<const MODE: u8>(
     input: &MedleyBandInput,
     mut visit: impl FnMut([usize; 3], BandScore) -> MedleyBandVisit,
 ) -> MedleyBandMetrics {
@@ -680,6 +799,15 @@ unsafe fn enumerate_band_avx2_x86(
     let mut metrics = empty_band_metrics(input.floor, implementation);
     let zero = _mm256_setzero_si256();
 
+    #[cfg(any(test, feature = "experimental-avx2-second-prune"))]
+    let mut second_gate = (MODE != 0).then(|| {
+        second_prune::Gate::<MODE>::new(
+            second_prune::Masks::Narrow(&input.team_masks),
+            &search.orders[song2],
+            &song2_scores,
+        )
+    });
+
     for &i in &search.orders[song0] {
         let score_i = input.scores[i][song0];
         if sum3(score_i, search.max_scores[song1], search.max_scores[song2]) < metrics.final_floor {
@@ -696,6 +824,21 @@ unsafe fn enumerate_band_avx2_x86(
                 continue;
             }
 
+            #[cfg(any(test, feature = "experimental-avx2-second-prune"))]
+            if let Some(gate) = &mut second_gate {
+                if let Some(limit) = gate.rejected_prefix_limit(i, j, score_ij, metrics.final_floor)
+                {
+                    // No callback occurs in a rejected branch. Keep the same
+                    // inclusive score-prefix count as the baseline scan.
+                    let skipped = song2_scores[..limit].partition_point(|&score| {
+                        score_ij.saturating_add(score) >= metrics.final_floor
+                    });
+                    metrics.third_checks = metrics.third_checks.saturating_add(skipped as u64);
+                    gate.skipped_positions(skipped);
+                    continue;
+                }
+            }
+
             let used = input.team_masks[i] | input.team_masks[j];
             let used_vec = _mm256_set1_epi64x(used as i64);
             let mut k_pos = 0usize;
@@ -708,6 +851,17 @@ unsafe fn enumerate_band_avx2_x86(
                 let overlap = _mm256_and_si256(used_vec, mask_vec);
                 let disjoint = _mm256_cmpeq_epi64(overlap, zero);
                 let lanes = _mm256_movemask_pd(_mm256_castsi256_pd(disjoint)) as u32;
+
+                // No callback can change the floor in an all-conflicting batch.
+                // Count it once when all four scores are in band; retain the
+                // scalar boundary checks for a batch straddling the floor.
+                if lanes == 0
+                    && score_ij.saturating_add(song2_scores[k_pos + 3]) >= metrics.final_floor
+                {
+                    metrics.third_checks = metrics.third_checks.saturating_add(4);
+                    k_pos += 4;
+                    continue;
+                }
 
                 for lane in 0..4 {
                     let score = score_ij.saturating_add(song2_scores[k_pos + lane]);
@@ -758,6 +912,22 @@ unsafe fn enumerate_band_avx2_x86(
 #[target_feature(enable = "avx2")]
 unsafe fn enumerate_band_wide_avx2_x86(
     input: &WideMedleyBandInput,
+    visit: impl FnMut([usize; 3], BandScore) -> MedleyBandVisit,
+) -> MedleyBandMetrics {
+    #[cfg(feature = "experimental-avx2-second-prune")]
+    match second_prune::mode() {
+        0 => return enumerate_band_wide_avx2_impl::<0>(input, visit),
+        1 => return enumerate_band_wide_avx2_impl::<1>(input, visit),
+        2 => return enumerate_band_wide_avx2_impl::<2>(input, visit),
+        _ => {}
+    }
+    enumerate_reuse_wide(input, visit)
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx2")]
+unsafe fn enumerate_band_wide_avx2_impl<const MODE: u8>(
+    input: &WideMedleyBandInput,
     mut visit: impl FnMut([usize; 3], BandScore) -> MedleyBandVisit,
 ) -> MedleyBandMetrics {
     let implementation = MedleySolverImplementation::Avx2Wide;
@@ -782,6 +952,15 @@ unsafe fn enumerate_band_wide_avx2_x86(
     let mut metrics = empty_band_metrics(input.floor, implementation);
     let zero = _mm256_setzero_si256();
 
+    #[cfg(any(test, feature = "experimental-avx2-second-prune"))]
+    let mut second_gate = (MODE != 0).then(|| {
+        second_prune::Gate::<MODE>::new(
+            second_prune::Masks::Wide(&input.team_masks),
+            &search.orders[song2],
+            &song2_scores,
+        )
+    });
+
     for &i in &search.orders[song0] {
         let score_i = input.scores[i][song0];
         if sum3(score_i, search.max_scores[song1], search.max_scores[song2]) < metrics.final_floor {
@@ -796,6 +975,18 @@ unsafe fn enumerate_band_wide_avx2_x86(
             metrics.pair_checks = metrics.pair_checks.saturating_add(1);
             if wide_masks_overlap(&input.team_masks[i], &input.team_masks[j]) {
                 continue;
+            }
+            #[cfg(any(test, feature = "experimental-avx2-second-prune"))]
+            if let Some(gate) = &mut second_gate {
+                if let Some(limit) = gate.rejected_prefix_limit(i, j, score_ij, metrics.final_floor)
+                {
+                    let skipped = song2_scores[..limit].partition_point(|&score| {
+                        score_ij.saturating_add(score) >= metrics.final_floor
+                    });
+                    metrics.third_checks = metrics.third_checks.saturating_add(skipped as u64);
+                    gate.skipped_positions(skipped);
+                    continue;
+                }
             }
             for (word_idx, used_word) in used_words.iter_mut().enumerate() {
                 *used_word = input.team_masks[i][word_idx] | input.team_masks[j][word_idx];
@@ -820,6 +1011,14 @@ unsafe fn enumerate_band_wide_avx2_x86(
                 }
                 let disjoint = _mm256_cmpeq_epi64(overlap_any, zero);
                 let lanes = _mm256_movemask_pd(_mm256_castsi256_pd(disjoint)) as u32;
+
+                if lanes == 0
+                    && score_ij.saturating_add(song2_scores[k_pos + 3]) >= metrics.final_floor
+                {
+                    metrics.third_checks = metrics.third_checks.saturating_add(4);
+                    k_pos += 4;
+                    continue;
+                }
 
                 for lane in 0..4 {
                     let score = score_ij.saturating_add(song2_scores[k_pos + lane]);

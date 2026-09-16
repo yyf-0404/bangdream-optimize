@@ -1,3 +1,4 @@
+use crate::medley::disjoint_bound;
 use crate::medley::enumeration::{raw_candidate_solver_input_for_indices, RawCandidateSolverInput};
 use crate::medley::error::BuildError;
 use crate::medley::scoring::RawTeamCandidate;
@@ -86,8 +87,17 @@ pub(crate) fn calculate_medley_from_raw_candidates(
 
     let trace = trace_enabled();
     let filter_start = Timer::start();
-    let candidate_indices =
+    let mut candidate_indices =
         raw_medley_solver_candidate_indices(request.candidates, request.current_best);
+    if use_compatible_bound(request.solver_preference, candidate_indices.len()) {
+        candidate_indices = disjoint_bound::candidate_indices(
+            candidate_indices,
+            |index| request.candidates[index].raw_indices,
+            |index| request.candidates[index].scores.map(i64::from),
+            i64::from(request.current_best) + 1,
+            "max-raw",
+        );
+    }
     let filter_ms = filter_start.elapsed_ms();
     if trace {
         eprintln!(
@@ -202,8 +212,12 @@ fn calculate_medley(request: CandidateBuildRequest) -> Result<BuildResult, Build
 
     let trace = trace_enabled();
     let filter_start = Timer::start();
-    let candidate_indices =
+    let mut candidate_indices =
         medley_solver_candidate_indices(&request.candidates, request.current_best);
+    if use_compatible_bound(request.solver_preference, candidate_indices.len()) {
+        candidate_indices =
+            bound_explicit_candidates(&request.candidates, candidate_indices, request.current_best);
+    }
     let filter_ms = filter_start.elapsed_ms();
     if trace {
         eprintln!(
@@ -359,6 +373,84 @@ fn raw_medley_solver_candidate_indices(
         .collect()
 }
 
+// Decide using the original candidate count: do not change Auto's exact/bucket route
+// or the candidate sequence consumed by the explicitly approximate algorithms.
+fn use_compatible_bound(preference: Option<MedleySolverPreference>, count: usize) -> bool {
+    let exact = match preference.unwrap_or(MedleySolverPreference::Auto) {
+        MedleySolverPreference::Auto => {
+            count <= bangdream_optimize_medley_solver::AUTO_EXACT_CANDIDATE_THRESHOLD
+        }
+        MedleySolverPreference::FastApproximate | MedleySolverPreference::RandomBucket => false,
+        _ => true,
+    };
+    if !exact || !disjoint_bound::enabled() {
+        return false;
+    }
+    #[cfg(feature = "experimental-maximize-optimizations")]
+    {
+        static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ENABLED.get_or_init(|| {
+            std::env::var("BANGDREAM_OPTIMIZE_MAXIMIZE_COMPATIBLE_PRUNE").as_deref() != Ok("off")
+        })
+    }
+    #[cfg(not(feature = "experimental-maximize-optimizations"))]
+    true
+}
+
+fn bound_explicit_candidates(
+    candidates: &[TeamCandidate],
+    indices: Vec<usize>,
+    best: i32,
+) -> Vec<usize> {
+    // This API accepts arbitrary masks, including empty masks and more than five
+    // resources. Such non-card inputs retain the generic solver; use masks rather
+    // than display card IDs as the authoritative conflict relationship.
+    let masks: Option<Vec<[usize; 5]>> = indices
+        .iter()
+        .map(|&index| {
+            let candidate = &candidates[index];
+            let words = if candidate.mask_words.is_empty() {
+                std::slice::from_ref(&candidate.mask)
+            } else {
+                &candidate.mask_words
+            };
+            let mut cards = [0; 5];
+            let mut count = 0;
+            for (word, &mask) in words.iter().enumerate() {
+                let mut bits = mask;
+                while bits != 0 {
+                    if count == 5 {
+                        return None;
+                    }
+                    cards[count] = word * 64 + bits.trailing_zeros() as usize;
+                    count += 1;
+                    bits &= bits - 1;
+                }
+            }
+            if count == 0 {
+                return None;
+            }
+            for slot in count..5 {
+                cards[slot] = cards[0];
+            }
+            Some(cards)
+        })
+        .collect();
+    let Some(masks) = masks else {
+        return indices;
+    };
+    disjoint_bound::candidate_indices(
+        (0..indices.len()).collect(),
+        |i| masks[i],
+        |i| std::array::from_fn(|song| i64::from(candidates[indices[i]].scores[song])),
+        i64::from(best) + 1,
+        "max-explicit",
+    )
+    .into_iter()
+    .map(|i| indices[i])
+    .collect()
+}
+
 fn calculate_single_team(request: CandidateBuildRequest) -> Result<BuildResult, BuildError> {
     let (candidate_idx, candidate) = request
         .candidates
@@ -388,6 +480,7 @@ fn song_result(
     song_idx: usize,
 ) -> SongBuildResult {
     SongBuildResult {
+        team_order: None,
         song_id: song.song_id,
         difficulty: song.difficulty,
         score: candidate.scores[song_idx],
@@ -415,6 +508,7 @@ fn raw_song_result(
     song_idx: usize,
 ) -> SongBuildResult {
     SongBuildResult {
+        team_order: None,
         song_id: song.song_id,
         difficulty: song.difficulty,
         score: candidate.scores[song_idx],
@@ -562,6 +656,76 @@ mod tests {
         assert_eq!(metrics.solver_quality.as_deref(), Some("exact"));
         assert!(metrics.exact_work > 0);
         assert_eq!(metrics.auto_route, None);
+    }
+
+    fn bound_fixture() -> Vec<TeamCandidate> {
+        [1u64, 1, 2, 4]
+            .into_iter()
+            .zip([100, 99, 30, 20])
+            .map(|(mask, score)| TeamCandidate {
+                mask,
+                mask_words: Vec::new(),
+                team_card_ids: vec![99; 5],
+                ordered_team_card_ids: None,
+                captain_card_ids: vec![99; 3],
+                scores: match mask {
+                    1 => vec![score, 0, 0],
+                    2 => vec![0, score, 0],
+                    _ => vec![0, 0, score],
+                },
+                stat: 0,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn maximum_compatible_bound_uses_strict_threshold_and_actual_masks() {
+        let mut candidates = bound_fixture();
+        for wide in [false, true] {
+            if wide {
+                for c in &mut candidates {
+                    c.mask_words = vec![0, c.mask];
+                }
+            }
+            assert_eq!(
+                bound_explicit_candidates(&candidates, vec![0, 1, 2, 3], 149),
+                [0, 2, 3]
+            );
+            assert!(bound_explicit_candidates(&candidates, vec![0, 1, 2, 3], 150).is_empty());
+            assert_eq!(
+                bound_explicit_candidates(&candidates, vec![3, 1, 0, 2], 148),
+                [3, 1, 0, 2]
+            );
+        }
+        candidates[0].mask_words = vec![0, 0];
+        assert_eq!(
+            bound_explicit_candidates(&candidates, vec![0, 1, 2, 3], 150),
+            [0, 1, 2, 3]
+        );
+        candidates[0].mask_words = vec![63, 0];
+        assert_eq!(
+            bound_explicit_candidates(&candidates, vec![0, 1, 2, 3], 150),
+            [0, 1, 2, 3]
+        );
+    }
+
+    #[test]
+    fn maximum_bound_does_not_change_approximate_routing() {
+        use bangdream_optimize_medley_solver::AUTO_EXACT_CANDIDATE_THRESHOLD as N;
+        assert!(use_compatible_bound(None, N));
+        assert!(!use_compatible_bound(None, N + 1));
+        assert!(!use_compatible_bound(
+            Some(MedleySolverPreference::RandomBucket),
+            3
+        ));
+        assert!(!use_compatible_bound(
+            Some(MedleySolverPreference::FastApproximate),
+            3
+        ));
+        assert!(use_compatible_bound(
+            Some(MedleySolverPreference::StrictExact),
+            N + 1
+        ));
     }
 
     #[test]

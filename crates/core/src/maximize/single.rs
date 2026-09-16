@@ -63,6 +63,7 @@ pub(super) fn calculate_single_result_for_items(
 
 fn single_song_result(song: &SongSelection, result: SingleSongResult) -> SongBuildResult {
     SongBuildResult {
+        team_order: None,
         song_id: song.song_id,
         difficulty: song.difficulty,
         score: result.score,

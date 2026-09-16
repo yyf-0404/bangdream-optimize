@@ -5,6 +5,22 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# Same-binary benchmark switch; production always enables the compressed scorer.
+experimental-compressed-score = []
+# Compare equivalent dominance-cover implementations in one benchmark binary.
+experimental-cover-prune = []
+# Same-binary comparison of compatibility-aware candidate bounds.
+experimental-compatible-prune = []
+# Same-binary benchmark switch for per-pool skill-order seed reuse.
+experimental-candidate-seed-cache = []
+# Compare fixed-state assignment against the original subset DP.
+experimental-fixed-assignment = []
+# Same-binary comparison of the CPU-specialized compressed scoring kernel.
+experimental-compressed-native = []
+# Compare maximum-score search changes without changing the PT implementation.
+experimental-maximize-optimizations = ["bangdream-optimize-medley-solver/experimental-maximize-reuse"]
+
 [dependencies]
 bangdream-optimize-medley-solver.workspace = true
 bangdream-optimize-team-prune.workspace = true

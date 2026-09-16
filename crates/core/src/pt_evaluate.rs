@@ -284,6 +284,7 @@ pub fn evaluate_specified_teams(
             FIXED_CAPTAIN_INDEX,
         )?;
         team_results.push(PtMaximizeMedleyTeamResult {
+            recommended_team_card_ids: None,
             team_card_ids: request.teams[song].card_ids.to_vec(),
             captain_card_id: request.teams[song].captain_card_id,
             total_stat,

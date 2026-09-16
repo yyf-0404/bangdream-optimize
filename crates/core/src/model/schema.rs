@@ -586,6 +586,8 @@ pub struct SongBuildResult {
     pub stat: i32,
     pub team_card_ids: Vec<u32>,
     pub captain_card_id: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team_order: Option<crate::skill_shuffle::MaxScoreTeamOrder>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub skill_queue_risk: bool,
 }
@@ -631,6 +633,7 @@ mod tests {
     #[test]
     fn song_result_serializes_skill_queue_risk_only_when_present() {
         let mut result = SongBuildResult {
+            team_order: None,
             song_id: 1,
             difficulty: 3,
             score: 100,

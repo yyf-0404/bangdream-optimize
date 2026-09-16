@@ -1,3 +1,4 @@
+import { teamOrderPresentation, renderActivationOrder, renderOrderReference } from '../ui/team-order.js?v=4';
 import { applyResultLayout } from '../ui/result-layout.js';
 import { designIcon } from '../ui/fidelity.js';
 import { itemArtUrls } from './player-library.js';
@@ -136,7 +137,9 @@ function renderSummaryContent(resultElement, result, deps, { diagnostic } = {}) 
   if (songs.length === 0) {
     list.append(emptyMessage('没有歌曲结果', 'result-empty'));
   }
-  songSection.append(title, list);
+  songSection.append(title);
+  if (songs.some(song => teamOrderPresentation(song, true).activation)) songSection.append(renderOrderReference());
+  songSection.append(list);
   resultElement.append(songSection);
 }
 
@@ -477,6 +480,8 @@ function renderPtMaximizeSongSection(songs, teams, deps, { detailedScore = false
       stat: team.totalStat,
       teamCardIds: team.teamCardIds,
       captainCardId: team.captainCardId,
+      recommendedTeamCardIds: team.recommendedTeamCardIds ?? team.evaluation?.recommendedTeamCardIds,
+      liveVariant: team.evaluation?.liveVariant,
       scoreDistribution,
       detailedScore,
     }];
@@ -494,6 +499,7 @@ function renderPtMaximizeSongSection(songs, teams, deps, { detailedScore = false
   if (songResults.length === 0) {
     list.append(emptyMessage('没有歌曲结果', 'result-empty'));
   }
+  if (songResults.some(song => !detailedScore && Array.isArray(song.recommendedTeamCardIds))) section.append(renderOrderReference());
   section.append(list);
   return section;
 }
@@ -769,7 +775,8 @@ function renderSongResult(song, index, maxScore, deps, {skillTitle='最优技能
  const identity=el('div','song-identity'),title=el('div','song-title',deps.songLabel(song.songId));title.append(el('small','',`第 ${index+1} 曲 · #${song.songId}`));identity.append(title);
  const meta=el('div','song-meta'),difficulty=renderDifficultyList(deps.getSongRecord?.(song.songId),song.difficulty);for(const badge of [...difficulty.children])if(!badge.classList.contains('is-selected'))badge.remove();meta.append(difficulty,el('span','','综合力 '+formatInteger(song.stat)));identity.append(meta);info.append(identity);
  const score=el('div','song-score');score.append(el('span','',showSkillOrder?'得分':'平均分数'),el('strong','',formatInteger(song.score)));top.append(info,score);card.append(top);
- const label=el('div','team-label');label.append(el('span','',showSkillOrder?skillTitle:'队伍配置'),el('span','',showSkillOrder?'按编号查看技能发动次序':'卡位排列不表示技能顺序'));
+ const presentation=teamOrderPresentation(song,showSkillOrder);
+ const label=el('div','team-label');label.append(el('span','',presentation.title),el('span','',presentation.note));
  const details=el('button','text-button','歌曲详情');details.type='button';details.onclick=()=>{
   const dialog=el('dialog','accepted-song-details');dialog.setAttribute('aria-label','歌曲详情');
   const header=el('header','dialog-top');header.append(el('h2','','歌曲详情'));
@@ -779,7 +786,9 @@ function renderSongResult(song, index, maxScore, deps, {skillTitle='最优技能
   identity.append(el('h3','',deps.songLabel(song.songId)),el('p','',`#${song.songId} · 综合力 ${formatInteger(song.stat)}`),renderDifficultyList(deps.getSongRecord?.(song.songId),song.difficulty),el('p','',(showSkillOrder?'得分 ':'平均分数 ')+formatInteger(song.score)));body.append(identity);dialog.append(header,body);
   dialog.onclose=()=>{dialog.remove();details.focus({preventScroll:true});};document.querySelector('#result-design').append(dialog);dialog.showModal();
  };label.append(details);card.append(label);
- const team=renderSkillOrder(song,deps,{sectionTitle:skillTitle,showOrder:showSkillOrder}).querySelector('.result-skill-preview');team.className='team-grid';card.append(team);
+ const displaySong={...song,skillOrderCardIds:presentation.ids};
+ const team=renderSkillOrder(displaySong,deps,{sectionTitle:presentation.title,showOrder:presentation.legacyOrder}).querySelector('.result-skill-preview');team.className=presentation.legacyOrder?'team-grid':'team-grid is-display-order';card.append(team);
+ if(presentation.activation)card.append(renderActivationOrder(presentation.activation,song.captainCardId,deps));
  if(song.detailedScore&&song.scoreDistribution){const range=el('details','range-detail');range.open=true;range.append(el('summary','','得分范围'));const values=el('div','range-values');for(const [label,value]of[['最低分数',formatInteger(song.scoreDistribution.minScore)],['平均分数',formatScoreDistributionAverage(song.scoreDistribution)],['最高分数',formatInteger(song.scoreDistribution.maxScore)]]){const metric=el('div','',label);metric.append(el('strong','',value));values.append(metric);}const bar=el('span','bar');bar.setAttribute('aria-hidden','true');const d=song.scoreDistribution;bar.style.setProperty('--average-position',`${d.maxScore>d.minScore?100*(Number(song.score)-d.minScore)/(d.maxScore-d.minScore):50}%`);values.append(bar);range.append(values);card.append(range);}
  return card;
 }

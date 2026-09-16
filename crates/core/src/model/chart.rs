@@ -4,6 +4,8 @@ use thiserror::Error;
 
 use crate::timing::Timer;
 
+mod compressed;
+
 #[cfg(target_arch = "x86")]
 use std::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
@@ -639,12 +641,15 @@ pub(crate) struct ExactSkillWindow {
     range_end: usize,
     score_up: f64,
     rateup: bool,
+    run_start: usize,
+    run_end: usize,
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct ExactScoreScratch {
     base_scores: Vec<i32>,
     rateup_profiles: [RateUpProfileScratch; 5],
+    compressed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -716,6 +721,7 @@ pub struct Chart {
     fever_enabled: bool,
     score_rule: ScoreRule,
     score_factors: Vec<f64>,
+    score_factor_runs: Vec<compressed::ScoreFactorRun>,
     skill_node_indices: Vec<usize>,
 }
 
@@ -779,6 +785,7 @@ impl Chart {
             fever_enabled: false,
             score_rule: ScoreRule::STANDARD,
             score_factors: Vec::new(),
+            score_factor_runs: Vec::new(),
             skill_node_indices,
         }
     }
@@ -1074,6 +1081,7 @@ impl Chart {
         self.warning.clear();
         self.meta = ChartMeta::default();
         self.score_factors.clear();
+        self.score_factor_runs.clear();
         self.score_factors.reserve(self.nodes.len());
         self.skill_node_indices.clear();
         self.skill_node_indices.reserve(6);
@@ -1087,6 +1095,7 @@ impl Chart {
                 * score_rule.base_multiplier
                 * combo_mod(combo_cursor, is_medley, score_rule.combo_mode);
             self.score_factors.push(score_factor);
+            compressed::push_run(&mut self.score_factor_runs, node_idx, score_factor);
             self.meta.no_skill += score_factor * self.fever_multiplier_at_node(node_idx);
 
             if node.node_type != ChartNodeType::Skill {
@@ -1154,6 +1163,12 @@ impl Chart {
                     time_gap,
                 });
             }
+        }
+
+        #[cfg(feature = "experimental-compressed-score")]
+        if std::env::var_os("BANGDREAM_OPTIMIZE_COMPRESSED_SCORE_TRACE").is_some() {
+            eprintln!("score factor compression: nodes={} runs={} combo={} level={} medley={is_medley}",
+                self.nodes.len(), self.score_factor_runs.len(), self.combo, self.level);
         }
 
         Ok(())
@@ -1230,6 +1245,8 @@ impl Chart {
             range_end,
             score_up: skill.score_up,
             rateup: skill.rateup,
+            run_start: self.score_factor_runs.partition_point(|run| run.end <= skill_node_idx + 1),
+            run_end: self.score_factor_runs.partition_point(|run| run.start < range_end),
         })
     }
 
@@ -1590,6 +1607,11 @@ impl Chart {
         skill_windows: &[[ExactSkillWindow; 6]; 5],
         scratch: &mut ExactScoreScratch,
     ) -> Result<IndependentSkillScoreMatrix, ChartError> {
+        if let Some(matrix) = self.compressed_independent_skill_score_matrix(
+            team, stat, is_medley, skill_windows, scratch,
+        ) {
+            return Ok(matrix);
+        }
         let base_score =
             self.populate_exact_base_scores(stat, is_medley, &mut scratch.base_scores)?;
         for card_idx in 0..5 {
@@ -1751,6 +1773,19 @@ impl Chart {
         }
 
         let started = PROFILE.then(Timer::start);
+        if let Some(matrix) = self.compressed_independent_skill_score_matrix(
+            team, stat, is_medley, skill_windows, scratch,
+        ) {
+            if let (Some(profile), Some(started)) = (profile.as_deref_mut(), started) {
+                profile.exact_skill_ms += started.elapsed_ms();
+            }
+            let started = PROFILE.then(Timer::start);
+            let order = matrix.max_order(seed_order_indices, seed_captain_index);
+            if let (Some(profile), Some(started)) = (profile.as_deref_mut(), started) {
+                profile.assignment_ms += started.elapsed_ms();
+            }
+            return Ok(order);
+        }
         let base_score =
             self.populate_exact_base_scores(stat, is_medley, &mut scratch.base_scores)?;
         if let (Some(profile), Some(started)) = (profile.as_deref_mut(), started) {
@@ -2561,6 +2596,9 @@ impl Chart {
 }
 
 fn max_independent_skill_delta(deltas: &[[i32; 6]; 5]) -> (i32, [usize; 5], usize) {
+    if crate::skill_assignment::enabled() {
+        return crate::skill_assignment::maximize_i32(deltas);
+    }
     if deltas[1..].iter().all(|row| row == &deltas[0]) {
         return (
             deltas[0][..5].iter().sum::<i32>() + deltas[0][5],

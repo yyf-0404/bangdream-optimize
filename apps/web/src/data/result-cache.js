@@ -4,7 +4,7 @@ const DB_NAME = 'bangdream-optimize-result-cache-v1';
 const DB_VERSION = 1;
 const STORE = 'result-cache';
 const CACHE_KEY = 'entries';
-const CACHE_SCHEMA_VERSION = 7;
+const CACHE_SCHEMA_VERSION = 8;
 
 export const RESULT_CACHE_LIMIT = 20;
 
@@ -58,7 +58,7 @@ function normalizeEntry(entry) {
   }
   const key = String(entry.key || '').trim();
   const cacheVersion = Number(entry.cacheVersion);
-  if (!key || (cacheVersion !== CACHE_SCHEMA_VERSION || !entry.profileId)) {
+  if (!key || (![7, CACHE_SCHEMA_VERSION].includes(cacheVersion) || !entry.profileId)) {
     return undefined;
   }
   const calculationMode = ['scoreRange', 'ptMaximize', 'ptEvaluate'].includes(entry.calculationMode)

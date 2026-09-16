@@ -86,6 +86,7 @@ export function createCalculationActions({
     const serialized = cloneJson({
       cacheVersion: RESULT_CACHE_KEY_VERSION,
       profileId,
+      skillShuffleModel: 'cn-9.4.2',
       server: player.server,
       calculationMode: player.calculationMode,
       activityMode: player.activityMode,

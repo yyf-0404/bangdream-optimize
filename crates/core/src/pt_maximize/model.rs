@@ -5,6 +5,7 @@ use thiserror::Error;
 
 use crate::{ChartError, DpModelError, EventPtError, EventType, SelectedAreaItems, SongSelection};
 
+/// Uniform permutations of five different players in cooperative live only.
 pub const RANDOM_SKILL_ORDER_COUNT: u64 = 120;
 pub const CHALLENGE_CP_COST: u32 = 200;
 
@@ -168,6 +169,8 @@ pub struct ScoreHistogram {
 pub struct CaptainScoreDistribution {
     pub captain_index: usize,
     pub captain_card_id: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recommended_team_card_ids: Option<[u32; 5]>,
     pub distribution: ScoreHistogram,
 }
 
@@ -595,6 +598,8 @@ pub struct PtMaximizeMedleyMetrics {
 pub struct PtMaximizeMedleyTeamResult {
     pub team_card_ids: Vec<u32>,
     pub captain_card_id: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recommended_team_card_ids: Option<[u32; 5]>,
     pub total_stat: i32,
     pub items: SelectedAreaItems,
     pub score_distribution: ScoreHistogram,
@@ -638,6 +643,8 @@ pub struct FixedTeamPtEvaluation {
     pub live_variant: LiveVariant,
     pub captain_index: usize,
     pub captain_card_id: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recommended_team_card_ids: Option<[u32; 5]>,
     pub score_distribution: ScoreHistogram,
     pub average_pt: AveragePt,
     pub min_pt: u64,

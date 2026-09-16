@@ -921,3 +921,21 @@
 #result-design[data-result-skin=coherent] .result-content .team-grid{gap:7px}
 #result-design[data-result-skin=coherent] .result-content .range-values{column-gap:7px}
 #result-design[data-result-skin=coherent] .result-content .range-values strong{font-size:12px;letter-spacing:-.2px}}
+
+/* Keep recommended display slots separate from the six skill activations. */
+#result-design[data-result-skin=coherent] .result-content .song-result>.activation-order{grid-column:2;grid-row:4;min-width:0;margin-top:8px;color:var(--muted);font-size:12px}
+#result-design .activation-heading{display:flex;align-items:baseline;flex-wrap:wrap;gap:5px 18px;margin-bottom:10px}
+#result-design .activation-heading>strong{font-size:12px;color:var(--result-team-ink,#59556a);font-weight:600}
+#result-design .activation-probability b,#result-design .activation-total b{color:var(--result-team-ink,#59556a);font-variant-numeric:tabular-nums}
+#result-design .activation-sequence{display:flex;align-items:center;gap:12px;list-style:none;margin:0;padding:0}
+#result-design .activation-sequence li{display:flex;align-items:center;gap:6px;flex:none}
+#result-design .activation-sequence li+li::before{content:'→';margin-right:8px;color:var(--muted);font-size:14px}
+#result-design .activation-slot{color:var(--result-team-ink,#59556a);font:600 18px/1.5 Consolas,monospace}
+#result-design .activation-repeat small{font-size:11px;font-weight:400}
+#result-design .activation-slot-key{margin:5px 0 0;font-size:11px;line-height:1.6}
+#result-design .activation-total{margin:10px 0 0;line-height:1.6}
+#result-design .order-reference{margin:0 0 18px;font-size:12px;line-height:1.7;color:var(--muted)}
+#result-design .order-reference a{display:inline-block;padding:3px 0;color:var(--result-team-ink,#59556a);text-decoration:underline;text-underline-offset:3px}
+#result-design .order-reference a:hover{color:var(--brand)}
+@container(max-width:700px){#result-design[data-result-skin=coherent] .result-content .song-result>.activation-order{grid-column:1/-1;grid-row:5}}
+@container(max-width:420px){#result-design .activation-sequence{gap:8px}#result-design .activation-sequence li+li::before{margin-right:4px}#result-design .activation-slot{font-size:17px}}

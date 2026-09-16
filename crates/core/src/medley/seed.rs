@@ -459,6 +459,7 @@ fn seed_song_result(
     song_idx: usize,
 ) -> SongBuildResult {
     SongBuildResult {
+        team_order: None,
         song_id: song.song_id,
         difficulty: song.difficulty,
         score: candidate.scores[song_idx],

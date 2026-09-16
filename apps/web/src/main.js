@@ -1,4 +1,4 @@
-import { createRuntime } from './runtime/index.js?v=8';
+import { createRuntime } from './runtime/index.js?v=9';
 import { characterIconUrls } from './assets/index.js?v=3';
 import {
   areaItemGroupIconUrls,
@@ -14,7 +14,7 @@ import {
   mainBandCardIds,
   parseBestdoriProfileExport,
 } from './data/bestdori.js?v=3';
-import { createCalculationActions } from './actions/calculation.js?v=5';
+import { createCalculationActions } from './actions/calculation.js?v=6';
 import {
   characterBonusWithRates as buildCharacterBonusWithRates,
   createCharacterBonusHelpers,
@@ -68,11 +68,11 @@ import { createReferenceData } from './data/reference.js?v=3';
 import {
   renderMetrics as renderMetricsView,
   renderResultSummary as renderResultSummaryView,
-} from './views/result.js?v=4';
+} from './views/result.js?v=7';
 import {
   RESULT_CACHE_LIMIT,
   createResultCacheStorage,
-} from './data/result-cache.js?v=3';
+} from './data/result-cache.js?v=4';
 import { createResourceActions } from './actions/resource.js?v=3';
 import { createServerContext } from './app/server.js?v=3';
 import { createSongView } from './views/song.js?v=3';

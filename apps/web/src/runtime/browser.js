@@ -14,7 +14,7 @@ import {
 } from '../storage/user.js?v=3';
 import { submitFeedbackRequest } from '../data/feedback.js?v=2';
 
-const ASSET_VERSION = '7';
+const ASSET_VERSION = '8';
 
 export async function createBrowserRuntime({ onProgress } = {}) {
   const config = readRuntimeConfig();

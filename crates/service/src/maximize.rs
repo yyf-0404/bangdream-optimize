@@ -126,6 +126,7 @@ mod tests {
                 total_score: player.player_id as i32,
                 total_stat: 100,
                 songs: vec![SongBuildResult {
+                    team_order: None,
                     song_id: 1,
                     difficulty: 3,
                     score: 1000,
