@@ -1,8 +1,10 @@
 use super::{candidate::ResolvedSingleCard, SingleSongError, SingleSongResult};
-use crate::single::profile::skill_meta_profile;
+use crate::single::profile::skill_meta_profile_for_pool;
 use crate::timing::{optional_elapsed_ms, Timer};
 use crate::{
-    floor_team_stat, model::chart::CompiledSixSkillScore, Chart, DpChartModel, TeamCardSkill,
+    floor_team_stat,
+    model::chart::{CompiledSixSkillScore, OrderedQueueScoreCache},
+    Chart, DpChartModel, TeamCardSkill,
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -92,6 +94,7 @@ struct SearchContext<'a> {
     best: Option<SingleSongResult>,
     score_cache: HashMap<(i32, [u16; SKILL_COUNT]), i32>,
     timeline_cache: HashMap<[u16; SKILL_COUNT], CompiledSixSkillScore>,
+    queued_scores: Option<OrderedQueueScoreCache<'a>>,
     trace: bool,
     profile: ExactProfile,
 }
@@ -118,6 +121,9 @@ pub(super) fn solve(
         best: None,
         score_cache: HashMap::new(),
         timeline_cache: HashMap::new(),
+        queued_scores: super::queue_optimization_enabled()
+            .then(|| OrderedQueueScoreCache::new(chart, &skills[1..]))
+            .flatten(),
         trace,
         profile: ExactProfile {
             raw_cards,
@@ -181,6 +187,8 @@ fn prepare_cards(
         rateup: false,
     }];
     let mut groups: BTreeMap<u32, Vec<ExactCard>> = BTreeMap::new();
+    let queue_supported = chart.supports_exact_queue_search(cards.iter().map(|c| c.skill.duration));
+    let mut metas = HashMap::new();
 
     for card in cards {
         let skill_key = (
@@ -193,7 +201,14 @@ fn prepare_cards(
             skills.push(card.skill);
             id
         });
-        let meta = skill_meta_profile(chart, &model, card.skill)?;
+        let meta = match metas.get(&skill_id).copied() {
+            Some(meta) => meta,
+            None => {
+                let meta = skill_meta_profile_for_pool(chart, &model, card.skill, queue_supported)?;
+                metas.insert(skill_id, meta);
+                meta
+            }
+        };
         groups
             .entry(card.character_id)
             .or_default()
@@ -394,6 +409,13 @@ fn score_leaf(context: &mut SearchContext<'_>, state: &SearchState) -> Result<()
         let score_start = context.trace.then(Timer::start);
         let score = if let Some(&score) = context.score_cache.get(&(stat, skill_ids)) {
             context.profile.score_cache_hits += 1;
+            score
+        } else if let Some(cache) = &mut context.queued_scores {
+            let score = cache
+                .score(stat, skill_ids.map(|id| id - 1))
+                .map_err(crate::DpModelError::from)?;
+            context.score_cache.insert((stat, skill_ids), score);
+            context.profile.exact_score_calls += 1;
             score
         } else {
             let skills = skill_ids.map(|skill_id| context.skills[skill_id as usize]);

@@ -922,6 +922,29 @@
 #result-design[data-result-skin=coherent] .result-content .range-values{column-gap:7px}
 #result-design[data-result-skin=coherent] .result-content .range-values strong{font-size:12px;letter-spacing:-.2px}}
 
+#result-design .result-content .selected-item-bonus{display:block;margin-top:4px;color:#756446;font-size:12px;font-weight:400;line-height:1.5;font-variant-numeric:tabular-nums}
+#result-design .result-character-bonuses{padding:2px 0;border-bottom:1px solid var(--line)}
+#result-design .result-character-bonuses>summary{display:flex;align-items:center;gap:20px;min-height:48px;list-style:none;cursor:pointer;padding:6px 0}
+#result-design .result-character-bonuses>summary::-webkit-details-marker{display:none}
+#result-design .result-character-heading{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:600;color:#655c88;flex-shrink:0}
+#result-design .result-character-heading svg{width:16px;height:16px;background:#efedf8;outline:4px solid #efedf8;border-radius:50%}
+#result-design .result-character-count{color:var(--muted);font-size:12px}
+#result-design .result-character-cue{display:flex;align-items:center;gap:6px;margin-left:auto;font-size:12px;color:#655c88;white-space:nowrap}
+#result-design .result-character-cue svg{width:14px;height:14px;transform:rotate(90deg)}
+#result-design .result-character-bonuses[open] .result-character-cue svg{transform:rotate(-90deg)}
+#result-design .result-character-bonuses:not([open]) .when-open,#result-design .result-character-bonuses[open] .when-closed{display:none}
+#result-design .result-character-bonuses>summary:hover .result-character-cue{text-decoration:underline;text-underline-offset:3px}
+#result-design .result-character-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:22px 24px;padding:10px 0 22px}
+#result-design .result-character{min-width:0}
+#result-design .result-character-identity{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:500;margin-bottom:5px}
+#result-design .result-character-identity img{width:30px;height:30px;object-fit:contain;flex-shrink:0}
+#result-design .result-character-totals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:8px 0 0 39px;font-size:12px;font-variant-numeric:tabular-nums}
+#result-design .result-character-totals dt{color:var(--muted);font-weight:400}
+#result-design .result-character-totals dd{margin:3px 0 0;color:#655c88;font-size:13px;font-weight:500}
+@container (max-width:480px){#result-design .result-character-bonuses>summary{flex-wrap:wrap;gap:3px 10px;padding:9px 0}
+#result-design .result-character-count{order:3;flex-basis:100%;margin-left:25px}
+#result-design .result-character-grid{gap:20px;padding-top:4px}}
+
 /* Keep recommended display slots separate from the six skill activations. */
 #result-design[data-result-skin=coherent] .result-content .song-result>.activation-order{grid-column:2;grid-row:4;min-width:0;margin-top:8px;color:var(--muted);font-size:12px}
 #result-design .activation-heading{display:flex;align-items:baseline;flex-wrap:wrap;gap:5px 18px;margin-bottom:10px}
@@ -937,5 +960,8 @@
 #result-design .order-reference{margin:0 0 18px;font-size:12px;line-height:1.7;color:var(--muted)}
 #result-design .order-reference a{display:inline-block;padding:3px 0;color:var(--result-team-ink,#59556a);text-decoration:underline;text-underline-offset:3px}
 #result-design .order-reference a:hover{color:var(--brand)}
+#result-design .result-risk p a{color:#2563eb;font-weight:400;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+#result-design .result-risk p a:hover{color:#1d4ed8;text-decoration-thickness:2px}
+#result-design .result-risk p a:focus-visible{outline:2px solid currentColor;outline-offset:3px}
 @container(max-width:700px){#result-design[data-result-skin=coherent] .result-content .song-result>.activation-order{grid-column:1/-1;grid-row:5}}
 @container(max-width:420px){#result-design .activation-sequence{gap:8px}#result-design .activation-sequence li+li::before{margin-right:4px}#result-design .activation-slot{font-size:17px}}

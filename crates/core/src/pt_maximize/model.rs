@@ -49,7 +49,7 @@ pub fn supports_live_variant(event_type: EventType, live_variant: LiveVariant) -
     )
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AveragePt {
     pub pt_sum: u128,
@@ -71,6 +71,14 @@ impl AveragePt {
         self.pt_sum as f64 / self.sample_count as f64
     }
 }
+
+impl PartialEq for AveragePt {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for AveragePt {}
 
 impl PartialOrd for AveragePt {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -511,6 +519,8 @@ pub struct PtMaximizeTeamResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PtMaximizeResult {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skill_queue_notices: Vec<crate::SkillQueueNotice>,
     pub event_id: u32,
     pub event_type: EventType,
     pub live_variant: LiveVariant,
@@ -747,6 +757,11 @@ mod tests {
         let right = AveragePt::new(3, 5).unwrap();
         assert!(left > right);
         assert_eq!(left, AveragePt::new(2, 3).unwrap());
+        assert_eq!(left, AveragePt::new(4, 6).unwrap());
+        let integer_upper = AveragePt::new(239, 1).unwrap();
+        let weighted = AveragePt::new(244_736, 1024).unwrap();
+        assert_eq!(integer_upper.cmp(&weighted), Ordering::Equal);
+        assert_eq!(integer_upper, weighted);
 
         let near_limit = AveragePt::new(u128::MAX - 1, u64::MAX).unwrap();
         let limit = AveragePt::new(u128::MAX, u64::MAX).unwrap();

@@ -11,6 +11,10 @@ use bangdream_optimize_team_prune::{
     dominator_cover_summary_after_worst_teammate_groups, DominanceGraph, DominatorCoverSummary,
 };
 use std::collections::BTreeMap;
+use std::sync::Arc;
+
+mod queued;
+use queued::QueuedModels;
 
 const TEAM_SIZE: usize = 5;
 const MEDLEY_TEAM_COUNT: usize = 3;
@@ -568,6 +572,7 @@ pub(crate) struct MedleyContributionDominance<'a> {
     fixed_teammate_effective_stat: f64,
     joint_point_bonus: Option<JointPointBonusContext<'a>>,
     signature_context_cache: Vec<SignatureContributionContextCacheEntry>,
+    queued_model_cache: Vec<(MedleyPruneSignature, Arc<QueuedModels>)>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -650,6 +655,8 @@ pub(crate) struct SignatureContributionModels {
     complete_by_card: Vec<bool>,
     models_by_card_skill_position: Vec<ContributionAffineModel>,
     models_per_card: usize,
+    queued: Option<Arc<QueuedModels>>,
+    signature: Option<MedleyPruneSignature>,
 }
 
 impl SignatureContributionModels {
@@ -764,6 +771,7 @@ impl<'a> MedleyContributionDominance<'a> {
             fixed_teammate_effective_stat: 0.0,
             joint_point_bonus: None,
             signature_context_cache: Vec::new(),
+            queued_model_cache: Vec::new(),
         }
     }
 
@@ -788,6 +796,7 @@ impl<'a> MedleyContributionDominance<'a> {
             fixed_teammate_effective_stat: 0.0,
             joint_point_bonus: None,
             signature_context_cache: Vec::new(),
+            queued_model_cache: Vec::new(),
         }
     }
 
@@ -799,6 +808,7 @@ impl<'a> MedleyContributionDominance<'a> {
         self.fixed_teammate_skills = Some(*teammate_skills);
         self.fixed_teammate_effective_stat = teammate_effective_stat;
         self.signature_context_cache.clear();
+        self.queued_model_cache.clear();
     }
 
     pub(crate) fn set_joint_point_bonus_context(
@@ -901,9 +911,36 @@ impl<'a> MedleyContributionDominance<'a> {
                 0.0,
             );
         };
+        let queued = self.queued_models_for_signature(signature, &context);
 
         for chart_idx in 0..self.charts.len() {
             for skill_position in 0..CONTRIBUTION_SCENARIO_COUNT {
+                if let Some(chart_models) =
+                    queued.as_ref().and_then(|q| q.charts[chart_idx].as_ref())
+                {
+                    let margin = if self.joint_point_bonus.is_none()
+                        && self.fixed_teammate_skills.is_none()
+                    {
+                        chart_models
+                            .margin(left_idx, right_idx, skill_position)
+                            .unwrap_or(f64::NEG_INFINITY)
+                    } else {
+                        f64::NEG_INFINITY
+                    };
+                    if margin < 0.0 {
+                        return contribution_replacement_reject(
+                            ContributionReplacementReason::Score,
+                            margin,
+                            Some(chart_idx),
+                            Some(skill_position),
+                            0.0,
+                            0.0,
+                        );
+                    }
+                    min_margin = min_margin.min(margin);
+                    strictly_better |= margin > SCORE_CONTRIBUTION_EPS;
+                    continue;
+                }
                 let Some(left_model) = signature_card_affine_model_for_chart_skill_position(
                     &self.cards[left_idx],
                     &self.profiles[left_idx],
@@ -1011,6 +1048,9 @@ impl<'a> MedleyContributionDominance<'a> {
         signature: MedleyPruneSignature,
     ) -> SignatureContributionModels {
         let context = self.signature_context_bounds(signature);
+        let queued = context
+            .as_ref()
+            .and_then(|context| self.queued_models_for_signature(signature, context));
         let models_per_card = self.charts.len() * CONTRIBUTION_SCENARIO_COUNT;
         let mut complete_by_card = vec![false; self.cards.len()];
         let mut models_by_card_skill_position =
@@ -1058,6 +1098,8 @@ impl<'a> MedleyContributionDominance<'a> {
             complete_by_card,
             models_by_card_skill_position,
             models_per_card,
+            queued,
+            signature: Some(signature),
         }
     }
 
@@ -1073,6 +1115,22 @@ impl<'a> MedleyContributionDominance<'a> {
 
         let left = &self.cards[left_idx];
         let right = &self.cards[right_idx];
+        if models.queued.is_some()
+            && models.signature.is_some_and(|signature| {
+                medley_card_dominates_for_signature(
+                    left,
+                    &self.profiles[left_idx],
+                    right,
+                    &self.profiles[right_idx],
+                    signature,
+                )
+            })
+            && self.joint_point_bonus.is_none_or(|context| {
+                context.card_bonus_micros[left_idx] >= context.card_bonus_micros[right_idx]
+            })
+        {
+            return true;
+        }
 
         let Some(left_models) = models.models_for_card(left_idx) else {
             return false;
@@ -1082,7 +1140,27 @@ impl<'a> MedleyContributionDominance<'a> {
         };
 
         let mut strictly_better = false;
-        for (&left_model, &right_model) in left_models.iter().zip(right_models) {
+        for (index, (&left_model, &right_model)) in left_models.iter().zip(right_models).enumerate()
+        {
+            if let Some(chart_models) = models
+                .queued
+                .as_ref()
+                .and_then(|q| q.charts[index / CONTRIBUTION_SCENARIO_COUNT].as_ref())
+            {
+                if self.joint_point_bonus.is_some() || self.fixed_teammate_skills.is_some() {
+                    return false;
+                }
+                let Some(margin) =
+                    chart_models.margin(left_idx, right_idx, index % CONTRIBUTION_SCENARIO_COUNT)
+                else {
+                    return false;
+                };
+                if margin < 0.0 {
+                    return false;
+                }
+                strictly_better |= margin > SCORE_CONTRIBUTION_EPS;
+                continue;
+            }
             let Some(margin) =
                 self.contribution_min_margin(left_idx, right_idx, left_model, right_model)
             else {
@@ -1183,6 +1261,31 @@ impl<'a> MedleyContributionDominance<'a> {
                 bounds: bounds.clone(),
             });
         bounds
+    }
+
+    fn queued_models_for_signature(
+        &mut self,
+        signature: MedleyPruneSignature,
+        context: &SignatureContributionContextBounds,
+    ) -> Option<Arc<QueuedModels>> {
+        if self
+            .profiles
+            .iter()
+            .all(|profile| !profile.has_queued_windows())
+        {
+            return None;
+        }
+        if let Some((_, models)) = self
+            .queued_model_cache
+            .iter()
+            .find(|(key, _)| *key == signature)
+        {
+            return Some(Arc::clone(models));
+        }
+        let models = Arc::new(QueuedModels::new(self, signature, context));
+        self.queued_model_cache
+            .push((signature, Arc::clone(&models)));
+        Some(models)
     }
 
     fn build_signature_context_bounds(
@@ -2486,6 +2589,8 @@ mod tests {
         let mut all_models = left_models;
         all_models.extend(right_models);
         let models = SignatureContributionModels {
+            queued: None,
+            signature: None,
             complete_by_card: vec![true, true],
             models_by_card_skill_position: all_models,
             models_per_card: CONTRIBUTION_SCENARIO_COUNT,
@@ -2542,6 +2647,8 @@ mod tests {
         let mut all_models = vec![left; CONTRIBUTION_SCENARIO_COUNT];
         all_models.extend(vec![right; CONTRIBUTION_SCENARIO_COUNT]);
         let models = SignatureContributionModels {
+            queued: None,
+            signature: None,
             complete_by_card: vec![true, true],
             models_by_card_skill_position: all_models,
             models_per_card: CONTRIBUTION_SCENARIO_COUNT,

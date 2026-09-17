@@ -1,20 +1,21 @@
 import {assetImage,cardArtUrls,cardIconUrls,cardTrainingStatusList} from '../assets/index.js';
 import {catalogModels} from './cards/model.js';
-import {comparator,normalize,resolveCardCover} from './cards/rules.js';
+import {comparator,normalize,resolveCardCover,cardReleaseOrder} from './cards/rules.js';
 import {profilePreference,saveProfilePreference} from './preferences.js';
 import {icon} from './shell.js';
 
 // The cover has its own draft: browsing artwork never changes card training.
 export function openCoverPicker({host,getCore,getPlayer,getProfileId,onApply,opener}) {
   const profile=getProfileId(),player=getPlayer();
-  const cards=catalogModels(getCore(),player,profile).filter(c=>c.owned&&!c.unknown).sort(comparator('release-desc'));
-  let draft={...resolveCardCover(cards,player.server,profilePreference(profile,'cover',{}))},search='',limit=48;
+  const allCards=catalogModels(getCore(),player,profile);
+  const cards=allCards.filter(c=>c.owned&&!c.unknown).sort(comparator('release-desc',undefined,cardReleaseOrder(allCards)));
+  let draft={...resolveCardCover(allCards,player.server,profilePreference(profile,'cover',{}))},search='',limit=48;
   draft={mode:draft.mode,cardId:draft.card?.id||null,variant:draft.variant};
   const dialog=document.createElement('dialog');dialog.id='cover-dialog';dialog.setAttribute('aria-labelledby','cover-dialog-title');
   dialog.innerHTML=`<div class="editor-header"><h3 id="cover-dialog-title">卡牌封面</h3><button type="button" class="icon-button" aria-label="关闭封面设置">${icon('M6 6l12 12M18 6 6 18')}</button></div><div class="cover-body"><div id="cover-sample" class="page-hero" data-hero="cards"><div class="hero-visual" aria-hidden="true"><div class="hero-cover-scene"></div><div class="hero-cover-frame"></div></div><div class="hero-copy"><h2>我的卡牌</h2><p>封面效果预览</p></div></div><div class="cover-caption"><strong id="cover-card-label"></strong><span id="cover-art-status" role="status"></span></div><fieldset class="cover-options"><legend>选择方式</legend><label><input type="radio" name="cover-mode" value="auto">持有中最新</label><label><input type="radio" name="cover-mode" value="manual">手动选择</label></fieldset><p id="cover-rule" class="cover-hint">自动跳过 2 星卡；按发布时间更新，不受列表筛选影响。</p><fieldset class="cover-options"><legend>使用原画</legend><label><input type="radio" name="cover-variant" value="after_training">特训后</label><label><input type="radio" name="cover-variant" value="normal">特训前</label><span id="cover-variant-hint" class="cover-hint"></span></fieldset><section id="cover-picker" aria-label="从已持有卡牌选择封面"><label class="search"><input type="search" placeholder="搜索已持有卡牌的角色、名称或 ID" aria-label="搜索封面卡牌"></label><p id="cover-grid-count" class="cover-hint" role="status"></p><div class="cover-grid"></div><button id="cover-more" type="button" class="text-button">加载更多卡牌</button></section></div><div class="editor-footer"><span>仅用于当前档案</span><div class="cover-footer-actions"><button type="button" class="text-button" data-cancel>取消</button><button type="button" class="primary" data-apply>应用封面</button></div></div>`;
   const q=s=>dialog.querySelector(s);
   function preview(){
-    const selected=resolveCardCover(cards,player.server,draft),card=selected.card;
+    const selected=resolveCardCover(allCards,player.server,draft),card=selected.card;
     q('#cover-picker').hidden=draft.mode!=='manual';q('#cover-rule').hidden=draft.mode!=='auto';
     for(const n of dialog.querySelectorAll('[name=cover-mode]'))n.checked=n.value===draft.mode;
     for(const n of dialog.querySelectorAll('[name=cover-variant]'))n.checked=n.value===draft.variant;

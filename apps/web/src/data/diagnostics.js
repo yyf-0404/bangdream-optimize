@@ -13,6 +13,8 @@ export function createDiagnostics({
     error,
     phase,
     calculationRequest,
+    sourcePlayer,
+    cardAvailability,
   }) {
     const runtimeInfo = await readRuntimeInfo();
     const core = getCore();
@@ -38,6 +40,8 @@ export function createDiagnostics({
             }),
           }),
       player: cloneJson(player),
+      ...(sourcePlayer ? {sourcePlayer: cloneJson(sourcePlayer)} : {}),
+      ...(cardAvailability ? {cardAvailability: cloneJson(cardAvailability)} : {}),
       gameData: {
         cachedCore: Boolean(core),
         cardCount: Object.keys(core?.cards ?? {}).length,

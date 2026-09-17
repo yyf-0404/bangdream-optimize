@@ -58,7 +58,22 @@ impl super::pt_maximize::SnapshotPtMaximizeInputBuilder {
             &request,
         )?;
         let scenario = request.scenario_summary();
+        let skill_queue_notices = request
+            .songs
+            .iter()
+            .zip(&charts)
+            .zip(&request.teams)
+            .filter_map(|((song, chart), team)| {
+                let duration = cards
+                    .iter()
+                    .filter(|card| team.card_ids.contains(&card.card_id))
+                    .map(|card| card.skill.duration)
+                    .fold(0.0, f64::max);
+                bangdream_optimize_core::SkillQueueNotice::for_chart(song, chart, duration, false)
+            })
+            .collect();
         Ok(PtEvaluateResult {
+            skill_queue_notices,
             event_id: context.event_id,
             event_type: context.event_type,
             live_variant: request.live_variant,

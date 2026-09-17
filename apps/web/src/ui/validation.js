@@ -111,7 +111,7 @@ export function revealValidationError(error, {activatePage, field} = {}) {
   if (proxy) target = proxy;
   if (!target.getClientRects().length) target = section;
   if (!target) return false;
-  const container = target.closest('.calc-field,.bo-field,.field') || target;
+  const container = target.closest('.calc-field,.bo-field,.field,.event-card-scope') || target;
   const message = document.createElement('p');
   message.className = 'validation-callout';
   message.id = 'active-validation-message';

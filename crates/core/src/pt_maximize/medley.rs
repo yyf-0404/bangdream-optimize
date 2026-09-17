@@ -833,11 +833,11 @@ fn best_mean_numerator(
     if let Some(matrix) = chart.independent_skill_score_matrix(skills, stat, true, scratch)? {
         return Ok(skill_shuffle::matrix_best_mean_numerator(&matrix));
     }
-    Ok(full_team_score_distributions(chart, skills, stat, true)?
-        .into_iter()
-        .map(|distribution| distribution.distribution.score_sum)
-        .max()
-        .ok_or(PtMaximizeError::EmptyDistribution)?)
+    // A weighted sum needs neither histogram construction nor stochastic
+    // dominance across layouts. Queue-aware order scores preserve all weights.
+    let scores =
+        skill_shuffle::exact_order_scores_with_scratch(chart, skills, stat, true, scratch)?;
+    Ok(skill_shuffle::best_weighted_mean_numerator(&scores))
 }
 
 fn plan_mean_numerator(candidates: &[MedleyCandidate], indices: [usize; SONG_COUNT]) -> i64 {

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::event_pt::point_multiplier_fixed_score_equivalent;
 use crate::single::candidate::{self, SingleCardRole};
-use crate::single::profile::{skill_meta_profile, SkillMetaProfile};
+use crate::single::profile::{skill_meta_profile, skill_meta_profile_for_pool, SkillMetaProfile};
 use crate::timing::Timer;
 use crate::{
     area_item_combinations, cooperative_points, floor_team_stat, mode_candidates, AreaItemPercent,
@@ -809,6 +809,11 @@ fn resolve_role_card_groups(
         canonical_count
     } else {
         let mut canonical = BTreeMap::new();
+        let queue_supported = role == SingleCardRole::FullSkill
+            && chart.supports_exact_queue_search(
+                active_indices.iter().map(|&i| cards[i].skill.duration),
+            );
+        let mut metas = BTreeMap::new();
         for &card_index in active_indices {
             let card = candidate::resolve_card(
                 &cards[card_index],
@@ -818,7 +823,20 @@ fn resolve_role_card_groups(
                 role,
             )?;
             let skill = card.skill;
-            let meta = skill_meta_profile(chart, meta_model, skill)?;
+            let key = (
+                skill.duration.to_bits(),
+                skill.score_up.to_bits(),
+                skill.rateup,
+            );
+            let meta = match metas.get(&key).copied() {
+                Some(value) => value,
+                None => {
+                    let value =
+                        skill_meta_profile_for_pool(chart, meta_model, skill, queue_supported)?;
+                    metas.insert(key, value);
+                    value
+                }
+            };
             let resolved = SearchCard {
                 card_id: card.card_id,
                 character_id: card.character_id,
@@ -889,7 +907,14 @@ fn mode_meta_upper_can_beat(
     else {
         return Ok(true);
     };
-    if !chart.warning.is_empty()
+    let queue_supported = chart.supports_exact_queue_search(
+        cards
+            .iter()
+            .filter(|c| mode.allows(c))
+            .map(|c| c.skill.duration),
+    );
+    if (!chart.warning.is_empty()
+        && (!crate::single::queue_optimization_enabled() || !queue_supported))
         || matches!(fixed_scenario, super::FixedTeamPtScenario::Festival { .. })
     {
         return Ok(true);
@@ -912,7 +937,8 @@ fn mode_meta_upper_can_beat(
         let meta = match skill_meta.get(&meta_key).copied() {
             Some(value) => value,
             None => {
-                let value = skill_meta_profile(chart, &meta_model, skill)?;
+                let value =
+                    skill_meta_profile_for_pool(chart, &meta_model, skill, queue_supported)?;
                 skill_meta.insert(meta_key, value);
                 value
             }
@@ -1121,7 +1147,7 @@ fn branch_meta_can_beat(
     else {
         return Ok(true);
     };
-    if !chart.warning.is_empty()
+    if (!chart.warning.is_empty() && !crate::single::queue_optimization_enabled())
         || matches!(fixed_scenario, super::FixedTeamPtScenario::Festival { .. })
     {
         return Ok(true);
@@ -1895,6 +1921,123 @@ mod tests {
                 unification_activate_condition_band_id: None,
                 unification_activate_condition_type: None,
             },
+        }
+    }
+
+    #[test]
+    fn queued_single_pt_search_matches_every_unpruned_team() {
+        for point_bonus in [false, true] {
+            let mut chart = Chart::new(
+                27,
+                (0..300)
+                    .map(|i| ChartNode {
+                        node_type: if [1, 21, 41, 61, 81, 101].contains(&i) {
+                            ChartNodeType::Skill
+                        } else {
+                            ChartNodeType::Node
+                        },
+                        time: f64::from(i) * 0.25,
+                    })
+                    .collect(),
+            );
+            chart.init(0, false).unwrap();
+            let mut cards = (0..8)
+                .map(|i| {
+                    card(
+                        i + 1,
+                        i % 7 + 1,
+                        50_000.0 + f64::from(i) * 517.0,
+                        0.8 + f64::from(i % 4) * 0.2,
+                    )
+                })
+                .collect::<Vec<_>>();
+            for (i, card) in cards.iter_mut().enumerate() {
+                card.skill.duration = [5.0, 6.5, 7.0, 7.5, 8.0, 6.0, 5.5, 5.0][i];
+                card.skill.rateup = i == 1 || i == 2;
+            }
+            let bonuses = BTreeMap::from([(1, 50_000_000), (5, 10_000_000), (7, 70_000_000)]);
+            let items = SelectedAreaItems {
+                band: "1".into(),
+                attribute: "cool".into(),
+                magazine: Magazine::Performance,
+            };
+            let area = AreaItemPercent::empty();
+            let mut expected = None;
+            for mask in 0u32..256 {
+                if mask.count_ones() != 5 {
+                    continue;
+                }
+                let selected = cards
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, c)| (mask & (1 << i) != 0).then_some(c))
+                    .collect::<Vec<_>>();
+                let mut characters = selected.iter().map(|c| c.character_id).collect::<Vec<_>>();
+                characters.sort_unstable();
+                characters.dedup();
+                if characters.len() != 5 {
+                    continue;
+                }
+                let ids = selected.iter().map(|c| c.card_id).collect::<Vec<_>>();
+                let stat = floor_team_stat(selected.iter().map(|c| c.stat.sum()));
+                let bonus = if point_bonus {
+                    (ids.iter()
+                        .map(|id| bonuses.get(id).copied().unwrap_or(0u64))
+                        .sum::<u64>()
+                        / 10_000) as u32
+                } else {
+                    0
+                };
+                let scenario = if point_bonus {
+                    FixedTeamPtScenario::Solo {
+                        event_type: EventType::Challenge,
+                        point_bonus_basis_points: bonus,
+                        mission_support_pt_bonus: 0,
+                    }
+                } else {
+                    FixedTeamPtScenario::ChallengeCp
+                };
+                let evaluation = evaluate_full_team(
+                    &chart,
+                    &std::array::from_fn(|i| selected[i].skill),
+                    stat,
+                    false,
+                    scenario,
+                )
+                .unwrap();
+                let candidate = PtMaximizeTeamResult {
+                    captain_card_id: evaluation.captain_card_id,
+                    team_card_ids: ids,
+                    total_stat: stat,
+                    point_bonus_basis_points: bonus,
+                    items: items.clone(),
+                    evaluation,
+                };
+                if expected.as_ref().is_none_or(|old| better(&candidate, old)) {
+                    expected = Some(candidate);
+                }
+            }
+            let scenario = if point_bonus {
+                FixedTeamPtScenario::Solo {
+                    event_type: EventType::Challenge,
+                    point_bonus_basis_points: 0,
+                    mission_support_pt_bonus: 0,
+                }
+            } else {
+                FixedTeamPtScenario::ChallengeCp
+            };
+            let result = search_team_for_mode(
+                &cards,
+                &chart,
+                &area,
+                &items,
+                SongMode::Mixed,
+                &bonuses,
+                None,
+                PtMaximizeSearchScenario::FullTeam { scenario },
+            )
+            .unwrap();
+            assert_eq!(result, expected.unwrap(), "point_bonus={point_bonus}");
         }
     }
 

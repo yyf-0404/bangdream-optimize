@@ -34,7 +34,7 @@ export function createResultCacheView({ elements, eventLabel }) {
 
       const title = document.createElement('h3');
       title.className = 'result-cache-title';
-      title.textContent = {maximize:'最高得分',ptMaximize:'最大 PT（平均）',ptEvaluate:'指定队伍',scoreRange:'控分'}[entry.calculationMode]||'最高得分';
+      title.textContent = {maximize:'最高得分',ptMaximize:'最大平均 PT',ptEvaluate:'指定队伍',scoreRange:'控分'}[entry.calculationMode]||'最高得分';
       const context=document.createElement('p');context.className='result-cache-context';
       context.textContent=compactJoin([eventLabel?.(entry.eventId, entry.diagnostic?.player)||formatEventName(entry),entry.activityMode==='medley'?'巡回演出':'自由演出',serverNames[entry.server]||entry.server],' · ');
 

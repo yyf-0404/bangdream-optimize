@@ -189,6 +189,8 @@ pub struct PtEvaluateMetrics {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PtEvaluateResult {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skill_queue_notices: Vec<crate::SkillQueueNotice>,
     pub event_id: u32,
     pub event_type: EventType,
     pub live_variant: LiveVariant,

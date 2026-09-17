@@ -495,6 +495,8 @@ pub struct CustomCardConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuildResult {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skill_queue_notices: Vec<SkillQueueNotice>,
     pub event_id: u32,
     pub event_type: EventType,
     pub total_score: i32,
@@ -506,6 +508,43 @@ pub struct BuildResult {
     pub solver: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metrics: Option<CalculationMetrics>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillQueueNotice {
+    pub song_id: u32,
+    pub difficulty: u8,
+    pub kind: super::chart::SkillQueueKind,
+    pub search_may_be_suboptimal: bool,
+}
+
+impl SkillQueueNotice {
+    /// Search callers pass the candidate-pool duration, not just the selected
+    /// team's duration: pruning can be affected before that team is chosen.
+    pub fn for_chart(
+        song: &SongSelection,
+        chart: &super::chart::Chart,
+        max_duration: f64,
+        medley_search: bool,
+    ) -> Option<Self> {
+        use super::chart::SkillQueueKind;
+        let mut kind = chart.skill_queue_kind(max_duration);
+        if kind == SkillQueueKind::None {
+            if !chart.has_skill_queue_risk(max_duration).unwrap_or(false) {
+                return None;
+            }
+            kind = SkillQueueKind::Single;
+        }
+        Some(Self {
+            song_id: song.song_id,
+            difficulty: song.difficulty,
+            kind,
+            search_may_be_suboptimal: medley_search
+                && kind == SkillQueueKind::Chain
+                && !chart.supports_exact_queue_search([max_duration]),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -599,6 +638,33 @@ fn is_false(value: &bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn queue_notice_only_warns_when_chain_state_coverage_is_unavailable() {
+        use crate::{Chart, ChartNode, ChartNodeType, SkillQueueKind};
+        let song = SongSelection {
+            song_id: 186,
+            difficulty: 2,
+        };
+        let nodes = [1.0, 6.0, 11.0, 30.0, 45.0, 60.0]
+            .into_iter()
+            .map(|time| ChartNode {
+                time,
+                node_type: ChartNodeType::Skill,
+            })
+            .collect();
+        let mut chart = Chart::new(20, nodes);
+        chart.init(0, true).unwrap();
+        assert!(SkillQueueNotice::for_chart(&song, &chart, 3.0, true).is_none());
+        let automatic = SkillQueueNotice::for_chart(&song, &chart, 7.0, true).unwrap();
+        assert_eq!(automatic.kind, SkillQueueKind::Chain);
+        assert!(!automatic.search_may_be_suboptimal);
+        let unsupported = SkillQueueNotice::for_chart(&song, &chart, 7.000_001, true).unwrap();
+        assert!(unsupported.search_may_be_suboptimal);
+        let specified = SkillQueueNotice::for_chart(&song, &chart, 7.0, false).unwrap();
+        assert!(!specified.search_may_be_suboptimal);
+        assert_eq!(serde_json::to_value(specified).unwrap()["kind"], "chain");
+    }
 
     #[test]
     fn festival_event_type_round_trips_as_lowercase() {

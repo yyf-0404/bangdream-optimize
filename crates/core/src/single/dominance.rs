@@ -62,7 +62,19 @@ fn contribution_pruned_card_indices_impl(
     replacement_values: Option<&[u64]>,
     point_bonus_fixed_score_equivalent: Option<f64>,
 ) -> Result<(Vec<usize>, prune::MedleyPruneTrace), team::TeamBuildError> {
-    if !chart.warning.is_empty() {
+    let queued = !chart.warning.is_empty();
+    // External cooperative skills have a different contribution context. Keep
+    // its conservative fallback, and also retain unsupported imported durations.
+    if queued
+        && (!super::queue_optimization_enabled()
+            || fixed_teammate_context.is_some()
+            || !chart.supports_exact_queue_search(
+                cards
+                    .iter()
+                    .filter(|c| mode.allows(c))
+                    .map(|c| c.skill.duration),
+            ))
+    {
         return Ok((
             cards
                 .iter()
@@ -72,6 +84,13 @@ fn contribution_pruned_card_indices_impl(
             prune::MedleyPruneTrace::default(),
         ));
     }
+    // With queues, only combine proven score dominance with a nondecreasing
+    // point bonus. The independent-window score/bonus tradeoff is inapplicable.
+    let point_bonus_fixed_score_equivalent = if queued {
+        None
+    } else {
+        point_bonus_fixed_score_equivalent
+    };
     let signature = match mode {
         SongMode::Mixed => prune::MedleyPruneSignature::Mixed,
         SongMode::UnifiedBand(band_id) => prune::MedleyPruneSignature::UnifiedBand(band_id),

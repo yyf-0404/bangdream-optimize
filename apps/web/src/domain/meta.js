@@ -180,11 +180,11 @@ export function createGameMeta({
     return gameText(value, fallback);
   }
 
-  function serverScopedValue(value) {
+  function serverScopedValue(value, server) {
     if (!Array.isArray(value)) {
       return value;
     }
-    const preferred = value[serverIndex()];
+    const preferred = value[({jp:0,en:1,tw:2,cn:3,kr:4})[server] ?? serverIndex()];
     if (preferred != null) {
       return preferred;
     }

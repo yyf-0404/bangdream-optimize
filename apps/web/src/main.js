@@ -387,6 +387,7 @@ const {
   cardLabel,
   cardName,
   cardRarity,
+  cardCharacterId,
   normalizedCardConfig,
   readPlayer,
   cardIconUrls,

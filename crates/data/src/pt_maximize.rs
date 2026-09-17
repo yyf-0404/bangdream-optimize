@@ -49,7 +49,30 @@ impl SnapshotPtMaximizeInputBuilder {
             let card_count = cards.len();
             let (medley, search_metrics) =
                 search_medley_with_metrics(cards, &charts, &context.area_item_percent)?;
+            let duration = cards
+                .iter()
+                .map(|card| card.skill.duration)
+                .fold(0.0, f64::max);
+            let skill_queue_notices = request
+                .songs
+                .iter()
+                .zip(&charts)
+                .filter_map(|(song, chart)| {
+                    bangdream_optimize_core::SkillQueueNotice::for_chart(
+                        song, chart, duration, true,
+                    )
+                    .map(|mut notice| {
+                        if notice.kind == bangdream_optimize_core::SkillQueueKind::Chain {
+                            notice.search_may_be_suboptimal = !chart.supports_exact_queue_search(
+                                cards.iter().map(|c| c.skill.duration),
+                            );
+                        }
+                        notice
+                    })
+                })
+                .collect();
             return Ok(PtMaximizeResult {
+                skill_queue_notices,
                 event_id: context.event_id,
                 event_type: context.event_type,
                 live_variant: request.live_variant,
@@ -89,7 +112,28 @@ impl SnapshotPtMaximizeInputBuilder {
             request.minimum_personal_stat,
             scenario,
         )?;
+        let mut queue_duration = cards
+            .iter()
+            .map(|card| card.skill.duration)
+            .fold(0.0, f64::max);
+        if let bangdream_optimize_core::PtMaximizeSearchScenario::Cooperative { scenario } =
+            scenario
+        {
+            queue_duration = scenario
+                .teammates
+                .iter()
+                .map(|teammate| teammate.leader_skill_duration)
+                .fold(queue_duration, f64::max);
+        }
         Ok(PtMaximizeResult {
+            skill_queue_notices: bangdream_optimize_core::SkillQueueNotice::for_chart(
+                &selection,
+                &chart,
+                queue_duration,
+                false,
+            )
+            .into_iter()
+            .collect(),
             event_id: context.event_id,
             event_type: context.event_type,
             live_variant: request.live_variant,

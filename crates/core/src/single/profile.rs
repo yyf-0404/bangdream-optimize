@@ -19,7 +19,23 @@ pub(crate) fn skill_meta_profile(
     model: &DpChartModel,
     skill: TeamCardSkill,
 ) -> Result<SkillMetaProfile, DpModelError> {
+    skill_meta_profile_for_pool(chart, model, skill, false)
+}
+
+pub(crate) fn skill_meta_profile_for_pool(
+    chart: &Chart,
+    model: &DpChartModel,
+    skill: TeamCardSkill,
+    queue_supported: bool,
+) -> Result<SkillMetaProfile, DpModelError> {
     if !chart.warning.is_empty() {
+        if super::queue_optimization_enabled() && queue_supported {
+            let values = chart.skill_meta_upper_values(skill)?;
+            return Ok(SkillMetaProfile {
+                normal: std::array::from_fn(|p| values[p]),
+                captain: values[5],
+            });
+        }
         let upper = chart
             .optimistic_skill_meta_any_window(skill)
             .map_err(DpModelError::from)?;

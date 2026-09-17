@@ -165,13 +165,34 @@ pub(crate) fn exact_order_scores(
     stat: i32,
     is_medley: bool,
 ) -> Result<OrderScores, ChartError> {
-    if let Some(matrix) = chart.independent_skill_score_matrix(
+    exact_order_scores_with_scratch(
+        chart,
         skills,
         stat,
         is_medley,
         &mut ExactScoreScratch::default(),
-    )? {
+    )
+}
+
+pub(crate) fn exact_order_scores_with_scratch(
+    chart: &Chart,
+    skills: &[TeamCardSkill; 5],
+    stat: i32,
+    is_medley: bool,
+    scratch: &mut ExactScoreScratch,
+) -> Result<OrderScores, ChartError> {
+    if let Some(matrix) = chart.independent_skill_score_matrix(skills, stat, is_medley, scratch)? {
         return Ok(matrix_order_scores(&matrix));
+    }
+    if let Some(matrix) = chart.predecessor_skill_score_matrix(skills, stat, is_medley, scratch)? {
+        return Ok(std::array::from_fn(|captain| {
+            std::array::from_fn(|index| matrix.score(tables().orders[index], captain))
+        }));
+    }
+    if let Some(matrix) = chart.state_skill_scores(skills, stat, is_medley, scratch)? {
+        return Ok(std::array::from_fn(|captain| {
+            std::array::from_fn(|index| matrix.score(tables().orders[index], captain))
+        }));
     }
     let mut scores = [[0; ORDER_COUNT]; 5];
     for (captain, values) in scores.iter_mut().enumerate() {
@@ -180,6 +201,39 @@ pub(crate) fn exact_order_scores(
                 std::array::from_fn(|i| skills[if i == 5 { captain } else { order[i] }]);
             values[index] = chart.get_score_for_six_skills(&activations, stat, is_medley)?;
         }
+    }
+    Ok(scores)
+}
+
+pub(crate) fn best_weighted_mean_numerator(scores: &OrderScores) -> i64 {
+    tables()
+        .layouts
+        .iter()
+        .map(|layout| {
+            let row = &scores[layout.cards[CAPTAIN_SLOT]];
+            layout
+                .weighted_orders
+                .iter()
+                .map(|order| i64::from(row[order.index]) * i64::from(order.count))
+                .sum()
+        })
+        .max()
+        .expect("there are 120 layouts")
+}
+
+/// Specified teams keep both their display slots and their captain. Enumerate
+/// the actual shuffled orders with the full scheduler, including chained queues.
+pub(crate) fn fixed_captain_order_scores(
+    chart: &Chart,
+    skills: &[TeamCardSkill; 5],
+    stat: i32,
+    is_medley: bool,
+    captain: usize,
+) -> Result<[i32; ORDER_COUNT], ChartError> {
+    let mut scores = [0; ORDER_COUNT];
+    for (index, order) in tables().orders.iter().enumerate() {
+        let activations = std::array::from_fn(|i| skills[if i == 5 { captain } else { order[i] }]);
+        scores[index] = chart.get_score_for_six_skills(&activations, stat, is_medley)?;
     }
     Ok(scores)
 }

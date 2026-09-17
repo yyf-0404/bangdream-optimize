@@ -12,6 +12,18 @@ mod exact;
 mod mode;
 pub(crate) mod profile;
 
+pub(crate) fn queue_optimization_enabled() -> bool {
+    #[cfg(all(feature = "experimental-single-queue", not(target_arch = "wasm32")))]
+    {
+        static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        return *ENABLED.get_or_init(|| {
+            std::env::var_os("BANGDREAM_OPTIMIZE_SINGLE_QUEUE_BASELINE").is_none()
+        });
+    }
+    #[cfg(not(all(feature = "experimental-single-queue", not(target_arch = "wasm32"))))]
+    true
+}
+
 pub use mode::mode_candidates;
 
 #[derive(Debug, Error)]
@@ -235,6 +247,75 @@ mod tests {
 
         assert_eq!(exact.score, brute.score);
         assert_eq!(exact.stat, brute.stat);
+    }
+
+    #[test]
+    fn single_queue_pruning_and_search_match_unpruned_timeline_across_rules() {
+        for auto in [false, true] {
+            for chain in [false, true] {
+                let mut chart = overlapping_chart();
+                if !chain {
+                    // One pair queues, followed by enough space to fully reset.
+                    for node in &mut chart.nodes {
+                        if node.time >= 10.5 {
+                            node.time += 20.0;
+                        }
+                        if node.time >= 35.75 {
+                            node.time += 20.0;
+                        }
+                        if node.time >= 61.0 {
+                            node.time += 20.0;
+                        }
+                        if node.time >= 86.25 {
+                            node.time += 20.0;
+                        }
+                    }
+                }
+                let rule = if auto {
+                    crate::ScoreRule::AUTO
+                } else {
+                    crate::ScoreRule::STANDARD
+                };
+                chart.init_with_rule(0, false, rule).unwrap();
+                let mut cards = (0..7)
+                    .map(|i| {
+                        prepared_card(
+                            i + 1,
+                            i % 6 + 1,
+                            1,
+                            Attribute::Cool,
+                            1000 + (i * 71) as i32,
+                            0.6 + f64::from(i % 3) * 0.3,
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                for (i, card) in cards.iter_mut().enumerate() {
+                    card.skill.duration = [5.0, 6.5, 7.0, 7.5, 8.0, 6.0, 5.0][i];
+                    card.skill.rateup = i == 1 || i == 2;
+                }
+                let area = AreaItemPercent::empty();
+                let items = selected_items();
+                let numeric = numeric_card_sources(&cards, &area, &items, SongMode::Mixed).unwrap();
+                let brute = brute_force_single_song(&numeric, &chart);
+                let actual =
+                    calculate_single_song(&cards, &chart, &area, &items, SongMode::Mixed).unwrap();
+                assert_eq!(actual.score, brute.score, "auto={auto} chain={chain}");
+                let skills: [_; 6] = std::array::from_fn(|p| {
+                    let id = if p < 5 {
+                        actual.team_card_ids[p]
+                    } else {
+                        actual.captain_card_id
+                    };
+                    numeric.iter().find(|c| c.card_id == id).unwrap().skill
+                });
+                assert_eq!(
+                    chart
+                        .get_score_for_six_skills(&skills, actual.stat, false)
+                        .unwrap(),
+                    actual.score
+                );
+            }
+        }
     }
 
     fn brute_force_single_song(

@@ -59,6 +59,7 @@ pub(crate) fn seed_medley_result_for_items(
         .collect();
 
     Ok(Some(BuildResult {
+        skill_queue_notices: Vec::new(),
         event_id,
         event_type: EventType::Medley,
         total_score,

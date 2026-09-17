@@ -5,6 +5,10 @@ use thiserror::Error;
 use crate::timing::Timer;
 
 mod compressed;
+mod queue;
+pub use queue::SkillQueueKind;
+pub(crate) use queue::{ConditionalSkillMeta, QUEUE_DURATIONS};
+pub(crate) use queue::{OrderedQueueScoreCache, QueueStateMachine};
 
 #[cfg(target_arch = "x86")]
 use std::arch::x86::*;
@@ -647,6 +651,7 @@ pub(crate) struct ExactSkillWindow {
 
 #[derive(Debug, Default)]
 pub(crate) struct ExactScoreScratch {
+    queue_plans: queue::StatePlanCache,
     base_scores: Vec<i32>,
     rateup_profiles: [RateUpProfileScratch; 5],
     compressed: bool,
@@ -723,6 +728,8 @@ pub struct Chart {
     score_factors: Vec<f64>,
     score_factor_runs: Vec<compressed::ScoreFactorRun>,
     skill_node_indices: Vec<usize>,
+    // Derived from this initialized chart; Arc keeps chart clones inexpensive.
+    queue_windows: Option<std::sync::Arc<queue::QueueWindowCache>>,
 }
 
 impl Chart {
@@ -787,6 +794,7 @@ impl Chart {
             score_factors: Vec::new(),
             score_factor_runs: Vec::new(),
             skill_node_indices,
+            queue_windows: None,
         }
     }
 
@@ -1082,6 +1090,7 @@ impl Chart {
         self.meta = ChartMeta::default();
         self.score_factors.clear();
         self.score_factor_runs.clear();
+        self.queue_windows = None;
         self.score_factors.reserve(self.nodes.len());
         self.skill_node_indices.clear();
         self.skill_node_indices.reserve(6);
@@ -1165,10 +1174,19 @@ impl Chart {
             }
         }
 
+        if !self.warning.is_empty() && self.skill_node_indices.len() == 6 {
+            self.queue_windows = Some(std::sync::Arc::new(queue::QueueWindowCache::new(self)?));
+        }
+
         #[cfg(feature = "experimental-compressed-score")]
         if std::env::var_os("BANGDREAM_OPTIMIZE_COMPRESSED_SCORE_TRACE").is_some() {
-            eprintln!("score factor compression: nodes={} runs={} combo={} level={} medley={is_medley}",
-                self.nodes.len(), self.score_factor_runs.len(), self.combo, self.level);
+            eprintln!(
+                "score factor compression: nodes={} runs={} combo={} level={} medley={is_medley}",
+                self.nodes.len(),
+                self.score_factor_runs.len(),
+                self.combo,
+                self.level
+            );
         }
 
         Ok(())
@@ -1237,17 +1255,15 @@ impl Chart {
             .ok_or(ChartError::MissingSkillMeta { activation })?;
         let skill_time = self.nodes[skill_node_idx].time;
         let deadline = self.scoring_skill_end_time(skill_time, skill.duration);
-        let range_end = self
-            .nodes
-            .partition_point(|node| !self.is_after_scoring_boundary(node.time, deadline));
-        Ok(ExactSkillWindow {
-            range_start: skill_node_idx + 1,
-            range_end,
-            score_up: skill.score_up,
-            rateup: skill.rateup,
-            run_start: self.score_factor_runs.partition_point(|run| run.end <= skill_node_idx + 1),
-            run_end: self.score_factor_runs.partition_point(|run| run.start < range_end),
-        })
+        Ok(self.scheduled_skill_window(
+            activation,
+            ScheduledSkillWindow {
+                start: skill_time,
+                end: deadline,
+                queue_risk: false,
+            },
+            skill,
+        ))
     }
 
     #[inline]
@@ -1527,6 +1543,7 @@ impl Chart {
         )
     }
 
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn get_independent_medley_score_order_from_exact_windows(
         &self,
@@ -1608,7 +1625,11 @@ impl Chart {
         scratch: &mut ExactScoreScratch,
     ) -> Result<IndependentSkillScoreMatrix, ChartError> {
         if let Some(matrix) = self.compressed_independent_skill_score_matrix(
-            team, stat, is_medley, skill_windows, scratch,
+            team,
+            stat,
+            is_medley,
+            skill_windows,
+            scratch,
         ) {
             return Ok(matrix);
         }
@@ -1675,8 +1696,8 @@ impl Chart {
         Ok(IndependentSkillScoreMatrix { base_score, deltas })
     }
 
-    // Retained for diagnostics and strict queued-timeline verification. Production Medley uses
-    // the independent-overlap entries so every chart follows the same 5x6 matrix path.
+    // Production Medley uses the independent matrix only when no skills queue.
+    // Single queues use predecessor deltas; chains use minimized judgment states.
     #[allow(dead_code, clippy::too_many_arguments)]
     pub(crate) fn get_max_score_order_from_exact_windows_profiled(
         &self,
@@ -1702,7 +1723,7 @@ impl Chart {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(dead_code, clippy::too_many_arguments)]
     pub(crate) fn get_independent_medley_score_order_from_exact_windows_profiled(
         &self,
         team: &[TeamCardSkill; 5],
@@ -1750,13 +1771,44 @@ impl Chart {
                 profile.overlapping_calls += 1;
             }
             if use_queued_timeline_on_overlap {
-                return self.overlapping_max_score_order(
+                let matrix_start = PROFILE.then(Timer::start);
+                if let Some(matrix) =
+                    self.predecessor_skill_score_matrix(team, stat, is_medley, scratch)?
+                {
+                    if let (Some(profile), Some(start)) = (profile.as_deref_mut(), matrix_start) {
+                        profile.exact_skill_ms += start.elapsed_ms();
+                    }
+                    let assignment_start = PROFILE.then(Timer::start);
+                    let order = matrix.maximum();
+                    if let (Some(profile), Some(start)) = (profile.as_deref_mut(), assignment_start)
+                    {
+                        profile.assignment_ms += start.elapsed_ms();
+                    }
+                    return Ok(order);
+                }
+                if let Some(matrix) = self.state_skill_scores(team, stat, is_medley, scratch)? {
+                    if let (Some(profile), Some(start)) = (profile.as_deref_mut(), matrix_start) {
+                        profile.exact_skill_ms += start.elapsed_ms();
+                    }
+                    let assignment_start = PROFILE.then(Timer::start);
+                    let order = matrix.maximum(seed_order_indices, seed_captain_index);
+                    if let (Some(profile), Some(start)) = (profile.as_deref_mut(), assignment_start)
+                    {
+                        profile.assignment_ms += start.elapsed_ms();
+                    }
+                    return Ok(order);
+                }
+                let order = self.overlapping_max_score_order(
                     team,
                     stat,
                     is_medley,
                     seed_order_indices,
                     seed_captain_index,
-                );
+                )?;
+                if let (Some(profile), Some(start)) = (profile.as_deref_mut(), matrix_start) {
+                    profile.exact_skill_ms += start.elapsed_ms();
+                }
+                return Ok(order);
             }
         } else if let Some(profile) = profile.as_deref_mut() {
             profile.non_overlapping_calls += 1;
@@ -1774,7 +1826,11 @@ impl Chart {
 
         let started = PROFILE.then(Timer::start);
         if let Some(matrix) = self.compressed_independent_skill_score_matrix(
-            team, stat, is_medley, skill_windows, scratch,
+            team,
+            stat,
+            is_medley,
+            skill_windows,
+            scratch,
         ) {
             if let (Some(profile), Some(started)) = (profile.as_deref_mut(), started) {
                 profile.exact_skill_ms += started.elapsed_ms();

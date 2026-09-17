@@ -223,7 +223,7 @@ fn build_resolved_candidate_internal<const PROFILE: bool>(
             let profile = profile
                 .as_deref_mut()
                 .expect("profile exists in the profiled candidate builder");
-            chart.get_independent_medley_score_order_from_exact_windows_profiled(
+            chart.get_max_score_order_from_exact_windows_profiled(
                 &team,
                 stat_floor,
                 options.score_as_medley,
@@ -234,7 +234,7 @@ fn build_resolved_candidate_internal<const PROFILE: bool>(
                 &mut profile.order_detail,
             )?
         } else {
-            chart.get_independent_medley_score_order_from_exact_windows(
+            chart.get_max_score_order_from_exact_windows(
                 &team,
                 stat_floor,
                 options.score_as_medley,
@@ -317,7 +317,7 @@ pub(in crate::medley) fn build_candidate(
                     chart.compile_exact_skill_window(activation, resolved_skills[card_idx])?;
             }
         }
-        let order = chart.get_independent_medley_score_order_from_exact_windows(
+        let order = chart.get_max_score_order_from_exact_windows(
             &resolved_skills,
             stat_floor,
             options.score_as_medley,
@@ -351,7 +351,8 @@ struct MedleySkillOrder {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct SkillMetaCacheKey {
-    card_id: u32,
+    duration_bits: u64,
+    rateup: bool,
     score_up_bits: u64,
 }
 
@@ -377,17 +378,15 @@ impl SkillMetaCache {
         skill: TeamCardSkill,
     ) -> Result<[f64; TEAM_SIZE + 1], TeamBuildError> {
         let key = SkillMetaCacheKey {
-            card_id: skill.card_id,
+            duration_bits: skill.duration.to_bits(),
+            rateup: skill.rateup,
             score_up_bits: skill.score_up.to_bits(),
         };
         if let Some(values) = self.by_chart[chart_idx].get(&key) {
             return Ok(*values);
         }
 
-        let mut values = [0.0; TEAM_SIZE + 1];
-        for (activation, value) in values.iter_mut().enumerate() {
-            *value = chart.skill_meta_value(activation, skill)?;
-        }
+        let values = chart.skill_meta_upper_values(skill)?;
         self.by_chart[chart_idx].insert(key, values);
         Ok(values)
     }
@@ -714,7 +713,7 @@ mod tests {
     }
 
     #[test]
-    fn overlapping_order_uses_independent_matrix_with_resolved_unification_skill() {
+    fn overlapping_order_uses_full_queue_with_resolved_unification_skill() {
         let mut chart = overlapping_chart(&mut Rng(0x0fed_cba9_8765_4321));
         chart.init(0, true).unwrap();
         let mut cards = Vec::from(std::array::from_fn::<_, 5, _>(|idx| {
@@ -770,7 +769,7 @@ mod tests {
                 .collect::<Vec<_>>()
                 .try_into()
                 .unwrap();
-            let exact = brute_force_independent_order_score(&chart, &resolved_team, candidate.stat);
+            let exact = brute_force_order_score(&chart, &resolved_team, candidate.stat);
 
             if candidate.team_card_ids.contains(&1) {
                 assert_eq!(

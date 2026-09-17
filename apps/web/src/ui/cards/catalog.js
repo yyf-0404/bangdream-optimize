@@ -1,6 +1,6 @@
 import {mountCatalogTemplate} from './template.js';
 import { language } from '../preferences.js';
-import { defaultFilters, filterCards, groupCards, attributeNames, normalizeCardSort } from './rules.js';
+import { defaultFilters, filterCards, groupCards, attributeNames, normalizeCardSort, cardReleaseOrder } from './rules.js';
 import { createFilterControls } from './filters.js';
 import { cardBriefMarkup, bindCardBrief } from './presentation.js';
 import { assetImage, starIconUrls, attributeIconUrls, characterIconUrls } from '../../assets/index.js';
@@ -74,7 +74,7 @@ export function createCardCatalog({root,getCards,getCharacters,getProfileId,getS
     // Unknown IDs stay visible as repairable inventory records rather than disappearing.
     const unknown=cards.filter(c=>c.unknown&&c.owned);
     matched=filterCards(cards.filter(c=>!c.unknown&&candidateFilter(c)),filters,search);
-    groups=groupCards(matched,group,sort,characters,sortDirection);
+    groups=groupCards(matched,group,sort,characters,sortDirection,cardReleaseOrder(cards));
     q('.catalog-count').innerHTML=`<span class="match-value">${matched.length.toLocaleString()}</span><span class="match-unit">张卡牌</span>`;q('.match-detail').textContent=`${new Set(matched.map(c=>c.characterId)).size} 位角色`;q('[data-filter-description]').textContent=`已选 ${filters.character.size} 位角色 · ${filters.server===null?'全部服务器':filters.server.size+' 个服务器'} · ${filters.ownership.has('owned')?'已持有':''}${filters.ownership.has('missing')?' / 未持有':''}`;
     const host=q('.catalog-groups');host.replaceChildren();
     const jumps=q('.catalog-jumps');jumps.replaceChildren();

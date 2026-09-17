@@ -6,6 +6,7 @@ import { assetImage, attributeIconUrls, characterIconUrls, cardIconUrls, starIco
 import { gameText } from './preferences.js';
 import { attributeNames } from './cards/rules.js';
 import { mountEventSelection, eventTypeNames } from './event-selection.js';
+import {eventCardPoolInfo, supportsEventCardPool} from '../models/event-card-pool.js';
 const el=(tag,cls,text)=>{const n=document.createElement(tag);n.className=cls||'';if(text!==undefined)n.textContent=text;return n;};
 
 export function mountActivityLayout({elements,getPlayer,getCore,getProfileId,writePlayer,renderForms,eventSnapshot,parameters,changeCustomType,breaks}){
@@ -17,6 +18,11 @@ export function mountActivityLayout({elements,getPlayer,getCore,getProfileId,wri
  for(const input of replacement.querySelectorAll('input'))input.replaceWith(original.find(n=>n.value===input.value));
  fieldset.className='bo-target-group';fieldset.replaceChildren(...replacement.childNodes);replacement.replaceWith(fieldset);
  target.className='activity-selector-card bo-section';target.replaceChildren(...approved.childNodes);
+ const cardScope=el('div','event-card-scope');
+ cardScope.innerHTML='<label for="event-available-cards-only"><input id="event-available-cards-only" type="checkbox" role="switch" aria-describedby="event-card-scope-note"><span class="event-card-switch" aria-hidden="true"></span><span>仅使用当前服务器在本活动可用的卡牌</span></label><p id="event-card-scope-note"></p>';
+ fieldset.append(cardScope);
+ const scopeInput=cardScope.querySelector('input');
+ scopeInput.onchange=e=>{e.stopPropagation();const player=getPlayer();player.eventAvailableCardsOnly=scopeInput.checked;writePlayer(player);renderForms(player);};
  const context=target.querySelector('.bo-section-heading>span');
  const eventSelection=mountEventSelection({root,target,elements,getPlayer,getProfileId,eventSnapshot,changeCustomType});
  target.querySelector('.bo-note').textContent='活动名称、类型、头图与加成随预设联动；歌曲可独立选择。';
@@ -35,6 +41,12 @@ export function mountActivityLayout({elements,getPlayer,getCore,getProfileId,wri
  // Team selection precedes the lower-frequency equipment settings in the accepted page.
  liveSettings.after(elements.ptEvaluateTeamPanel);elements.ptEvaluateTeamPanel.after(elements.ptEvaluateItemPanel);elements.ptEvaluateItemPanel.after(q('.activity-song-card'));
  function render(player,event,point){
+  cardScope.hidden=!supportsEventCardPool(player.calculationMode);
+  scopeInput.checked=player.eventAvailableCardsOnly===true;
+  const scope=eventCardPoolInfo(player,event,{...getCore()?.cardsFix,...getCore()?.cards});
+  cardScope.querySelector('p').textContent=scope.endAt===null
+   ? '当前活动缺少本服结束时间，自动使用全部已持有卡牌及已启用的自定义卡。'
+   : `按本服活动结束前发布判断，包含活动中途发布的卡牌${scopeInput.checked?` · 符合条件 ${scope.cardIds.length} 张`:''}。开启后不使用自定义卡。`;
   controls.render(player,event);
   eventSelection.render(player,event);
   context.textContent=(Number(player.currentEvent)?'已选择活动 · ':'自定义活动 · ')+(eventTypeNames[event.eventType]||event.eventType);

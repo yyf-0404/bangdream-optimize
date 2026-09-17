@@ -121,6 +121,7 @@ mod tests {
             _options: MaximizeOptions,
         ) -> Result<BuildResult, DataError> {
             Ok(BuildResult {
+                skill_queue_notices: Vec::new(),
                 event_id: event_id.or(player.current_event).unwrap_or_default(),
                 event_type: EventType::Challenge,
                 total_score: player.player_id as i32,

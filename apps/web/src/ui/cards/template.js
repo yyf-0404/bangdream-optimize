@@ -19,6 +19,8 @@ export function mountCatalogTemplate(root){
  const direction=document.createElement('button');direction.type='button';direction.className='catalog-sort-direction';direction.dataset.sortDirection='';
  sortRow.append(direction);sortLabel.replaceWith(sortHeading,sortRow);
  const secondary=document.createElement('p');secondary.textContent='持有状态或稀有度相同时，默认按发布时间排序。';q('.release-popover strong').after(secondary);
+ q('.release-order').nextElementSibling.textContent='同服先确定先后，并保留经其他卡牌连接的间接顺序；冲突时按上述服务器优先级处理。';
+ for(const text of ['仍无法确定先后时，按各自最早发布时间排列；日期相同按卡牌 ID 降序，全部缺失排最后。','基于完整卡库确定顺序，筛选和分组不会移除用于关联顺序的卡牌。']){const note=document.createElement('p');note.textContent=text;q('.release-popover').append(note);}
  q('#filter-description').dataset.filterDescription='';q('.filter-footer a').dataset.showResults='';q('.back-to-filters').dataset.backFilter='';
  q('.filter-footer a').addEventListener('click',e=>e.preventDefault());q('.back-to-filters').addEventListener('click',e=>e.preventDefault());
  q('#empty').remove();q('#end-note').remove();

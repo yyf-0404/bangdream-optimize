@@ -14,6 +14,7 @@ import {
 import { validatePtEvaluateTeamSelection } from '../models/pt-evaluate-validation.js?v=1';
 import {customCardPresentationKey} from '../models/custom-cards.js';
 import {equipmentAvailable} from '../domain/area.js';
+import {restrictEventCardPool} from '../models/event-card-pool.js';
 
 export function createCalculationActions({
   state,
@@ -89,6 +90,7 @@ export function createCalculationActions({
       skillShuffleModel: 'cn-9.4.2',
       server: player.server,
       calculationMode: player.calculationMode,
+      eventAvailableCardsOnly: player.eventAvailableCardsOnly === true,
       activityMode: player.activityMode,
       scoreRange: player.scoreRange,
       ptMaximize: player.ptMaximize,
@@ -264,10 +266,13 @@ export function createCalculationActions({
         await savePlayerNow(player);
       }
       if (requestProfileId !== state.activePlayerProfileId) throw new Error('档案已切换，请重新开始计算');
+      const {player: calculationPlayer, restriction} = restrictEventCardPool(
+        player, editableEventSnapshot(eventId, player), {...core?.cardsFix, ...core?.cards},
+      );
       const cacheKey = makeResultCacheKey(player, eventId, requestProfileId);
       state.activeResultCacheKey = cacheKey;
       const cached = getCachedResult(cacheKey);
-      if (cached) {
+      if (cached && (!restriction || JSON.stringify(cached.diagnostic?.cardAvailability) === JSON.stringify(restriction))) {
         applyResult(cached.result, cached.diagnostic, cacheKey, requestProfileId, revealResult());
         renderResultCachePanel(cacheKey);
         setStatus('完成（缓存）');
@@ -281,27 +286,27 @@ export function createCalculationActions({
         calculationRequest = scoreRangeRequest ?? ptMaximizeRequest ?? ptEvaluateRequest;
         result = player.calculationMode === 'scoreRange'
           ? await calculateScoreRange({
-            player,
+            player: calculationPlayer,
             eventId,
             core,
             request: scoreRangeRequest,
           })
           : player.calculationMode === 'ptMaximize'
             ? await calculatePtMaximize({
-              player,
+              player: calculationPlayer,
               eventId,
               core,
               request: ptMaximizeRequest,
             })
             : player.calculationMode === 'ptEvaluate'
               ? await calculatePtEvaluate({
-                player,
+                player: calculationPlayer,
                 eventId,
                 core,
                 request: ptEvaluateRequest,
               })
           : await state.runtime.calculate({
-            player,
+            player: calculationPlayer,
             server: player.server,
             eventId,
             options: {},
@@ -309,7 +314,9 @@ export function createCalculationActions({
           });
       } catch (error) {
         const diagnostic = await buildDiagnostic({
-          player,
+          player: calculationPlayer,
+          sourcePlayer: restriction ? player : undefined,
+          cardAvailability: restriction,
           server: player.server,
           eventId,
           error,
@@ -321,7 +328,9 @@ export function createCalculationActions({
         return;
       }
       const diagnostic = await buildDiagnostic({
-        player,
+        player: calculationPlayer,
+        sourcePlayer: restriction ? player : undefined,
+        cardAvailability: restriction,
         server: player.server,
         eventId,
         result,
@@ -371,7 +380,7 @@ export function createCalculationActions({
 
   async function calculatePtMaximize({ player, eventId, core, request }) {
     if (typeof state.runtime.ptMaximize !== 'function') {
-      throw new Error('当前运行时不支持最大PT（平均）搜索');
+      throw new Error('当前运行时不支持最大平均 PT搜索');
     }
     return state.runtime.ptMaximize({
       player,
@@ -1092,7 +1101,7 @@ export function createCalculationActions({
     }
     renderResultCachePanel();
     const notice = elements.resultSummary?.parentElement?.querySelector('.result-stale');
-    if (notice) notice.hidden = !state.lastDiagnostic || makeResultCacheKey(readPlayer(),readPlayer().currentEvent) === makeResultCacheKey(state.lastDiagnostic.player,state.lastDiagnostic.eventId);
+    if (notice) notice.hidden = !state.lastDiagnostic || makeResultCacheKey(readPlayer(),readPlayer().currentEvent) === makeResultCacheKey(state.lastDiagnostic.sourcePlayer ?? state.lastDiagnostic.player,state.lastDiagnostic.eventId);
   }
 
   return {

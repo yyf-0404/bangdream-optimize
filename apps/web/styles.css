@@ -3892,6 +3892,15 @@ td select {
   color: var(--danger);
 }
 
+.result-queue-info {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+
+.result-queue-info strong {
+  color: var(--text);
+}
+
 .result-risk p {
   margin: 5px 0 0;
   color: var(--muted);

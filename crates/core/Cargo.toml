@@ -1,6 +1,6 @@
 [package]
 name = "bangdream-optimize-core"
-version = "0.4.3"
+version = "0.4.4"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -20,6 +20,8 @@ experimental-fixed-assignment = []
 experimental-compressed-native = []
 # Compare maximum-score search changes without changing the PT implementation.
 experimental-maximize-optimizations = ["bangdream-optimize-medley-solver/experimental-maximize-reuse"]
+# Same-binary baseline for the single-song queue integration; always on in production.
+experimental-single-queue = []
 
 [dependencies]
 bangdream-optimize-medley-solver.workspace = true

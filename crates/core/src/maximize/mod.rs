@@ -255,11 +255,29 @@ pub fn calculate_best_result_for_items(
             return Err(last_recoverable_error.unwrap_or(CalculationError::NoBuildResult));
         }
     };
-    if event_type == EventType::Medley {
-        for (song, chart) in result.songs.iter_mut().zip(charts) {
-            song.skill_queue_risk = !chart.warning.is_empty();
-        }
-    }
+    let duration = cards
+        .iter()
+        .map(|card| card.skill.duration)
+        .fold(0.0, f64::max);
+    result.skill_queue_notices = song_list
+        .iter()
+        .zip(charts)
+        .filter_map(|(song, chart)| {
+            crate::SkillQueueNotice::for_chart(
+                song,
+                chart,
+                duration,
+                event_type == EventType::Medley,
+            )
+            .map(|mut notice| {
+                if event_type == EventType::Medley && notice.kind == crate::SkillQueueKind::Chain {
+                    notice.search_may_be_suboptimal =
+                        !chart.supports_exact_queue_search(cards.iter().map(|c| c.skill.duration));
+                }
+                notice
+            })
+        })
+        .collect();
     for (song, chart) in result.songs.iter_mut().zip(charts) {
         let selected = song
             .team_card_ids
@@ -291,6 +309,9 @@ pub fn calculate_best_result_for_items(
             .collect::<Result<Vec<_>, _>>()?
             .try_into()
             .map_err(|_| CalculationError::NoBuildResult)?;
+        song.skill_queue_risk = chart
+            .has_skill_queue_risk(skills.iter().map(|s| s.duration).fold(0.0, f64::max))
+            .map_err(crate::DpModelError::from)?;
         let captain = selected
             .iter()
             .position(|card| card.card_id == song.captain_card_id)
@@ -507,7 +528,7 @@ fn item_stats_strictly_better(left: &[f64], right: &[f64]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::chart::{ChartNode, ChartNodeType, SkillWarning, TeamCardSkill};
+    use crate::model::chart::{ChartNode, ChartNodeType, TeamCardSkill};
     use crate::model::dp::SongMode;
     use crate::model::preparation::{ScoreUp, StatRate, StatValue, PERFORMANCE_KEY};
     use crate::model::schema::{Attribute, Magazine};
@@ -764,10 +785,25 @@ mod tests {
             .collect::<Vec<_>>();
 
         let mut charts = [chart(0), chart(1), chart(2)];
-        charts[0].warning.push(SkillWarning {
-            id: 1,
-            time_gap: 8.0,
-        });
+        charts[0] = Chart::new(
+            20,
+            [0.0, 4.0, 20.0, 30.0, 40.0, 50.0]
+                .into_iter()
+                .flat_map(|time| {
+                    [
+                        ChartNode {
+                            time,
+                            node_type: ChartNodeType::Skill,
+                        },
+                        ChartNode {
+                            time: time + 1.0,
+                            node_type: ChartNodeType::Node,
+                        },
+                    ]
+                })
+                .collect(),
+        );
+        charts[0].init(0, true).unwrap();
         let result = calculate_best_result_for_items(
             201,
             EventType::Medley,
@@ -805,6 +841,12 @@ mod tests {
         assert!(result.songs[0].skill_queue_risk);
         assert!(!result.songs[1].skill_queue_risk);
         assert!(!result.songs[2].skill_queue_risk);
+        assert_eq!(result.skill_queue_notices.len(), 1);
+        assert_eq!(
+            result.skill_queue_notices[0].kind,
+            crate::SkillQueueKind::Single
+        );
+        assert!(!result.skill_queue_notices[0].search_may_be_suboptimal);
         assert!(result.total_score > 0);
     }
 

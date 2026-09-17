@@ -248,7 +248,7 @@ export function recentUnfinishedEvent(
   return active[0] ?? upcoming[0];
 }
 
-function serverEventTimestamp(value, serverIndex) {
+export function serverEventTimestamp(value, serverIndex) {
   const scoped = Array.isArray(value) ? value[serverIndex] : value;
   const timestamp = Number(scoped);
   return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : undefined;

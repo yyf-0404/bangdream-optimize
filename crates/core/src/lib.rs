@@ -70,7 +70,7 @@ pub use medley::team::{build_team_candidates, TeamBuildError, TeamGenerationOpti
 pub use model::chart::{
     AutoMultiplierGroup, Chart, ChartError, ChartNode, ChartNodeType, ComboMode,
     CompressedAutoScore, MaxMetaOrder, MaxScoreOrder, ScoreRule, SimultaneousSkillOrder,
-    TeamCardSkill,
+    SkillQueueKind, TeamCardSkill,
 };
 pub use model::dp::{floor_score, DpChartModel, DpModelError, ModelTerm, SongMode};
 pub use model::preparation::{

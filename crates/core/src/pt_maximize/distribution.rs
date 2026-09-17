@@ -23,6 +23,7 @@ pub(crate) struct FullTeamScoreScratch {
     skill_window_chart: usize,
     skill_windows: Vec<(SkillWindowKey, [ExactSkillWindow; 6])>,
     skill_meta_chart: usize,
+    skill_meta_queue_supported: bool,
     skill_metas: Vec<(SkillWindowKey, [f64; 6])>,
 }
 
@@ -139,7 +140,7 @@ pub(crate) fn evaluate_full_team_with_scratch(
     {
         skill_shuffle::matrix_order_scores(&matrix)
     } else {
-        skill_shuffle::exact_order_scores(chart, team, stat, is_medley)?
+        queued_order_scores(chart, team, stat, is_medley, scratch)?
     };
     let summary = best_weighted_layout_summary(&scores, team, scenario, scratch)?;
     Ok(materialize_full_team_summary(summary, scratch))
@@ -175,7 +176,7 @@ pub(crate) fn evaluate_full_team_summary_with_scratch(
         chart
     };
     let skills_overlap = chart.team_skills_may_overlap(team)?;
-    if skills_overlap {
+    if skills_overlap && !crate::single::queue_optimization_enabled() {
         return Ok(FullTeamPtSummaryOutcome::Queued);
     }
     if let Some(cutoff) = cutoff {
@@ -187,6 +188,19 @@ pub(crate) fn evaluate_full_team_summary_with_scratch(
         {
             return Ok(FullTeamPtSummaryOutcome::PrunedByMetaUpperBound);
         }
+    }
+    if skills_overlap {
+        let scores = queued_order_scores(chart, team, stat, is_medley, scratch)?;
+        if let Some(cutoff) = cutoff {
+            let max_score = *scores.iter().flatten().max().unwrap();
+            let upper = AveragePt::new(u128::from(points_for_scenario(max_score, scenario)?), 1)?;
+            if upper < cutoff.average_pt || (upper == cutoff.average_pt && !cutoff.equal_can_win) {
+                return Ok(FullTeamPtSummaryOutcome::PrunedByExactUpperBound);
+            }
+        }
+        return Ok(FullTeamPtSummaryOutcome::Summary(
+            best_weighted_layout_summary(&scores, team, scenario, scratch)?,
+        ));
     }
     let Some(matrix) =
         independent_skill_score_matrix_cached(chart, team, stat, is_medley, scratch)?
@@ -210,6 +224,28 @@ pub(crate) fn evaluate_full_team_summary_with_scratch(
     Ok(FullTeamPtSummaryOutcome::Summary(
         best_weighted_layout_summary(&scores, team, scenario, scratch)?,
     ))
+}
+
+fn queued_order_scores(
+    chart: &Chart,
+    team: &[TeamCardSkill; 5],
+    stat: i32,
+    is_medley: bool,
+    scratch: &mut FullTeamScoreScratch,
+) -> Result<OrderScores, PtMaximizeError> {
+    if crate::single::queue_optimization_enabled() {
+        Ok(skill_shuffle::exact_order_scores_with_scratch(
+            chart,
+            team,
+            stat,
+            is_medley,
+            &mut scratch.exact,
+        )?)
+    } else {
+        Ok(skill_shuffle::exact_order_scores(
+            chart, team, stat, is_medley,
+        )?)
+    }
 }
 
 fn best_weighted_layout_summary(
@@ -279,8 +315,12 @@ fn meta_score_upper_bound_cached(
     scratch: &mut FullTeamScoreScratch,
 ) -> Result<i32, PtMaximizeError> {
     let chart_address = chart as *const Chart as usize;
-    if scratch.skill_meta_chart != chart_address {
+    let queue_supported = chart.supports_exact_queue_search(team.iter().map(|s| s.duration));
+    if scratch.skill_meta_chart != chart_address
+        || scratch.skill_meta_queue_supported != queue_supported
+    {
         scratch.skill_meta_chart = chart_address;
+        scratch.skill_meta_queue_supported = queue_supported;
         scratch.skill_metas.clear();
     }
     let model = DpChartModel::from_chart(chart);
@@ -298,10 +338,19 @@ fn meta_score_upper_bound_cached(
         {
             *values
         } else {
-            let mut values = [0.0; 6];
-            for (activation, value) in values.iter_mut().enumerate() {
-                *value = model.skill_term(chart, activation, skill)?.sb;
-            }
+            let profile = crate::single::profile::skill_meta_profile_for_pool(
+                chart,
+                &model,
+                skill,
+                queue_supported,
+            )?;
+            let values = std::array::from_fn(|p| {
+                if p < 5 {
+                    profile.normal[p]
+                } else {
+                    profile.captain
+                }
+            });
             scratch.skill_metas.push((key, values));
             values
         };
@@ -759,16 +808,14 @@ pub(crate) fn fixed_captain_score_distribution(
     if captain_index >= team.len() {
         return Err(PtMaximizeError::InvalidCaptainIndex { captain_index });
     }
-    let scores = skill_shuffle::exact_order_scores(chart, team, stat, is_medley)?;
+    let scores =
+        skill_shuffle::fixed_captain_order_scores(chart, team, stat, is_medley, captain_index)?;
     // A specified team already supplies its real display slots. Do not optimize them.
     Ok(CaptainScoreDistribution {
         captain_index,
         captain_card_id: team[captain_index].card_id,
         recommended_team_card_ids: None,
-        distribution: weighted_score_histogram(
-            &scores[captain_index],
-            &skill_shuffle::tables().layouts[0],
-        ),
+        distribution: weighted_score_histogram(&scores, &skill_shuffle::tables().layouts[0]),
     })
 }
 
@@ -791,7 +838,7 @@ fn full_team_score_distributions_with_scratch(
     {
         skill_shuffle::matrix_order_scores(&matrix)
     } else {
-        skill_shuffle::exact_order_scores(chart, team, stat, is_medley)?
+        queued_order_scores(chart, team, stat, is_medley, scratch)?
     };
     let mut result = skill_shuffle::tables()
         .layouts
@@ -1185,6 +1232,115 @@ mod tests {
         let other = fixed_captain_score_distribution(&chart, &swapped, 250_000, false, 2).unwrap();
         assert_ne!(actual.distribution, other.distribution);
         assert_eq!(actual.captain_card_id, other.captain_card_id);
+    }
+
+    #[test]
+    fn queued_summary_and_cutoffs_match_full_timeline_weighted_distribution() {
+        for auto in [false, true] {
+            let nodes = (0..300)
+                .map(|i| ChartNode {
+                    node_type: if [1, 21, 41, 61, 81, 101].contains(&i) {
+                        ChartNodeType::Skill
+                    } else {
+                        ChartNodeType::Node
+                    },
+                    time: f64::from(i) * 0.25,
+                })
+                .collect();
+            let mut chart = Chart::new(27, nodes);
+            chart
+                .init_with_rule(
+                    0,
+                    false,
+                    if auto {
+                        crate::ScoreRule::AUTO
+                    } else {
+                        crate::ScoreRule::STANDARD
+                    },
+                )
+                .unwrap();
+            let team = std::array::from_fn(|i| TeamCardSkill {
+                card_id: i as u32 + 1,
+                duration: [5.0, 6.5, 7.0, 7.5, 8.0][i],
+                score_up: [0.9, 1.2, 1.5, 1.1, 1.3][i],
+                rateup: i == 1 || i == 2,
+            });
+            let stat = 301_337;
+            let scores = std::array::from_fn(|captain| {
+                std::array::from_fn(|o| {
+                    let order = skill_shuffle::tables().orders[o];
+                    chart
+                        .get_score_for_six_skills(
+                            &std::array::from_fn(|p| team[if p < 5 { order[p] } else { captain }]),
+                            stat,
+                            false,
+                        )
+                        .unwrap()
+                })
+            });
+            for scenario in [
+                FixedTeamPtScenario::ChallengeCp,
+                FixedTeamPtScenario::Solo {
+                    event_type: EventType::Challenge,
+                    point_bonus_basis_points: 12_345,
+                    mission_support_pt_bonus: 0,
+                },
+            ] {
+                let mut scratch = FullTeamScoreScratch::default();
+                let expected =
+                    best_weighted_layout_summary(&scores, &team, scenario, &mut scratch).unwrap();
+                let expected = materialize_full_team_summary(expected, &scratch);
+                let outcome = evaluate_full_team_summary_with_scratch(
+                    &chart,
+                    &team,
+                    stat,
+                    false,
+                    scenario,
+                    None,
+                    &mut scratch,
+                )
+                .unwrap();
+                let FullTeamPtSummaryOutcome::Summary(actual) = outcome else {
+                    panic!("queue must use summary path");
+                };
+                assert_eq!(materialize_full_team_summary(actual, &scratch), expected);
+                let cutoff = FullTeamPtCutoff {
+                    average_pt: expected.average_pt,
+                    equal_can_win: true,
+                };
+                assert!(matches!(
+                    evaluate_full_team_summary_with_scratch(
+                        &chart,
+                        &team,
+                        stat,
+                        false,
+                        scenario,
+                        Some(cutoff),
+                        &mut scratch
+                    )
+                    .unwrap(),
+                    FullTeamPtSummaryOutcome::Summary(_)
+                ));
+                let cutoff = FullTeamPtCutoff {
+                    average_pt: AveragePt::new(u128::from(expected.max_pt) + 1_000_000, 1).unwrap(),
+                    equal_can_win: false,
+                };
+                assert!(matches!(
+                    evaluate_full_team_summary_with_scratch(
+                        &chart,
+                        &team,
+                        stat,
+                        false,
+                        scenario,
+                        Some(cutoff),
+                        &mut scratch
+                    )
+                    .unwrap(),
+                    FullTeamPtSummaryOutcome::PrunedByMetaUpperBound
+                        | FullTeamPtSummaryOutcome::PrunedByExactUpperBound
+                ));
+            }
+        }
     }
 
     #[test]

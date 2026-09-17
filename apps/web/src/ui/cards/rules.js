@@ -1,11 +1,12 @@
 import {attributeLabel} from '../../utils.js?v=3';
+import {cardReleaseOrder, datePriority, releaseTimestamp} from './release-order.js';
+export {cardReleaseOrder, datePriority} from './release-order.js';
 
 export const bandOrder = [1, 2, 4, 5, 3, 21, 18, 45,50];
 export const bandNames = {1:"Poppin'Party", 2:'Afterglow', 3:'Hello, Happy World!', 4:'Pastel＊Palettes', 5:'Roselia', 18:'RAISE A SUILEN', 21:'Morfonica', 45:'MyGO!!!!!',50:'Ave Mujica'};
 // Attribute names are shared game terms and stay English in every UI language.
 export const attributeNames = Object.freeze(Object.fromEntries(['powerful','cool','happy','pure'].map(value=>[value,attributeLabel(value)])));
 export const serverNames = {jp:'日服', cn:'国服', en:'国际服', tw:'台服', kr:'韩服'};
-export const datePriority = ['jp', 'cn', 'en', 'tw', 'kr'];
 export const normalize = value => String(value).toLowerCase().replace(/\s/g, '');
 
 export function defaultFilters(characters, server) {
@@ -39,17 +40,25 @@ export function toggleFilterSelection(selected, values) {
 }
 
 export function releaseOf(card) {
+  let earliest = {timestamp:null, server:null};
   for (const server of datePriority) {
-    const timestamp = Number(card.releaseDates?.[server]);
-    if (Number.isFinite(timestamp) && timestamp > 0) return {timestamp, server};
+    const timestamp = releaseTimestamp(card.releaseDates?.[server]);
+    if (timestamp !== null && (earliest.timestamp === null || timestamp < earliest.timestamp)) earliest = {timestamp, server};
   }
-  return {timestamp:null, server:null};
+  return earliest;
 }
 
-export function compareRelease(a, b, ascending = false) {
+export function compareRelease(a, b, ascending = false, releaseOrder) {
   const x = releaseOf(a).timestamp, y = releaseOf(b).timestamp;
   // A missing date stays last in both directions.
   if (x === null || y === null) return x === y ? 0 : x === null ? 1 : -1;
+  if (releaseOrder) {
+    const ranks = ascending ? releaseOrder.ascending : releaseOrder.descending;
+    const first = ranks.get(Number(a.id)), second = ranks.get(Number(b.id));
+    if (first !== undefined && second !== undefined) return first - second;
+    // An unexpected record stays after indexed records until metadata refresh.
+    if (first !== undefined || second !== undefined) return first === undefined ? 1 : -1;
+  }
   return ascending ? x - y : y - x;
 }
 
@@ -59,10 +68,11 @@ export function isOwnedCard(card) {
 }
 
 export function latestOwnedCard(cards) {
+  const compare = comparator('release', 'desc', cardReleaseOrder(cards));
   let latest = null;
   for (const card of cards) {
     if (Number(card.rarity) === 2 || !isOwnedCard(card)) continue;
-    if (!latest || compareRelease(card, latest) < 0 || (compareRelease(card, latest) === 0 && card.id > latest.id)) latest = card;
+    if (!latest || compare(card, latest) < 0) latest = card;
   }
   return latest;
 }
@@ -81,14 +91,14 @@ export function normalizeCardSort(sort = 'owned-release', direction) {
   };
 }
 
-export function comparator(sort = 'owned-release', direction) {
+export function comparator(sort = 'owned-release', direction, releaseOrder) {
   const order = normalizeCardSort(sort, direction), ascending = order.sortDirection === 'asc';
   const numeric = (a, b) => ascending ? a - b : b - a;
   return (a, b) => {
     let result = 0;
-    if (order.sort === 'owned-release') result = numeric(Number(a.owned), Number(b.owned)) || compareRelease(a, b, ascending);
-    else if (order.sort === 'release') result = compareRelease(a, b, ascending);
-    else if (order.sort === 'rarity') result = numeric(a.rarity, b.rarity) || compareRelease(a, b, ascending);
+    if (order.sort === 'owned-release') result = numeric(Number(a.owned), Number(b.owned)) || compareRelease(a, b, ascending, releaseOrder);
+    else if (order.sort === 'release') result = compareRelease(a, b, ascending, releaseOrder);
+    else if (order.sort === 'rarity') result = numeric(a.rarity, b.rarity) || compareRelease(a, b, ascending, releaseOrder);
     else if (order.sort === 'id') result = numeric(a.id, b.id);
     // Equal keys retain the existing stable ID tie-break in either direction.
     return result || b.id - a.id;
@@ -110,7 +120,7 @@ export function filterCards(cards, filters, search = '') {
     && (!term || normalize(c.id+' '+c.name+' '+c.title+' '+(c.searchText||'')).includes(term)));
 }
 
-export function groupCards(cards, group = 'rarity', sort = 'owned-release', characters = [], direction) {
+export function groupCards(cards, group = 'rarity', sort = 'owned-release', characters = [], direction, releaseOrder = cardReleaseOrder(cards)) {
   const map = new Map();
   for (const card of cards) {
     const key = String(group === 'none' ? 'all' : group === 'character' ? card.characterId : card[group]);
@@ -121,5 +131,6 @@ export function groupCards(cards, group = 'rarity', sort = 'owned-release', char
   const keys = [...map.keys()].sort((a,b) => group === 'rarity' ? Number(b)-Number(a)
     : group === 'attribute' ? Object.keys(attributeNames).indexOf(a)-Object.keys(attributeNames).indexOf(b)
     : group === 'character' ? charOrder.indexOf(a)-charOrder.indexOf(b) : 0);
-  return keys.map(key => ({key, cards:map.get(key).sort(comparator(sort, direction))}));
+  const compare = comparator(sort, direction, releaseOrder);
+  return keys.map(key => ({key, cards:map.get(key).sort(compare)}));
 }

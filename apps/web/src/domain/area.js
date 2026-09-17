@@ -45,7 +45,7 @@ export function createAreaItemHelpers({
 
       const level = positiveIntegerOrUndefined(player.areaItem[areaItemId]?.level) ?? 0;
       if (level > 0) {
-        addRate(group.rate, areaItemRateAt(areaItem, level));
+        addRate(group.rate, areaItemRateAt(areaItem, level, player.server));
       }
       groups.set(bucket.key, group);
     }
@@ -112,20 +112,20 @@ export function createAreaItemHelpers({
       areaItemIds: [],
     };
     const adjustmentLevel = adjustmentId === '59' ? shellLevel : coffeeLevel;
-    subtractRate(summary.rate, areaItemRateAt(adjustmentItem, adjustmentLevel));
+    subtractRate(summary.rate, areaItemRateAt(adjustmentItem, adjustmentLevel, player.server));
     summaries.set(key, summary);
   }
 
-  function areaItemRateAt(areaItem, level) {
+  function areaItemRateAt(areaItem, level, server) {
     return {
-      performance: serverScopedRate(areaItem.performance?.[String(level)]),
-      technique: serverScopedRate(areaItem.technique?.[String(level)]),
-      visual: serverScopedRate(areaItem.visual?.[String(level)]),
+      performance: serverScopedRate(areaItem.performance?.[String(level)], server),
+      technique: serverScopedRate(areaItem.technique?.[String(level)], server),
+      visual: serverScopedRate(areaItem.visual?.[String(level)], server),
     };
   }
 
-  function serverScopedRate(value) {
-    const number = Number(serverScopedValue(value));
+  function serverScopedRate(value, server) {
+    const number = Number(serverScopedValue(value, server));
     return Number.isFinite(number) ? number : 0;
   }
 

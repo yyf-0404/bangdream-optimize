@@ -43,6 +43,7 @@ pub(super) fn calculate_single_result_for_items(
         .ok_or(SingleSongError::NoResult)?;
 
     Ok(BuildResult {
+        skill_queue_notices: Vec::new(),
         event_id,
         event_type,
         total_score: best.score,

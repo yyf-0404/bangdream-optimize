@@ -3,7 +3,7 @@ use super::signature::{
 };
 use super::stats::DominanceRejectionCounts;
 use crate::medley::team::TeamBuildError;
-use crate::model::chart::{Chart, TeamCardSkill};
+use crate::model::chart::{Chart, ConditionalSkillMeta, TeamCardSkill};
 use crate::model::preparation::{PreparedCard, ScoreUp};
 use crate::model::schema::Attribute;
 use bangdream_optimize_team_prune::{
@@ -20,9 +20,8 @@ pub(super) fn cover_optimization_enabled() -> bool {
     #[cfg(feature = "experimental-cover-prune")]
     {
         static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *ENABLED.get_or_init(|| {
-            std::env::var("BANGDREAM_OPTIMIZE_COVER_PRUNE").as_deref() != Ok("off")
-        })
+        *ENABLED
+            .get_or_init(|| std::env::var("BANGDREAM_OPTIMIZE_COVER_PRUNE").as_deref() != Ok("off"))
     }
     #[cfg(not(feature = "experimental-cover-prune"))]
     true
@@ -40,6 +39,25 @@ pub(crate) struct MedleyCardPruneProfile {
 }
 
 impl MedleyCardPruneProfile {
+    pub(crate) fn has_queued_windows(&self) -> bool {
+        self.skill_meta_variants
+            .first()
+            .is_some_and(|v| v.conditional.iter().any(Option::is_some))
+    }
+
+    pub(crate) fn conditional_meta(
+        &self,
+        score_up: f64,
+        chart: usize,
+    ) -> Option<&ConditionalSkillMeta> {
+        self.skill_meta_variants
+            .iter()
+            .find(|v| v.score_up_bits == score_up.to_bits())?
+            .conditional
+            .get(chart)?
+            .as_ref()
+    }
+
     pub(crate) fn skill_meta_for_score_up(&self, score_up: f64) -> Option<&[f64]> {
         let score_up_bits = score_up.to_bits();
         self.skill_meta_variants
@@ -53,6 +71,7 @@ impl MedleyCardPruneProfile {
 struct SkillMetaVariant {
     score_up_bits: u64,
     values: Vec<f64>,
+    conditional: Vec<Option<ConditionalSkillMeta>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -66,6 +85,8 @@ struct SignatureHardDominanceModel<'a> {
     stat: f64,
     card_id: u32,
     meta: &'a [f64],
+    skill: TeamCardSkill,
+    queued: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -431,11 +452,23 @@ pub(crate) fn medley_card_prune_profiles(
     charts: &[Chart],
     card_stats: &[f64],
 ) -> Result<Vec<MedleyCardPruneProfile>, TeamBuildError> {
+    let max_duration = cards
+        .iter()
+        .map(|card| card.skill.duration)
+        .fold(0.0, f64::max);
+    let queued_charts: Vec<_> = charts
+        .iter()
+        .map(|chart| chart.has_skill_queue_risk(max_duration).unwrap_or(true))
+        .collect();
+    // Queue windows depend on skill shape, not card ID or item-adjusted stat.
+    // Share their precomputation across the many cards with identical skills.
+    let mut variants_by_skill = BTreeMap::new();
     cards
         .iter()
         .zip(card_stats)
         .map(|(card, &stat)| {
-            let skill_meta_variants = medley_skill_meta_variants(card, charts)?;
+            let skill_meta_variants =
+                medley_skill_meta_variants(card, charts, &queued_charts, &mut variants_by_skill)?;
             let skill_meta_bounds = skill_meta_bounds(&skill_meta_variants);
             let best_skill_meta_by_chart =
                 best_skill_meta_by_chart(&skill_meta_bounds, charts.len());
@@ -466,6 +499,18 @@ pub(crate) fn medley_card_dominates_ignoring_unification(
     right: &PreparedCard,
     right_profile: &MedleyCardPruneProfile,
 ) -> bool {
+    if left_profile.has_queued_windows()
+        && (left.skill.duration != right.skill.duration
+            || left.skill.rateup != right.skill.rateup
+            || score_up_bounds(left.score_up)
+                .into_iter()
+                .fold(f64::INFINITY, f64::min)
+                < score_up_bounds(right.score_up)
+                    .into_iter()
+                    .fold(0.0, f64::max))
+    {
+        return false;
+    }
     if left_profile.stat < right_profile.stat {
         return false;
     }
@@ -835,6 +880,11 @@ pub(crate) fn hard_dominance_graph_for_indices_with_closure(
                 stat: profiles[idx].stat,
                 card_id: cards[idx].card_id,
                 meta,
+                skill: TeamCardSkill {
+                    score_up,
+                    ..cards[idx].skill
+                },
+                queued: profiles[idx].has_queued_windows(),
             });
         }
     }
@@ -872,6 +922,11 @@ pub(crate) fn hard_dominance_graph_for_cross_subsets(
                 stat: profiles[idx].stat,
                 card_id: cards[idx].card_id,
                 meta,
+                skill: TeamCardSkill {
+                    score_up,
+                    ..cards[idx].skill
+                },
+                queued: profiles[idx].has_queued_windows(),
             });
         }
     }
@@ -895,6 +950,15 @@ fn signature_hard_model_dominates(
     left: SignatureHardDominanceModel<'_>,
     right: SignatureHardDominanceModel<'_>,
 ) -> bool {
+    // A duration change also changes the NEXT skill's window. Independent
+    // window maxima cannot establish dominance on a queued chart.
+    if left.queued
+        && (left.skill.duration != right.skill.duration
+            || left.skill.rateup != right.skill.rateup
+            || left.skill.score_up < right.skill.score_up)
+    {
+        return false;
+    }
     if left.stat < right.stat || left.meta.len() != right.meta.len() {
         return false;
     }
@@ -1081,13 +1145,47 @@ enum DominanceCheck {
 fn medley_skill_meta_variants(
     card: &PreparedCard,
     charts: &[Chart],
+    queued_charts: &[bool],
+    cache: &mut BTreeMap<(u64, bool, u64), SkillMetaVariant>,
 ) -> Result<Vec<SkillMetaVariant>, TeamBuildError> {
     let score_ups = score_up_bounds(card.score_up);
     let mut result = Vec::with_capacity(score_ups.len());
 
     for score_up in score_ups.iter().copied() {
+        let key = (
+            card.skill.duration.to_bits(),
+            card.skill.rateup,
+            score_up.to_bits(),
+        );
+        if queued_charts.iter().any(|&queued| queued) {
+            if let Some(variant) = cache.get(&key) {
+                result.push(variant.clone());
+                continue;
+            }
+        }
         let mut values = Vec::with_capacity(charts.len() * (TEAM_SIZE + 1));
-        for chart in charts {
+        let mut conditional = Vec::with_capacity(charts.len());
+        for (chart, &queued) in charts.iter().zip(queued_charts) {
+            let skill = TeamCardSkill {
+                card_id: card.card_id,
+                duration: card.skill.duration,
+                score_up,
+                rateup: card.skill.rateup,
+            };
+            if queued {
+                let meta = chart.conditional_skill_meta(skill)?;
+                if chart.skill_queue_kind(8.0) == crate::SkillQueueKind::Chain {
+                    values.extend(chart.skill_meta_upper_values(skill)?);
+                } else {
+                    values.extend(
+                        meta.iter()
+                            .map(|row| row.iter().copied().fold(0.0, f64::max)),
+                    );
+                }
+                conditional.push(Some(meta));
+                continue;
+            }
+            conditional.push(None);
             for activation in 0..=TEAM_SIZE {
                 let value = chart.skill_meta_value(
                     activation,
@@ -1101,10 +1199,15 @@ fn medley_skill_meta_variants(
                 values.push(value);
             }
         }
-        result.push(SkillMetaVariant {
+        let variant = SkillMetaVariant {
             score_up_bits: score_up.to_bits(),
             values,
-        });
+            conditional,
+        };
+        if queued_charts.iter().any(|&queued| queued) {
+            cache.insert(key, variant.clone());
+        }
+        result.push(variant);
     }
 
     Ok(result)
@@ -1163,6 +1266,7 @@ mod tests {
         let profile = MedleyCardPruneProfile {
             stat: 1.0,
             skill_meta_variants: vec![SkillMetaVariant {
+                conditional: Vec::new(),
                 score_up_bits: 1.0_f64.to_bits(),
                 values: vec![10.0],
             }],
@@ -1325,6 +1429,13 @@ fn dominance_rejection_for_signature(
     let right_score_up = right
         .score_up
         .resolve(signature.team_band_id(), signature.team_attribute());
+    if left_profile.has_queued_windows()
+        && (left.skill.duration != right.skill.duration
+            || left.skill.rateup != right.skill.rateup
+            || left_score_up < right_score_up)
+    {
+        return DominanceCheck::RejectMeta;
+    }
     let Some(left_meta) = left_profile.skill_meta_for_score_up(left_score_up) else {
         return DominanceCheck::RejectMeta;
     };

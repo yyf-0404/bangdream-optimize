@@ -139,7 +139,7 @@ impl Chart {
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-fn native_kernel_enabled() -> bool {
+pub(super) fn native_kernel_enabled() -> bool {
     #[cfg(feature = "experimental-compressed-native")]
     {
         static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -151,7 +151,7 @@ fn native_kernel_enabled() -> bool {
     true
 }
 
-fn constant_base_rateup_delta(base: i32, multipliers: &[f64]) -> i32 {
+pub(super) fn constant_base_rateup_delta(base: i32, multipliers: &[f64]) -> i32 {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if avx2_available() {
         // SAFETY: runtime AVX2 detection; the vector loop reads complete groups of four.

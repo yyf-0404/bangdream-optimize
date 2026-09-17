@@ -173,7 +173,7 @@ export function createActivityActions({
       setStatus(calculationMode === 'scoreRange'
         ? '已切换到目标 PT'
         : calculationMode === 'ptMaximize'
-          ? '已切换到最大PT（平均）'
+          ? '已切换到最大平均 PT'
           : calculationMode === 'ptEvaluate'
             ? '已切换到指定队伍'
             : '已切换到最高得分');

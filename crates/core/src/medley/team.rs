@@ -307,7 +307,11 @@ fn build_raw_team_candidates_internal(
             candidate.scores.hash(&mut hash);
             candidate.stat.hash(&mut hash);
         }
-        eprintln!("raw candidate fingerprint: count={} hash={:016x}", raw_candidates.len(), hash.finish());
+        eprintln!(
+            "raw candidate fingerprint: count={} hash={:016x}",
+            raw_candidates.len(),
+            hash.finish()
+        );
     }
     if raw_candidates.is_empty() {
         return Err(TeamBuildError::NotEnoughCards { count: 0 });
@@ -946,18 +950,28 @@ mod tests {
 
     #[test]
     fn production_pruning_preserves_exhaustive_three_team_optimum() {
-        validate_exhaustive_three_team_case(0);
+        validate_exhaustive_three_team_case(0, 0);
+    }
+
+    #[test]
+    fn queued_production_pruning_preserves_exhaustive_three_team_optimum() {
+        validate_exhaustive_three_team_case(0, 1);
+    }
+
+    #[test]
+    fn chained_production_pruning_preserves_exhaustive_three_team_optimum() {
+        validate_exhaustive_three_team_case(0, 2);
     }
 
     #[test]
     #[ignore = "explicit randomized pruning stress test"]
     fn randomized_production_pruning_matches_exhaustive_three_team_optimum() {
         for seed in 1..=6 {
-            validate_exhaustive_three_team_case(seed);
+            validate_exhaustive_three_team_case(seed, 0);
         }
     }
 
-    fn validate_exhaustive_three_team_case(seed: u32) {
+    fn validate_exhaustive_three_team_case(seed: u32, queue_kind: u8) {
         let mut cards = Vec::new();
         for character_id in 1..=15u32 {
             let band_id = 1 + (character_id - 1) / 5;
@@ -1033,7 +1047,41 @@ mod tests {
             cards.push(card);
         }
 
-        let charts = exhaustive_validation_charts(seed);
+        let charts = if queue_kind != 0 {
+            (0..3)
+                .map(|idx| {
+                    let mut nodes: Vec<_> = (0..100)
+                        .map(|note| ChartNode {
+                            time: note as f64 * 0.61 + idx as f64 * 0.03,
+                            node_type: ChartNodeType::Node,
+                        })
+                        .collect();
+                    let triggers = if queue_kind == 2 {
+                        [0.0, 6.4, 12.8, 26.4, 32.8, 39.2]
+                    } else {
+                        [0.0, 6.4, 20.0, 26.4, 40.0, 46.4]
+                    };
+                    nodes.extend(triggers.map(|time| ChartNode {
+                        time,
+                        node_type: ChartNodeType::Skill,
+                    }));
+                    nodes.sort_by(|a, b| a.time.total_cmp(&b.time));
+                    let mut chart = Chart::new(24 + idx, nodes);
+                    chart.init(0, false).unwrap();
+                    assert_eq!(
+                        chart.skill_queue_kind(7.0),
+                        if queue_kind == 2 {
+                            crate::SkillQueueKind::Chain
+                        } else {
+                            crate::SkillQueueKind::Single
+                        }
+                    );
+                    chart
+                })
+                .collect()
+        } else {
+            exhaustive_validation_charts(seed)
+        };
         let area = AreaItemPercent {
             band: BTreeMap::from([("1".to_owned(), StatRate::all(0.08 + seed as f64 * 0.001))]),
             attribute: BTreeMap::from([(
@@ -1133,6 +1181,13 @@ mod tests {
         );
         let exhaustive_best = exhaustive_three_team_score(&exhaustive, &cards);
         let production_best = exhaustive_three_team_score(&production, &cards);
+        if queue_kind != 0 {
+            eprintln!(
+                "queued candidates: exhaustive={} retained={} optimum={exhaustive_best}",
+                exhaustive.len(),
+                production.len()
+            );
+        }
         assert_eq!(production_best, exhaustive_best, "seed={seed}");
 
         let near_incumbent = exhaustive_best - 1;

@@ -6,7 +6,7 @@ import {
   positiveIntegerOrDefault,
   positiveIntegerOrUndefined,
 } from '../utils.js?v=3';
-import { CUSTOM_EVENT_ID } from './event.js?v=3';
+import { CUSTOM_EVENT_ID, serverEventTimestamp } from './event.js?v=3';
 import {normalizeCustomCards,nextCustomCardId} from './custom-cards.js';
 import {
   PLAYER_CONFIG_SCHEMA_VERSION,
@@ -42,6 +42,7 @@ export function createPlayerModel({
       server,
       currentEvent: player.currentEvent,
       calculationMode,
+      eventAvailableCardsOnly: player.eventAvailableCardsOnly === true,
       activityMode: normalizedActivityMode(player.activityMode),
       scoreRange: normalizeScoreRangeConfig(player.scoreRange, server),
       ptMaximize: normalizePtMaximizeConfig(player.ptMaximize),
@@ -91,6 +92,25 @@ export function createPlayerModel({
       ...cloneJson(base),
       ...cloneJson(override),
     };
+    if (Number(eventId) !== CUSTOM_EVENT_ID) {
+      // The manifest-refreshed catalog can contain server dates that an old
+      // imported preset or cached event-detail file never had. Keep the preset's
+      // calculation fields, but reconcile its schedule with current metadata.
+      const current = coreEvents?.[String(eventId)];
+      for (const field of ['startAt', 'endAt']) {
+        const dates = current?.[field];
+        if (Array.isArray(dates) && dates.length) {
+          const cached = event[field];
+          event[field] = dates.map((value, index) =>
+            serverEventTimestamp(value)
+            ?? (Array.isArray(cached) || index === SERVER_INDEX[player?.server]
+              ? serverEventTimestamp(cached, index) : undefined)
+            ?? null);
+        } else if (serverEventTimestamp(dates) !== undefined) {
+          event[field] = dates;
+        }
+      }
+    }
     if (!event.eventType) {
       event.eventType = defaultEventTypeForMode(
         player?.activityMode,

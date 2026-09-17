@@ -1103,7 +1103,7 @@ mod tests {
     }
 
     #[test]
-    fn overlap_warning_keeps_fast_additive_meta_pruning() {
+    fn potential_long_skill_warning_keeps_pruning_when_current_skills_do_not_queue() {
         let mut cards = vec![prepared_card(1, 1, 1, Attribute::Cool)];
         for idx in 0..3 {
             cards.push(strong_card(10 + idx, 1, Attribute::Cool));

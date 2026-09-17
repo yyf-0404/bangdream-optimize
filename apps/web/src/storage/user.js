@@ -109,6 +109,7 @@ export function samplePlayerConfig() {
     server: 'cn',
     currentEvent: undefined,
     calculationMode: 'ptMaximize',
+    eventAvailableCardsOnly: false,
     activityMode: 'single',
     scoreRange: createDefaultScoreRangeConfig('cn'),
     ptMaximize: createDefaultPtMaximizeConfig(),

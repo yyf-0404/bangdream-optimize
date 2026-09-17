@@ -22,6 +22,8 @@ import { cardPreviewItem } from '../ui/card-preview.js?v=3';
 import { emptyMessage } from '../ui/dom.js?v=3';
 import { renderDifficultyList } from './song.js?v=3';
 import { scoreRangeEmptyExplanation } from '../data/calculation-errors.js?v=1';
+import {equipmentBonusText, resultCharacterBonuses, statFields} from '../models/result-bonuses.js';
+import {formatCompactPercentNumber} from '../utils.js';
 
 const POINT_BONUS_EVENT_TYPES = new Set(['challenge', 'live_try', 'mission_live']);
 const SINGLE_FIRE_PT_MULTIPLIERS = Object.freeze([
@@ -69,6 +71,18 @@ export function renderMetrics(metricsElement, metrics) {
 
 export function renderResultSummary(resultElement, result, deps, options = {}) {
   renderSummaryContent(resultElement, result, deps, options);
+  if (!options.diagnostic?.error) {
+    const queue = skillQueuePresentation(result, deps);
+    if (queue) resultElement.prepend(renderSkillQueueRisk(queue));
+  }
+  if (result && !options.diagnostic?.error) {
+    const characters = renderResultCharacters(result, deps);
+    if (characters) {
+      const equipment = resultElement.querySelector(':scope > .item-selection');
+      if (equipment) equipment.after(characters);
+      else resultElement.append(characters);
+    }
+  }
   applyResultLayout(resultElement,result,options.diagnostic);
 }
 
@@ -116,10 +130,6 @@ function renderSummaryContent(resultElement, result, deps, { diagnostic } = {}) 
   );
   resultElement.append(overview);
 
-  const riskySongs = songs.filter((song) => song.skillQueueRisk === true);
-  if (riskySongs.length > 0) {
-    resultElement.append(renderSkillQueueRisk(riskySongs, deps));
-  }
   if (result.items) {
     resultElement.append(renderSelectedItems(result.items, deps));
   }
@@ -504,19 +514,44 @@ function renderPtMaximizeSongSection(songs, teams, deps, { detailedScore = false
   return section;
 }
 
-function renderSkillQueueRisk(songs, deps) {
-  const warning = document.createElement('section');
-  warning.className = 'result-risk';
-  warning.setAttribute('role', 'alert');
-  const title = document.createElement('strong');
-  title.textContent = '技能重叠提示';
-  const detail = document.createElement('p');
-  const labels = songs.map((song) => compactJoin([
-    deps.songLabel(song.songId),
-    `ID ${song.songId}`,
-    `难度 ${song.difficulty}`,
+export function skillQueuePresentation(result, deps) {
+  if (!result || Array.isArray(result)) return null;
+  const notices = result.skillQueueNotices;
+  if (!Array.isArray(notices)) {
+    if (!result.songs?.some(song => song.skillQueueRisk)) return null;
+    return { warning: true, title: '技能排队提示',
+      detail: '这份历史结果记录了技能排队风险。请重新计算，以应用完整的技能排队时间线。' };
+  }
+  if (!notices.length) return null;
+  const specified = Boolean(result.scoreMode);
+  const warning = !specified && notices.some(notice => notice.searchMayBeSuboptimal);
+  const labels = notices.map(song => compactJoin([
+    deps.songLabel(song.songId), `ID ${song.songId}`,
+    ['EASY','NORMAL','HARD','EXPERT','SPECIAL'][song.difficulty] ?? `难度 ${song.difficulty}`,
   ], ' · '));
-  detail.textContent = `以下谱面存在技能窗口重叠：${labels.join('；')}。计算使用精确的独立技能窗口，并允许重叠增量直接相加；所有谱面统一使用 5×6 增量矩阵和 32 状态 DP。`;
+  return { warning, title: warning ? '连锁排队：可能不是最优解' : '计入技能延后',
+    detail: `${labels.join('；')}。${warning
+      ? '本次候选技能时长下可能发生连锁排队。所示队伍的得分和概率已按完整排队时间线计算，但自动编队的候选剪枝尚未完整覆盖连锁情况，可能遗漏更优队伍。'
+      : '计算已计入技能延后触发的影响。'}` };
+}
+
+function renderSkillQueueRisk(presentation) {
+  const warning = document.createElement('section');
+  warning.className = presentation.warning ? 'result-risk' : 'result-risk result-queue-info';
+  warning.setAttribute('role', presentation.warning ? 'alert' : 'status');
+  warning.setAttribute('aria-atomic', 'true');
+  const title = document.createElement('strong');
+  title.textContent = presentation.title;
+  const reference = document.createElement('a');
+  reference.href = `https://www.bilibili.com/opus/212202269537000396#:~:text=${encodeURIComponent('2.2 有干扰情况下的技能区间')}`;
+  reference.textContent = '详细说明';
+  reference.target = '_blank';
+  reference.rel = 'noopener noreferrer';
+  reference.title = '参见「2.2 有干扰情况下的技能区间」';
+  reference.setAttribute('aria-label', '技能延后详细说明（在新标签页打开）');
+  const detail = document.createElement('p');
+  detail.textContent = presentation.detail;
+  detail.append(' ', reference);
   warning.append(title, detail);
   return warning;
 }
@@ -747,10 +782,32 @@ function renderSelectedItems(items, deps) {
     const groupUrls=category==='band'?bandIconUrls(band):category==='attribute'?attributeIconUrls(items.attribute):[];
     const image=assetImage(groupUrls.length?groupUrls:itemArtUrls(group?.areaItemIds[0]||({performance:78,technique:79,visual:80}[items.magazine]),deps.player?.server),'',name);
     const displayName=group?.isAll?'通用':category==='magazine'?(deps.areaItemLabel?.(group?.areaItemIds[0])||name):(group?.label||name||String(items[category])).replace(/^属性 /,'');
-    if(image)art.append(image);node.append(art);const caption=document.createElement('span'),labelNode=document.createElement('small');labelNode.textContent=label;caption.append(labelNode,document.createTextNode(displayName));node.append(caption);
+    if(image)art.append(image);node.append(art);const caption=document.createElement('span'),labelNode=document.createElement('small');labelNode.textContent=label;caption.append(labelNode,document.createTextNode(displayName));
+    const rate=document.createElement('span');rate.className='selected-item-bonus';rate.textContent=equipmentBonusText(group?.rate);caption.append(rate);node.append(caption);
     node.title=(group?.areaItemIds||[]).map(id=>(deps.areaItemLabel?.(id)||id)+' · Lv. '+(deps.player?.areaItem?.[id]?.level||0)).join('\n');section.append(node);
   }
   return section;
+}
+
+function renderResultCharacters(result, deps) {
+  const characters=resultCharacterBonuses(result,deps.player,deps.cardCharacterId);
+  if(!characters.length)return null;
+  const el=(tag,cls,text)=>{const node=document.createElement(tag);node.className=cls||'';if(text!==undefined)node.textContent=text;return node;};
+  const section=el('details','result-character-bonuses'),summary=el('summary');
+  const title=el('span','result-character-heading');title.innerHTML=designIcon('player');title.append(document.createTextNode('角色加成'));
+  const count=el('span','result-character-count',`${characters.length} 位 · 合计加成`);
+  const cue=el('span','result-character-cue');cue.innerHTML='<span class="when-closed">展开</span><span class="when-open">收起</span>'+designIcon('chevron');
+  summary.append(title,count,cue);section.append(summary);
+  const grid=el('div','result-character-grid');
+  for(const character of characters){
+    const name=deps.characterLabel?.(character.id)||`角色 ${character.id}`,entry=el('article','result-character');
+    const identity=el('div','result-character-identity'),image=assetImage(deps.characterIconUrls?.(character.id),'',name);
+    if(image)identity.append(image);identity.append(el('span','',name));entry.append(identity);
+    const totals=el('dl','result-character-totals');totals.setAttribute('aria-label',`${name}的合计加成`);
+    for(const [field,label]of statFields){const value=el('div');value.append(el('dt','',label),el('dd','',`+${formatCompactPercentNumber(character.total[field]*100)}`));totals.append(value);}
+    entry.append(totals);grid.append(entry);
+  }
+  section.append(grid);return section;
 }
 
 function resultItem(label, value, { imageUrls } = {}) {
