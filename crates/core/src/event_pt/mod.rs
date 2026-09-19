@@ -137,13 +137,13 @@ pub fn versus_multiplayer_points(score: i32, team_rank: u8) -> Result<u64, Event
 }
 
 pub fn festival_multiplayer_points(
-    score: i32,
+    personal_score: i32,
     team_rank: u8,
     won: bool,
 ) -> Result<u64, EventPtError> {
     let rank_points = rank_points(FESTIVAL_RANK_PT, team_rank)?;
     Ok(FESTIVAL_MULTIPLAYER_FIXED_PT
-        + non_negative_score(score) / MULTIPLAYER_SCORE_DIVISOR
+        + non_negative_score(personal_score) / MULTIPLAYER_SCORE_DIVISOR
         + rank_points
         + u64::from(won) * FESTIVAL_WIN_PT)
 }

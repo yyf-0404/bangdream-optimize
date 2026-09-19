@@ -206,24 +206,6 @@ export function explainCalculationError(error, {
       '重新选择指定队长或排名。',
     );
   }
-  if (/festival teammate \d+ has a negative expected score/i.test(message)) {
-    return issue(
-      CONFIGURATION,
-      'invalid-teammate-score',
-      '队友预计分数无效',
-      '团队演出的队友预计分数不能为负数。',
-      '修正队友预计分数后重新计算。',
-    );
-  }
-  if (/团队演出必须填写队友预计分数/.test(message)) {
-    return issue(
-      CONFIGURATION,
-      'incomplete-festival-scores',
-      '队友预计分数填写不完整',
-      '团队演出需要为队友填写预计分数。',
-      '补全统一参数或四位队友的预计分数。',
-    );
-  }
   if (/total score \d+ is lower than personal score \d+/i.test(message)) {
     return issue(
       CONFIGURATION,

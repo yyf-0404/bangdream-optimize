@@ -28,7 +28,7 @@ test('sample config and persisted setting defaults share one source', () => {
   assert.equal(sample.currentEvent, undefined);
   assert.deepEqual(sample.eventSongs, {});
   assert.equal(sample.ptMaximize.festivalWon, true);
-  assert.equal(sample.ptMaximize.festivalTeammateScores[0], 4000000);
+  assert.equal('festivalTeammateScores' in sample.ptMaximize, false);
 });
 
 test('specified-team defaults and variants follow server and event type', () => {
@@ -108,12 +108,7 @@ test('invalid persisted values fall back to stable settings', () => {
   assert.equal(normalized.minimumPersonalStat, 290000);
   assert.equal(normalized.cooperativeLeaderMode, 'max_stat');
   assert.equal(normalized.festivalWon, false);
-  assert.deepEqual(normalized.festivalTeammateScores, [
-    4000000,
-    4000000,
-    5000000,
-    4000000,
-  ]);
+  assert.equal('festivalTeammateScores' in normalized, false);
 });
 
 test('last live variant is stored independently for each event type', () => {

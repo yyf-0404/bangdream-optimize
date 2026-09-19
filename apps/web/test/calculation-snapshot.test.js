@@ -11,8 +11,32 @@ function harness({ensureCore=async()=>({}),calculate=async()=>({totalScore:42}),
   const elements=new Proxy({eventId:{value:String(player.currentEvent)},scoreRangeAutoBaseMultiplier:{value:'0.5'},result:{},calculateButtons},{get:(o,k)=>k in o?o[k]:k==='calculateButton'?null:field});
   const noop=()=>{};
   const actions=createCalculationActions({state,elements,readPlayer:()=>structuredClone(player),writePlayer:p=>{writes.push(p);player=structuredClone(p);},savePlayerNow:async()=>{},readOptionalInteger:v=>v===''?undefined:Number(v),parseEntityId:v=>Number(v),applyEventInputToPlayer:noop,editableEventSnapshot:()=>eventRecord,normalizeCurrentActivityForMode:noop,ensureOwnedCardCharacterBonuses:noop,ensureCore,renderConfigForms:noop,renderResultSummary:r=>renders.push(r),renderMetrics:noop,buildDiagnostic:async data=>data,activatePage:p=>navigations.push(p),getActivePage,hasOpenDialog,setStatus:noop,setError:e=>errors.push(e),eventLabel:()=> '活动',normalizedPlayer:p=>p,persistResultCache:async()=>{},yieldForPaint:async()=>{}});
-  return {state,actions,writes,renders,errors,navigations,getPlayer:()=>player,setScope:value=>{player.eventAvailableCardsOnly=value;},edit:()=>{player.cardList[1].skillLevel=2;}};
+  return {state,elements,actions,writes,renders,errors,navigations,getPlayer:()=>player,setScope:value=>{player.eventAvailableCardsOnly=value;},edit:()=>{player.cardList[1].skillLevel=2;}};
 }
+
+test('festival submits only rank and victory; obsolete history stays viewable but is not reused',async()=>{
+ for(const won of [false,true]){
+  const calls=[],h=harness({initialPlayer:{calculationMode:'ptMaximize',ptMaximize:{liveVariantByEventType:{festival:'festival'},festivalTeammateScores:[null,-1,99999999,0]}},eventRecord:{eventType:'festival'},calculate:async input=>{calls.push(input);return {liveVariant:'festival',totalScore:calls.length,scenario:{festival:input.request.festival}};}});
+  h.elements.ptMaximizeFestivalRank={querySelector:()=>({value:'3'})};
+  h.elements.ptMaximizeFestivalWon={querySelector:()=>({value:String(won)})};
+  await h.actions.handleCalculate({preventDefault(){}});
+  assert.deepEqual(h.errors,[]);
+  assert.deepEqual(calls[0].request.festival,{teamRank:3,won});
+  assert.equal('festivalTeammateScores' in calls[0].player.ptMaximize,false);
+  const entry=h.state.resultCache[0];
+  entry.result.scenario.festival.teammateScores=4000000;
+  entry.diagnostic.calculationRequest.festival.teammateScores=4000000;
+  const key=entry.key;
+  await h.actions.handleResultCacheAction({preventDefault(){},target:{closest:()=>({dataset:{resultCacheAction:'restore',resultCacheKey:key}})}});
+  assert.equal(h.state.lastDiagnostic.result.totalScore,1);
+  await h.actions.handleCalculate({preventDefault(){}});
+  assert.equal(calls.length,2);
+  assert.equal(h.state.lastDiagnostic.result.totalScore,2);
+  await h.actions.handleCalculate({preventDefault(){}});
+  assert.equal(calls.length,2);
+  assert.deepEqual(h.errors,[]);
+ }
+});
 
 test('automatic runtimes receive the filtered snapshot; switching the restriction bypasses the other cache',async()=>{
  for(const calculationMode of ['maximize','ptMaximize']){

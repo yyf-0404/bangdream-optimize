@@ -1007,17 +1007,11 @@ pub(crate) fn points_for_scenario(
             mission_support_pt_bonus,
         )?,
         FixedTeamPtScenario::Versus { team_rank } => versus_multiplayer_points(score, team_rank)?,
-        FixedTeamPtScenario::Festival {
-            other_players_score,
-            team_rank,
-            won,
-        } => festival_multiplayer_points(
-            i64::from(score.max(0))
-                .saturating_add(other_players_score.max(0))
-                .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
-            team_rank,
-            won,
-        )?,
+        // Team scores determine rank/win in game; those are already explicit
+        // inputs here. Only the player's own score earns the score-based PT.
+        FixedTeamPtScenario::Festival { team_rank, won } => {
+            festival_multiplayer_points(score, team_rank, won)?
+        }
         FixedTeamPtScenario::ChallengeCp => challenge_cp_points(score),
     })
 }
@@ -1049,6 +1043,40 @@ mod tests {
     use super::super::model::CooperativeTeammate;
     use super::*;
     use crate::{ChartNode, ChartNodeType, EventType};
+
+    #[test]
+    fn festival_pt_rounds_each_personal_score_with_explicit_rank_and_win() {
+        for (team_rank, rank_pt) in [125, 117, 110, 105, 100].into_iter().enumerate() {
+            for won in [false, true] {
+                let scenario = FixedTeamPtScenario::Festival {
+                    team_rank: team_rank as u8,
+                    won,
+                };
+                let base = 50 + rank_pt + if won { 125 } else { 0 };
+                assert_eq!(points_for_scenario(-1, scenario).unwrap(), base);
+                assert_eq!(
+                    points_for_scenario(1_950_000, scenario).unwrap(),
+                    base + 300
+                );
+                let result = evaluate_distribution(
+                    CaptainScoreDistribution {
+                        recommended_team_card_ids: None,
+                        captain_index: 0,
+                        captain_card_id: 1,
+                        distribution: score_histogram(BTreeMap::from([(6_499, 3), (6_500, 1)])),
+                    },
+                    scenario,
+                )
+                .unwrap();
+                assert_eq!(result.min_pt, base);
+                assert_eq!(result.max_pt, base + 1);
+                assert_eq!(
+                    result.average_pt,
+                    AveragePt::new(u128::from(base * 4 + 1), 4).unwrap()
+                );
+            }
+        }
+    }
 
     #[test]
     fn real_nonqueued_chart_matrix_matches_strict_scorer() {

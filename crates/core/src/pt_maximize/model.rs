@@ -198,7 +198,6 @@ pub enum FixedTeamPtScenario {
         team_rank: u8,
     },
     Festival {
-        other_players_score: i64,
         team_rank: u8,
         won: bool,
     },
@@ -273,7 +272,6 @@ pub struct CooperativeInput {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FestivalInput {
-    pub teammate_scores: TeammateInput<i32>,
     pub team_rank: u8,
     pub won: bool,
 }
@@ -469,21 +467,6 @@ impl PtMaximizeRequest {
                     })?;
                 PtMaximizeSearchScenario::FullTeam {
                     scenario: FixedTeamPtScenario::Festival {
-                        other_players_score: input
-                            .teammate_scores
-                            .expand()
-                            .into_iter()
-                            .enumerate()
-                            .map(|(index, score)| {
-                                if score < 0 {
-                                    Err(PtMaximizeError::InvalidFestivalTeammateScore { index })
-                                } else {
-                                    Ok(i64::from(score))
-                                }
-                            })
-                            .collect::<Result<Vec<_>, _>>()?
-                            .into_iter()
-                            .sum(),
                         team_rank: validated_team_rank(input.team_rank)?,
                         won: input.won,
                     },
@@ -704,9 +687,6 @@ pub enum PtMaximizeError {
     #[error("cooperative leader player index must be between 0 and 4, got {index}")]
     InvalidCooperativeLeaderIndex { index: u8 },
 
-    #[error("festival teammate {index} has a negative expected score")]
-    InvalidFestivalTeammateScore { index: usize },
-
     #[error("input for live variant {live_variant:?} is missing")]
     MissingVariantInput { live_variant: LiveVariant },
 
@@ -729,6 +709,54 @@ pub enum PtMaximizeError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn festival_request_uses_personal_score_and_ignores_legacy_teammate_scores() {
+        for legacy in [
+            None,
+            Some(serde_json::json!(4_000_000)),
+            Some(serde_json::json!([-1, 0, 3_000_000, 9_000_000])),
+        ] {
+            let mut value = serde_json::json!({
+                "eventType": "festival", "liveVariant": "festival", "songs": [],
+                "festival": {"teamRank": 0, "won": true}
+            });
+            if let Some(legacy) = legacy {
+                value["festival"]["teammateScores"] = legacy;
+            }
+            let request: PtMaximizeRequest = serde_json::from_value(value.clone()).unwrap();
+            let PtMaximizeSearchScenario::FullTeam { scenario } =
+                request.search_scenario().unwrap()
+            else {
+                panic!("festival must use own full-team skills");
+            };
+            assert_eq!(
+                scenario,
+                FixedTeamPtScenario::Festival {
+                    team_rank: 0,
+                    won: true
+                }
+            );
+            assert_eq!(
+                super::super::distribution::points_for_scenario(1_950_000, scenario).unwrap(),
+                600
+            );
+            let summary = serde_json::to_value(request.scenario_summary()).unwrap();
+            assert_eq!(
+                summary["festival"],
+                serde_json::json!({"teamRank": 0, "won": true})
+            );
+            assert_eq!(summary["includesFever"], true);
+            value["festival"]["teamRank"] = serde_json::json!(5);
+            let invalid: PtMaximizeRequest = serde_json::from_value(value).unwrap();
+            assert!(matches!(
+                invalid.search_scenario(),
+                Err(PtMaximizeError::EventPt(EventPtError::InvalidTeamRank {
+                    rank: 5
+                }))
+            ));
+        }
+    }
 
     #[test]
     fn support_matrix_matches_the_design() {

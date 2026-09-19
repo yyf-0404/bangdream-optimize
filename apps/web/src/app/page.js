@@ -166,19 +166,6 @@ export function createPageController({
         formatDurationInput(teammates[index]?.leaderSkillDuration ?? 7);
     }
     setRadioValue(elements.ptMaximizeVersusRank, request.versusTeamRank ?? 0);
-    const festivalTeammateMode = request.festivalTeammateMode ?? 'uniform';
-    setRadioValue(
-      elements.ptMaximizeFestivalTeammateMode,
-      festivalTeammateMode,
-    );
-    setTeammateRowLabels(
-      elements.ptMaximizeFestivalTeammateLabels,
-      festivalTeammateMode,
-    );
-    for (let index = 0; index < 4; index += 1) {
-      elements.ptMaximizeFestivalTeammateScores[index].value =
-        request.festivalTeammateScores?.[index] ?? 4000000;
-    }
     setRadioValue(elements.ptMaximizeFestivalRank, request.festivalTeamRank ?? 0);
     setRadioValue(elements.ptMaximizeFestivalWon, String(request.festivalWon === true));
 
@@ -190,13 +177,12 @@ export function createPageController({
     elements.ptMaximizeVersusRankField.hidden = !versus;
     const festival = active && selected === 'festival';
     elements.ptMaximizeFestivalOtherFields.hidden = !festival;
-    elements.ptMaximizeFestivalTeammateFields.hidden = !festival;
     const missionLive = active
       && event?.eventType === 'mission_live'
       && (selected === 'solo' || selected === 'cooperative');
     elements.ptMaximizeMissionSupportField.hidden = !missionLive;
     elements.ptMaximizeMissionSupportPt.required = missionLive;
-    const teammatePaneVisible = cooperative || festival;
+    const teammatePaneVisible = cooperative;
     elements.ptMaximizeTeammatePane.hidden = !teammatePaneVisible;
     elements.ptMaximizeParameterGrid.hidden =
       !(cooperative || versus || festival || missionLive);
@@ -218,11 +204,6 @@ export function createPageController({
       elements.ptMaximizeTeammateDurations,
       teammateMode,
       cooperative,
-    );
-    setRepeatedInputState(
-      elements.ptMaximizeFestivalTeammateScores,
-      festivalTeammateMode,
-      festival,
     );
   }
 

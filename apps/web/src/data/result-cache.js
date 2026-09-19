@@ -9,6 +9,15 @@ const CACHE_SCHEMA_VERSION = 8;
 export const RESULT_CACHE_LIMIT = 20;
 
 export function resultCacheInvalidationReason(entry) {
+  // Old 5v5 snapshots include teammateScores in the request/result scenario.
+  // Keep them readable, but never reuse the inflated PT after this correction.
+  const festivalInputs = [
+    entry?.diagnostic?.calculationRequest?.festival,
+    entry?.result?.scenario?.festival,
+  ];
+  if (festivalInputs.some(input => input && Object.hasOwn(input, 'teammateScores'))) {
+    return '5v5 PT 计算已修正，需重新计算';
+  }
   return entry?.reusable === false ? '游戏数据已更新，需重新计算' : '';
 }
 

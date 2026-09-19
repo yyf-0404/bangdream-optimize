@@ -1926,8 +1926,8 @@ mod tests {
 
     #[test]
     fn queued_single_pt_search_matches_every_unpruned_team() {
-        for point_bonus in [false, true] {
-            let mut chart = Chart::new(
+        for (point_bonus, festival) in [(false, false), (true, false), (false, true)] {
+            let mut chart = Chart::new_with_fever_section(
                 27,
                 (0..300)
                     .map(|i| ChartNode {
@@ -1939,6 +1939,8 @@ mod tests {
                         time: f64::from(i) * 0.25,
                     })
                     .collect(),
+                Some(30.0),
+                Some(50.0),
             );
             chart.init(0, false).unwrap();
             let mut cards = (0..8)
@@ -1988,7 +1990,12 @@ mod tests {
                 } else {
                     0
                 };
-                let scenario = if point_bonus {
+                let scenario = if festival {
+                    FixedTeamPtScenario::Festival {
+                        team_rank: 3,
+                        won: true,
+                    }
+                } else if point_bonus {
                     FixedTeamPtScenario::Solo {
                         event_type: EventType::Challenge,
                         point_bonus_basis_points: bonus,
@@ -2017,7 +2024,12 @@ mod tests {
                     expected = Some(candidate);
                 }
             }
-            let scenario = if point_bonus {
+            let scenario = if festival {
+                FixedTeamPtScenario::Festival {
+                    team_rank: 3,
+                    won: true,
+                }
+            } else if point_bonus {
                 FixedTeamPtScenario::Solo {
                     event_type: EventType::Challenge,
                     point_bonus_basis_points: 0,
@@ -2037,7 +2049,11 @@ mod tests {
                 PtMaximizeSearchScenario::FullTeam { scenario },
             )
             .unwrap();
-            assert_eq!(result, expected.unwrap(), "point_bonus={point_bonus}");
+            assert_eq!(
+                result,
+                expected.unwrap(),
+                "point_bonus={point_bonus}, festival={festival}"
+            );
         }
     }
 

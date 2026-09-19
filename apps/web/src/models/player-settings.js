@@ -76,8 +76,6 @@ export function createDefaultPtMaximizeConfig() {
     versusTeamRank: 0,
     festivalTeamRank: 0,
     festivalWon: true,
-    festivalTeammateMode: 'uniform',
-    festivalTeammateScores: Array(4).fill(4000000),
   };
 }
 
@@ -113,11 +111,6 @@ export function normalizePtMaximizeConfig(value = {}) {
     festivalWon: value?.festivalWon == null
       ? defaults.festivalWon
       : value.festivalWon === true,
-    festivalTeammateMode: normalizedTeammateMode(value?.festivalTeammateMode),
-    festivalTeammateScores: normalizeFourIntegers(
-      value?.festivalTeammateScores,
-      defaults.festivalTeammateScores[0],
-    ),
   };
 }
 
@@ -247,12 +240,6 @@ function normalizeTeammates(value) {
       ),
     };
   });
-}
-
-function normalizeFourIntegers(value, fallback) {
-  const source = Array.isArray(value) ? value : [];
-  return Array.from({ length: 4 }, (_, index) =>
-    nonNegativeIntegerOrDefault(source[index], fallback));
 }
 
 function normalizedTeammateMode(value) {

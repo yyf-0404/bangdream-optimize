@@ -26,7 +26,6 @@ const CHANGE_BINDINGS = [
   ['ptMaximizeSpecifiedLeader', 'handlePtMaximizeInputChange'],
   ['ptMaximizeTeammateMode', 'handlePtMaximizeInputChange'],
   ['ptMaximizeVersusRank', 'handlePtMaximizeInputChange'],
-  ['ptMaximizeFestivalTeammateMode', 'handlePtMaximizeInputChange'],
   ['ptMaximizeFestivalRank', 'handlePtMaximizeInputChange'],
   ['ptMaximizeFestivalWon', 'handlePtMaximizeInputChange'],
   ['ptEvaluateLiveVariant', 'handlePtEvaluateInputChange'],
@@ -183,7 +182,6 @@ export function createAppLifecycle({
       elements.ptMaximizeTeammateStats,
       elements.ptMaximizeTeammateScoreUps,
       elements.ptMaximizeTeammateDurations,
-      elements.ptMaximizeFestivalTeammateScores,
     ]) {
       for (const input of collection) {
         input.addEventListener('change', ptHandler);

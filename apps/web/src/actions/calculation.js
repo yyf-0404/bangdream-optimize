@@ -568,15 +568,7 @@ export function createCalculationActions({
     } else if (liveVariant === 'versus') {
       request.versus = { teamRank: form.versusTeamRank };
     } else if (liveVariant === 'festival') {
-      const scoreCount = form.festivalTeammateMode === 'uniform' ? 1 : 4;
-      const teammateScores = form.festivalTeammateScores.slice(0, scoreCount);
-      if (teammateScores.some((score) => score == null)) {
-        throw new Error('团队演出必须填写队友预计分数');
-      }
       request.festival = {
-        teammateScores: form.festivalTeammateMode === 'uniform'
-          ? teammateScores[0]
-          : teammateScores,
         teamRank: form.festivalTeamRank,
         won: form.festivalWon,
       };
@@ -602,12 +594,6 @@ export function createCalculationActions({
         { optional: true, strict },
       ),
     }));
-    const festivalTeammateScores = Array.from({ length: 4 }, (_, index) =>
-      readFormInteger(
-        elements.ptMaximizeFestivalTeammateScores[index],
-        `队友 ${index + 1} 预计分数`,
-        { optional: true, strict },
-      ));
     const liveVariant = selectedRadioValue(
       elements.ptMaximizeLiveVariant,
       ptMaximizeLiveVariant(config, eventType),
@@ -640,9 +626,6 @@ export function createCalculationActions({
       festivalTeamRank:
         Number(selectedRadioValue(elements.ptMaximizeFestivalRank, '0')) || 0,
       festivalWon: selectedRadioValue(elements.ptMaximizeFestivalWon, 'false') === 'true',
-      festivalTeammateMode:
-        selectedRadioValue(elements.ptMaximizeFestivalTeammateMode, 'uniform'),
-      festivalTeammateScores,
     };
   }
 
