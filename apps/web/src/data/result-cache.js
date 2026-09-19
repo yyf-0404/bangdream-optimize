@@ -8,6 +8,10 @@ const CACHE_SCHEMA_VERSION = 8;
 
 export const RESULT_CACHE_LIMIT = 20;
 
+export function resultCacheInvalidationReason(entry) {
+  return entry?.reusable === false ? '游戏数据已更新，需重新计算' : '';
+}
+
 export function createResultCacheStorage({ limit = RESULT_CACHE_LIMIT } = {}) {
   const resultCacheLimit = Number.isInteger(limit) && limit > 0 ? limit : RESULT_CACHE_LIMIT;
 
@@ -67,6 +71,7 @@ function normalizeEntry(entry) {
   const result = cloneJson(entry.result);
   return {
     cacheVersion: CACHE_SCHEMA_VERSION,
+    reusable: !resultCacheInvalidationReason(entry),
     profileId: String(entry.profileId),
     key,
     eventId: Number(entry.eventId) || 0,

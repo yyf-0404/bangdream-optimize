@@ -15,6 +15,7 @@ import { validatePtEvaluateTeamSelection } from '../models/pt-evaluate-validatio
 import {customCardPresentationKey} from '../models/custom-cards.js';
 import {equipmentAvailable} from '../domain/area.js';
 import {restrictEventCardPool} from '../models/event-card-pool.js';
+import {resultCacheInvalidationReason} from '../data/result-cache.js';
 
 export function createCalculationActions({
   state,
@@ -125,11 +126,13 @@ export function createCalculationActions({
     result,
     diagnostic,
     profileId = state.activePlayerProfileId,
+    reusable = true,
   }) {
     const cache = state.resultCache || [];
     const nextCache = cache.filter((entry) => entry.key !== cacheKey);
     nextCache.unshift({
       cacheVersion: RESULT_CACHE_KEY_VERSION,
+      reusable,
       profileId,
       key: cacheKey,
       eventLabel: eventLabel(eventId, player),
@@ -197,6 +200,7 @@ export function createCalculationActions({
     renderMetrics(result.metrics);
     state.lastDiagnostic = diagnostic;
     state.activeResultCacheKey = cacheKey;
+    updateResultStaleNotice();
     if (reveal) activatePage('result');
   }
 
@@ -234,6 +238,7 @@ export function createCalculationActions({
       return;
     }
     const requestProfileId = state.activePlayerProfileId;
+    const requestCacheGeneration = state.resultCacheGeneration ?? 0;
     const requestPage = getActivePage();
     const revealResult = () => !hasOpenDialog() && (getActivePage() === requestPage || getActivePage() === '#result');
     const requestPlayer = readPlayer();
@@ -272,7 +277,7 @@ export function createCalculationActions({
       const cacheKey = makeResultCacheKey(player, eventId, requestProfileId);
       state.activeResultCacheKey = cacheKey;
       const cached = getCachedResult(cacheKey);
-      if (cached && (!restriction || JSON.stringify(cached.diagnostic?.cardAvailability) === JSON.stringify(restriction))) {
+      if (cached && !resultCacheInvalidationReason(cached) && (!restriction || JSON.stringify(cached.diagnostic?.cardAvailability) === JSON.stringify(restriction))) {
         applyResult(cached.result, cached.diagnostic, cacheKey, requestProfileId, revealResult());
         renderResultCachePanel(cacheKey);
         setStatus('完成（缓存）');
@@ -342,6 +347,7 @@ export function createCalculationActions({
         result,
         diagnostic,
         profileId: requestProfileId,
+        reusable: requestCacheGeneration === (state.resultCacheGeneration ?? 0),
       });
       applyResult(result, diagnostic, cacheKey, requestProfileId, revealResult());
       setStatus(resultCacheSaved ? '完成' : '完成（结果缓存保存失败）');
@@ -1090,6 +1096,26 @@ export function createCalculationActions({
     }
   }
 
+  async function invalidateResultCache() {
+    // Keep snapshots for viewing, but never reuse scores after game data changes.
+    // Persist before the resource operation, so a failed write prevents mutation.
+    state.resultCacheGeneration = (state.resultCacheGeneration ?? 0) + 1;
+    state.resultCache = (state.resultCache || []).map(entry => ({...entry, reusable: false}));
+    await persistResultCacheState();
+    updateResultStaleNotice();
+  }
+
+  function updateResultStaleNotice() {
+    const notice = elements.resultSummary?.parentElement?.querySelector('.result-stale');
+    if (!notice) return;
+    const invalidated = resultCacheInvalidationReason(getCachedResult(state.activeResultCacheKey));
+    notice.hidden = !state.lastDiagnostic || (!invalidated && makeResultCacheKey(readPlayer(),readPlayer().currentEvent) === makeResultCacheKey(state.lastDiagnostic.sourcePlayer ?? state.lastDiagnostic.player,state.lastDiagnostic.eventId));
+    const text = notice.querySelector('span');
+    if (text) text.textContent = invalidated
+      ? `${invalidated}。当前展示历史计算结果。`
+      : '配置已更改，当前展示上次计算结果。';
+  }
+
   function syncProfileResult() {
     if (state.displayedResultProfileId !== state.activePlayerProfileId) {
       state.displayedResultProfileId = state.activePlayerProfileId;
@@ -1100,12 +1126,13 @@ export function createCalculationActions({
       renderMetrics(saved?.result?.metrics);
     }
     renderResultCachePanel();
-    const notice = elements.resultSummary?.parentElement?.querySelector('.result-stale');
-    if (notice) notice.hidden = !state.lastDiagnostic || makeResultCacheKey(readPlayer(),readPlayer().currentEvent) === makeResultCacheKey(state.lastDiagnostic.sourcePlayer ?? state.lastDiagnostic.player,state.lastDiagnostic.eventId);
+    updateResultStaleNotice();
   }
 
   return {
     syncProfileResult,
+    invalidateResultCache,
+    hasActiveCalculation: () => isCalculating,
     handleCalculate,
     handleSaveResultImage,
     handleExportDiagnostics,

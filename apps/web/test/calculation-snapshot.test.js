@@ -63,6 +63,42 @@ test('main band import validates player ID before requesting account data',async
  await assert.rejects(h.actions.loadMainBandDraft({playerId:0},0),/填写玩家 ID/);assert.equal(called,false);
 });
 
+test('invalidated history remains viewable but a new calculation bypasses its score',async()=>{
+ let calls=0;
+ const h=harness({calculate:async()=>({totalScore:++calls})});
+ await h.actions.handleCalculate({preventDefault(){}});
+ const saved=structuredClone(h.state.resultCache[0]);
+ await h.actions.handleCalculate({preventDefault(){}});
+ assert.equal(calls,1);
+ await h.actions.invalidateResultCache();
+ assert.equal(h.state.resultCache.length,1);
+ assert.equal(h.state.resultCache[0].reusable,false);
+ assert.deepEqual(h.state.resultCache[0].result,saved.result);
+ assert.deepEqual(h.state.resultCache[0].diagnostic,saved.diagnostic);
+ await h.actions.handleResultCacheAction({preventDefault(){},target:{closest:()=>({dataset:{resultCacheAction:'restore',resultCacheKey:saved.key}})}});
+ assert.equal(h.state.lastDiagnostic.result.totalScore,1);
+ await h.actions.handleCalculate({preventDefault(){}});
+ assert.equal(calls,2);
+ assert.equal(h.state.resultCache[0].reusable,true);
+ assert.deepEqual(h.errors,[]);
+});
+
+test('a calculation started before resource invalidation cannot repopulate reusable cache',async()=>{
+ const ready=gate(),entered=gate();let calls=0;
+ const h=harness({calculate:async()=>{calls++;entered.resolve();await ready.promise;return {totalScore:calls};}});
+ const run=h.actions.handleCalculate({preventDefault(){}});
+ await entered.promise;
+ assert.equal(h.actions.hasActiveCalculation(),true);
+ await h.actions.invalidateResultCache();
+ ready.resolve();await run;
+ assert.equal(h.actions.hasActiveCalculation(),false);
+ assert.equal(h.state.resultCache[0].reusable,false);
+ await h.actions.handleCalculate({preventDefault(){}});
+ assert.equal(calls,2);
+ assert.equal(h.state.resultCache[0].reusable,true);
+ assert.deepEqual(h.errors,[]);
+});
+
 test('every calculate entry stays busy and restores its own label after success or failure',async()=>{
  for(const fails of [false,true]){
   const buttons=['计算','重新计算','重新计算'].map(textContent=>({textContent,disabled:false,querySelector:()=>null,classList:{toggle(){}},setAttribute(name,value){this[name]=value;}}));

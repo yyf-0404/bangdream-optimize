@@ -14,6 +14,8 @@ export function createResourceActions({
   renderMetrics,
   renderResultCache,
   clearPersistedResultCache,
+  invalidateResultCache,
+  hasActiveCalculation = () => false,
   ensureCore,
   setStatus,
   setError,
@@ -28,22 +30,14 @@ export function createResourceActions({
 
   async function handleClearGameCache() {
     try {
+      await invalidateResultCache();
       await state.runtime.clearGameCache();
-      await clearPersistedCache();
       state.core = null;
-      state.resultCache = [];
-      state.activeResultCacheKey = null;
-      state.lastDiagnostic = null;
-      if (typeof renderResultCache === 'function') {
-        renderResultCache(state.resultCache, { activeKey: state.activeResultCacheKey });
-      }
-      renderResultSummary(null);
-      renderMetrics(null);
       await ensureCore({ refreshManifest: true });
       renderReferenceOptions();
       renderConfigForms(readPlayer());
       elements.log.textContent = '';
-      setStatus('游戏缓存已清空');
+      setStatus('游戏缓存已清空，玩家档案与计算历史已保留');
     } catch (error) {
       setError(error);
     }
@@ -55,7 +49,7 @@ export function createResourceActions({
         title: '拉取全量资源',
         lines: [
           '将从 Bestdori 拉取全量游戏资源。',
-          '这个过程可能耗时较长，并会清空当前结果缓存。',
+          '这个过程可能耗时较长。计算历史会保留，新计算使用更新后的游戏数据。',
         ],
         confirmText: '开始拉取',
       });
@@ -63,19 +57,13 @@ export function createResourceActions({
         return;
       }
       setStatus('拉取全量资源');
+      await invalidateResultCache();
       await state.runtime.syncAllGameData();
-      await clearPersistedCache();
       state.core = null;
-      state.resultCache = [];
-      state.activeResultCacheKey = null;
-      state.lastDiagnostic = null;
-      if (typeof renderResultCache === 'function') {
-        renderResultCache(state.resultCache, { activeKey: state.activeResultCacheKey });
-      }
-      renderResultSummary(null);
-      renderMetrics(null);
       await ensureCore({ refreshManifest: true });
-      setStatus('全量资源已拉取');
+      renderReferenceOptions();
+      renderConfigForms(readPlayer());
+      setStatus('全量资源已拉取，计算历史已保留');
     } catch (error) {
       setError(error);
     }
@@ -84,19 +72,13 @@ export function createResourceActions({
   async function handleRefreshCoreGameData() {
     try {
       setStatus('刷新核心资源');
+      await invalidateResultCache();
       await state.runtime.refreshCoreGameData();
-      await clearPersistedCache();
       state.core = null;
-      state.resultCache = [];
-      state.activeResultCacheKey = null;
-      state.lastDiagnostic = null;
-      if (typeof renderResultCache === 'function') {
-        renderResultCache(state.resultCache, { activeKey: state.activeResultCacheKey });
-      }
-      renderResultSummary(null);
-      renderMetrics(null);
       await ensureCore({ refreshManifest: true });
-      setStatus('核心资源已刷新');
+      renderReferenceOptions();
+      renderConfigForms(readPlayer());
+      setStatus('核心资源已刷新，计算历史已保留');
     } catch (error) {
       setError(error);
     }
@@ -104,11 +86,13 @@ export function createResourceActions({
 
   async function handleClearLocalCache() {
     try {
+      if (hasActiveCalculation()) throw new Error('计算仍在进行，请等待完成后再清空玩家档案缓存。');
       const confirmed = await confirmDialog({
-        title: '清空本地缓存',
+        title: '清空玩家档案与计算历史',
         lines: [
-          '将清空本地用户配置缓存。',
+          '将删除本地全部玩家档案和计算历史。',
           '请确认当前所有用户配置已导出备份。',
+          '档案导出文件不包含计算历史，需要保留的结果请先保存图片或导出诊断。',
           '当前页面会重新加载默认配置和配置列表。',
         ],
         confirmText: '确认清空',
@@ -117,8 +101,18 @@ export function createResourceActions({
       if (!confirmed) {
         return;
       }
+      if (hasActiveCalculation()) throw new Error('计算仍在进行，请等待完成后再清空玩家档案缓存。');
       await cancelPendingSave();
       await state.runtime.clearLocalCache();
+      await clearPersistedCache();
+      state.resultCache = [];
+      state.profileDiagnostics = {};
+      state.activeResultCacheKey = null;
+      state.lastDiagnostic = null;
+      if (elements.result) elements.result.textContent = '';
+      renderResultCache?.([], {activeKey: null});
+      renderResultSummary(null);
+      renderMetrics(null);
       const loadedPlayer = await state.runtime.loadPlayerConfig();
       const {
         player,
@@ -130,7 +124,7 @@ export function createResourceActions({
         await state.runtime.savePlayerConfig(readPlayer());
       }
       renderConfigForms(player);
-      setStatus('本地缓存已清空');
+      setStatus('玩家档案与计算历史已清空');
     } catch (error) {
       setError(error);
     }

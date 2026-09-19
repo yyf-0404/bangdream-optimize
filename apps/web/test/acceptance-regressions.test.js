@@ -64,6 +64,6 @@ test('song covers include server-specific jackets with deduplicated bucket fallb
 
 test('clearing game cache reloads core before repainting while keeping the player archive',async()=>{
  const steps=[],player={cardList:{1:{skillLevel:5}}},state={core:{old:true},resultCache:[],runtime:{clearGameCache:async()=>steps.push('clear')}};
- const actions=createResourceActions({state,elements:{log:{}},clearPersistedResultCache:async()=>{},ensureCore:async()=>{steps.push('load');state.core={ready:true};},renderResultCache:()=>{},renderResultSummary:()=>{},renderMetrics:()=>{},renderReferenceOptions:()=>{assert.equal(state.core.ready,true);steps.push('render');},readPlayer:()=>player,renderConfigForms:p=>assert.equal(p,player),setStatus:()=>{},setError:e=>{throw e;}});
+ const actions=createResourceActions({state,elements:{log:{}},invalidateResultCache:async()=>{},ensureCore:async()=>{steps.push('load');state.core={ready:true};},renderResultCache:()=>{},renderResultSummary:()=>{},renderMetrics:()=>{},renderReferenceOptions:()=>{assert.equal(state.core.ready,true);steps.push('render');},readPlayer:()=>player,renderConfigForms:p=>assert.equal(p,player),setStatus:()=>{},setError:e=>{throw e;}});
  await actions.handleClearGameCache();assert.deepEqual(steps,['clear','load','render']);assert.equal(player.cardList[1].skillLevel,5);
 });

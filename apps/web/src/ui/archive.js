@@ -102,7 +102,7 @@ export function createArchiveUI({state,elements,readPlayer,writePlayer,refreshPr
   const resourceRow=(parent,title,description,button,cls='')=>{const row=el('div','resource-row '+cls),copy=el('div');copy.append(el('h3','',title),el('p','',description));row.append(copy);if(button){button.classList.add('text-button');row.append(button);}parent.append(row);return copy;};
   const coreInfo=resourceRow(block,'游戏数据','卡牌、角色、区域道具、活动和歌曲资料。',elements.refreshCoreGameData);coreInfo.querySelector('p').className='archive-resource-description';const kinds=el('div','archive-resource-kinds'),meta=el('div','resource-meta');meta.innerHTML='<span class="status" role="status"></span><span>来源：Bestdori</span>';coreInfo.append(kinds,meta);
   resourceRow(block,'全量资源','预先拉取完整游戏资源，完成后重新构建计算数据。',elements.syncAllGameData,'desktop-resource');
-  const risk=el('details','risk-details');risk.innerHTML='<summary>缓存与清理</summary>';resourceRow(risk,'游戏数据缓存','清理游戏数据与计算历史后重新加载游戏数据，保留玩家档案。',elements.clearGameCache);resourceRow(risk,'玩家档案缓存','删除本地全部玩家档案并恢复默认档案，请先导出备份。',elements.clearLocalCache,'desktop-resource');block.append(risk);
+  const risk=el('details','risk-details');risk.innerHTML='<summary>缓存与清理</summary>';resourceRow(risk,'游戏数据缓存','重新加载游戏数据，保留玩家档案与计算历史；新计算不复用旧数据的结果。',elements.clearGameCache);resourceRow(risk,'玩家档案缓存','删除本地全部玩家档案和计算历史，并恢复默认档案。请先导出档案及需要保留的结果。',elements.clearLocalCache,'desktop-resource');block.append(risk);
   const download=elements.openDesktopDownloads;
   download.className='side-help side-download';
   download.innerHTML=icon('M12 3v12m-4-4 4 4 4-4M4 15v6h16v-6')+'<span>下载桌面端</span><span class="help-arrow">'+designIcon('chevron')+'</span>';

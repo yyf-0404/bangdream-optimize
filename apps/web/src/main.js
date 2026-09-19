@@ -540,6 +540,8 @@ const resourceActions = createResourceActions({
   renderMetrics: deferred.renderMetrics,
   renderResultCache: deferred.renderResultCache,
   clearPersistedResultCache: resultCacheStorage.clearResultCache,
+  invalidateResultCache: calculationActions.invalidateResultCache,
+  hasActiveCalculation: calculationActions.hasActiveCalculation,
   ensureCore: deferred.ensureCore,
   setStatus: status.setStatus,
   setError: status.setError,

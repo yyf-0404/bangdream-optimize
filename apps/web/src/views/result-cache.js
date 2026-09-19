@@ -1,5 +1,6 @@
 import { emptyMessage } from '../ui/dom.js?v=3';
 import {serverNames} from '../ui/cards/rules.js';
+import {resultCacheInvalidationReason} from '../data/result-cache.js';
 import {
   compactJoin,
   formatDateTime,
@@ -67,6 +68,8 @@ export function createResultCacheView({ elements, eventLabel }) {
       const time = document.createElement('p');
       time.className = 'result-cache-time';
       time.textContent = formatDateTime(entry.createdAt);
+      const invalidated = resultCacheInvalidationReason(entry);
+      if (invalidated) time.textContent += ` · ${invalidated}`;
 
       const actions = document.createElement('div');
       actions.className = 'result-cache-actions';
