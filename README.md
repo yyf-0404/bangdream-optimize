@@ -6,7 +6,7 @@
 - 后端：HTTP API 服务（`apps/server`）
 - 网页端：静态前端（`apps/web`）
 
-说明：网页端与后端不走额外打包流程，仅需克隆仓库后运行脚本即可启动。
+说明：网页端不依赖 Node 打包工具，克隆仓库后通过脚本构建和启动；生产发布会自动生成带资源版本的静态目录。
 
 默认本地启动方式：
 
@@ -45,7 +45,7 @@ Windows 桌面端一键打包并通过 SSH 上传下载目录：先运行
 - `docs/systemd/bangdream-optimize-backend.env.example`（后端 systemd 环境变量示例）
 
 `docs/nginx-reverse-proxy.conf` 示例已包含：
-- `apps/web` 的静态托管
+- `apps/web` 生成的 `target/web-dist` 静态产物托管
 - `/game-data/` 的后端反向代理
 - `/bestdori/player/` 的同源 API 反向代理
 - `/bestdori/header/` 的活动头图 PNG 通道（轻量纹理补全）

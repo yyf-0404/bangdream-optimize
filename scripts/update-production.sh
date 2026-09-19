@@ -140,6 +140,7 @@ require_command rsync
 require_command curl
 require_command systemctl
 require_command nginx
+require_command python3
 
 if [[ $EUID -eq 0 ]]; then
   SUDO=()
@@ -204,7 +205,7 @@ done
 
 log "Deploying frontend to $WEB_ROOT"
 "${SUDO[@]}" install -d -m 0755 "$WEB_ROOT"
-"${SUDO[@]}" rsync -a --delete apps/web/ "$WEB_ROOT/"
+"${SUDO[@]}" rsync -a --delete --delay-updates "${BANGDREAM_OPTIMIZE_WEB_BUILD_DIR:-target/web-dist}/" "$WEB_ROOT/"
 
 log "Validating Nginx configuration"
 "${SUDO[@]}" nginx -t

@@ -116,9 +116,32 @@ cd /opt/bangdream-optimize
 ./scripts/build-web-assets.sh
 ```
 
-`build-web-assets.sh` 会构建 WASM，并将 `apps/web/` 全量部署到
+`build-web-assets.sh` 会构建 WASM，用 Python 3 从 `apps/web/` 生成
+`target/web-dist/`，再将生成目录全量部署到
 `BANGDREAM_OPTIMIZE_WEB_ROOT`（默认 `/var/www/bangdream-optimize/web`）。
 生产部署不需要 `--no-deploy`。
+
+生成目录里的 HTML、JS 模块（含深层依赖与动态导入）、CSS 导入、Worker
+和 WASM 使用同一个内容摘要作为 `rev` 参数。任一源码或 WASM 更新都会改变
+整套引用地址，不依赖手动维护 `?v=3` 等版本号，也不会修改开发/桌面使用的源码。
+`--no-deploy` 同样生成该目录，`update-production.sh` 也发布这个目录。
+不要在构建后再用原始 `apps/web/` 覆盖发布目录。
+
+仅重新准备前端发布文件（已有 `apps/web/pkg`，不重编 Rust）：
+
+```bash
+python3 scripts/prepare-web-release.py
+sudo rsync -a --delete --delay-updates target/web-dist/ /var/www/bangdream-optimize/web/
+```
+
+已有 Nginx 站点还需要在实际生效的 HTTPS `server` 块中合并示例的
+`/index.html`、`/src/`、`/pkg/` 与 `/` 缓存规则，再执行 `sudo nginx -t`
+和 `sudo systemctl reload nginx`。`no-cache` 允许缓存，但每次使用前要校验
+ETag/修改时间；不要给入口 HTML 配长期强缓存。更新脚本不会覆盖现有域名、
+证书或 Nginx 配置。CDN 若额外缓存 HTML，也需遵守该响应头。
+
+首次修复前若旧入口已被浏览器缓存，需要强制刷新一次（Ctrl+Shift+R）。
+这与 IndexedDB 中的用户档案/游戏数据无关，不需要清除档案或网站数据。
 
 8. 安装 Nginx 配置
 

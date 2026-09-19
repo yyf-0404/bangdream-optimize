@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 
 DEPLOY_WEB_ROOT="${BANGDREAM_OPTIMIZE_WEB_ROOT:-/var/www/bangdream-optimize/web}"
 WEB_SOURCE_DIR="${BANGDREAM_OPTIMIZE_WEB_SOURCE_DIR:-apps/web}"
+WEB_BUILD_DIR="${BANGDREAM_OPTIMIZE_WEB_BUILD_DIR:-target/web-dist}"
 NO_DEPLOY=0
 
 usage() {
@@ -20,6 +21,7 @@ Options:
 Environment variables:
   BANGDREAM_OPTIMIZE_WEB_ROOT         Destination web root (default: /var/www/bangdream-optimize/web).
   BANGDREAM_OPTIMIZE_WEB_SOURCE_DIR    Source web dir to deploy (default: apps/web).
+  BANGDREAM_OPTIMIZE_WEB_BUILD_DIR     Generated, versioned web dir (default: target/web-dist).
 USAGE
 }
 
@@ -41,6 +43,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+command -v python3 >/dev/null 2>&1 || { echo "python3 is required to version web assets" >&2; exit 1; }
 if ! command -v wasm-bindgen >/dev/null 2>&1; then
   echo "wasm-bindgen is not installed." >&2
   echo "Install it with: cargo install wasm-bindgen-cli" >&2
@@ -56,15 +59,17 @@ wasm-bindgen \
   --out-dir apps/web/pkg \
   --out-name bangdream_optimize_web_wasm
 
+python3 scripts/prepare-web-release.py --source "$WEB_SOURCE_DIR" --output "$WEB_BUILD_DIR"
+
 if [[ "$NO_DEPLOY" -eq 1 ]]; then
   echo "build completed; skip deploy (--no-deploy enabled)"
 else
   mkdir -p "$DEPLOY_WEB_ROOT"
   if command -v rsync >/dev/null 2>&1; then
-    rsync -a --delete "$WEB_SOURCE_DIR/" "$DEPLOY_WEB_ROOT/"
+    rsync -a --delete --delay-updates "$WEB_BUILD_DIR/" "$DEPLOY_WEB_ROOT/"
   else
-    cp -a "$WEB_SOURCE_DIR/." "$DEPLOY_WEB_ROOT/"
+    cp -a "$WEB_BUILD_DIR/." "$DEPLOY_WEB_ROOT/"
     echo "warning: rsync not found; using cp fallback without automatic deletion of removed files" >&2
   fi
-  echo "deployed $WEB_SOURCE_DIR to $DEPLOY_WEB_ROOT"
+  echo "deployed $WEB_BUILD_DIR to $DEPLOY_WEB_ROOT"
 fi

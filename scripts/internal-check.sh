@@ -21,6 +21,7 @@ else
   exit 1
 fi
 "${PYTHON[@]}" -m py_compile scripts/serve-web.py
+"${PYTHON[@]}" scripts/test-prepare-web-release.py
 
 node --check apps/web/src/main.js
 node --check apps/web/src/actions/feedback.js
