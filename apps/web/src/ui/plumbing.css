@@ -209,3 +209,4 @@ body{overflow-x:clip}
 :is(#archive-design,#archive-dialog-host) #import-form [aria-invalid=true]{border-color:#bf3d63;outline-color:#bf3d63}
 :is(#archive-design,#archive-dialog-host) .import-summary:has(.cn-account-identity){flex-wrap:wrap;gap:8px 10px}
 :is(#archive-design,#archive-dialog-host) .cn-account-identity{flex-basis:100%;font-size:12px;line-height:1.6;font-weight:400;color:#756b7c;overflow-wrap:anywhere}
+#result-design .result-team-placement-note{margin:6px 0 10px;color:var(--muted);font-size:12px;line-height:1.6}

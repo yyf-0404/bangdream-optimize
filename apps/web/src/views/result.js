@@ -689,21 +689,26 @@ function renderScoreRangeTeam(cardIds, deps) {
   const title = document.createElement('div');
   title.className = 'result-item result-skill-order-title';
   const label = document.createElement('span');
-  label.textContent = '队伍';
+  label.textContent = '队伍摆放顺序';
   title.append(label);
+  const note = document.createElement('p');
+  note.className = 'result-team-placement-note';
+  note.textContent = '请按从左到右的顺序配置队伍。换位可能改变得分，影响控分结果。';
   const preview = document.createElement('div');
-  preview.className = 'result-skill-preview';
+  preview.className = 'result-skill-preview team-grid is-display-order';
   for (const [index, cardId] of (cardIds ?? []).entries()) {
-    preview.append(resultSkillCard(cardId, {
+    const card = resultSkillCard(cardId, {
       isCaptain: false,
       orderIndex: index,
       teamCardIds: cardIds,
-    }, deps));
+    }, deps);
+    card.querySelector('.cp-order')?.setAttribute('aria-label', `摆放位置 ${index + 1}`);
+    preview.append(card);
   }
   if (!preview.childElementCount) {
     preview.append(emptyMessage('没有队伍卡片', 'card-preview-empty'));
   }
-  section.append(title, preview);
+  section.append(title, note, preview);
   return section;
 }
 

@@ -15,7 +15,7 @@ import { validatePtEvaluateTeamSelection } from '../models/pt-evaluate-validatio
 import {customCardPresentationKey} from '../models/custom-cards.js';
 import {equipmentAvailable} from '../domain/area.js';
 import {restrictEventCardPool} from '../models/event-card-pool.js';
-import {resultCacheInvalidationReason} from '../data/result-cache.js';
+import {resultCacheInvalidationReason, SCORING_REVISION} from '../data/result-cache.js';
 
 export function createCalculationActions({
   state,
@@ -54,7 +54,7 @@ export function createCalculationActions({
   clearPersistedResultCache,
   yieldForPaint = yieldToBrowserPaint,
 }) {
-  const RESULT_CACHE_KEY_VERSION = 8;
+  const RESULT_CACHE_KEY_VERSION = 9;
   const calculateButton = elements.calculateButton;
   const calculateButtons = Array.from(elements.calculateButtons || []);
   const calculateButtonLabel = calculateButton?.querySelector('.button-label');
@@ -87,6 +87,7 @@ export function createCalculationActions({
     player = normalizedPlayer(player);
     const serialized = cloneJson({
       cacheVersion: RESULT_CACHE_KEY_VERSION,
+      scoringRevision: SCORING_REVISION,
       profileId,
       skillShuffleModel: 'cn-9.4.2',
       server: player.server,
@@ -132,6 +133,7 @@ export function createCalculationActions({
     const nextCache = cache.filter((entry) => entry.key !== cacheKey);
     nextCache.unshift({
       cacheVersion: RESULT_CACHE_KEY_VERSION,
+      scoringRevision: result?.scoringRevision ?? result?.[0]?.scoringRevision,
       reusable,
       profileId,
       key: cacheKey,
@@ -148,6 +150,7 @@ export function createCalculationActions({
       totalStat: safeNumber(
         result?.totalStat
           ?? result?.team?.totalStat
+          ?? result?.medley?.totalStat
           ?? result?.medley?.teams?.reduce((sum, team) => sum + Number(team.totalStat || 0), 0)
           ?? result?.[0]?.totalStat,
       ),

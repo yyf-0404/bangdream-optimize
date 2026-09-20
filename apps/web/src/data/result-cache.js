@@ -1,10 +1,11 @@
+export const SCORING_REVISION = 'cn-9.4.4-f32-v1';
 import { totalFireCost } from '../utils.js?v=3';
 
 const DB_NAME = 'bangdream-optimize-result-cache-v1';
 const DB_VERSION = 1;
 const STORE = 'result-cache';
 const CACHE_KEY = 'entries';
-const CACHE_SCHEMA_VERSION = 8;
+const CACHE_SCHEMA_VERSION = 9;
 
 export const RESULT_CACHE_LIMIT = 20;
 
@@ -18,6 +19,9 @@ export function resultCacheInvalidationReason(entry) {
   if (festivalInputs.some(input => input && Object.hasOwn(input, 'teammateScores'))) {
     return '5v5 PT 计算已修正，需重新计算';
   }
+  if (entry && (entry.scoringRevision ?? entry.result?.scoringRevision ?? entry.result?.[0]?.scoringRevision) !== SCORING_REVISION) {
+    return '此历史结果使用旧版计分规则，需重新计算';
+  }
   return entry?.reusable === false ? '游戏数据已更新，需重新计算' : '';
 }
 
@@ -28,7 +32,7 @@ export function createResultCacheStorage({ limit = RESULT_CACHE_LIMIT } = {}) {
     const db = await openDatabase();
     const result = await getValue(db, CACHE_KEY);
     const normalized = boundedEntries(result);
-    // One-time removal of old result formats only; player storage is a separate database.
+    // Preserve supported history and its original scoring revision; only malformed entries are removed.
     if (Array.isArray(result) && normalized.length !== result.length) await putValue(db, CACHE_KEY, normalized);
     return normalized;
   }
@@ -71,7 +75,7 @@ function normalizeEntry(entry) {
   }
   const key = String(entry.key || '').trim();
   const cacheVersion = Number(entry.cacheVersion);
-  if (!key || (![7, CACHE_SCHEMA_VERSION].includes(cacheVersion) || !entry.profileId)) {
+  if (!key || (![7, 8, CACHE_SCHEMA_VERSION].includes(cacheVersion) || !entry.profileId)) {
     return undefined;
   }
   const calculationMode = ['scoreRange', 'ptMaximize', 'ptEvaluate'].includes(entry.calculationMode)
@@ -79,7 +83,8 @@ function normalizeEntry(entry) {
     : 'maximize';
   const result = cloneJson(entry.result);
   return {
-    cacheVersion: CACHE_SCHEMA_VERSION,
+    cacheVersion,
+    scoringRevision: entry.scoringRevision ?? result?.scoringRevision ?? result?.[0]?.scoringRevision,
     reusable: !resultCacheInvalidationReason(entry),
     profileId: String(entry.profileId),
     key,

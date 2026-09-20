@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {normalizePtMaximizeConfig} from '../src/models/player-settings.js';
 import {calculationMarkup} from '../src/ui/approved/calculation-template.js';
-import {createResultCacheStorage, resultCacheInvalidationReason} from '../src/data/result-cache.js';
+import {createResultCacheStorage, resultCacheInvalidationReason, SCORING_REVISION} from '../src/data/result-cache.js';
 
 test('imported festival settings retain rank and victory while dropping obsolete score inputs',()=>{
   const ptMaximize=normalizePtMaximizeConfig({festivalTeamRank:3,festivalWon:false,festivalTeammateMode:'individual',festivalTeammateScores:[null,-1,9000000,0]});
@@ -25,7 +25,7 @@ test('imported festival settings retain rank and victory while dropping obsolete
 test('legacy 5v5 history survives storage migration but cannot be reused; corrected and solo results can',async t=>{
   const previous=globalThis.indexedDB;
   t.after(()=>{if(previous===undefined)delete globalThis.indexedDB;else globalThis.indexedDB=previous;});
-  const base={cacheVersion:8,profileId:'A',calculationMode:'ptMaximize'};
+  const base={cacheVersion:9,scoringRevision:SCORING_REVISION,profileId:'A',calculationMode:'ptMaximize'};
   let value=[
     {...base,key:'legacy-summary',result:{liveVariant:'festival',scenario:{festival:{teammateScores:0,teamRank:0,won:true}}}},
     {...base,key:'legacy-request',diagnostic:{calculationRequest:{festival:{teammateScores:[100,200,300,400]}}}},

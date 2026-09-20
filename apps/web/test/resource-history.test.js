@@ -94,11 +94,38 @@ test('0.4.3 schema-8 history loads intact, and invalidation survives a storage r
   const storage=createResultCacheStorage();
   const loaded=await storage.loadResultCache();
   assert.equal(loaded.length,2);
-  assert.ok(loaded.every(entry=>entry.reusable));
+  assert.ok(loaded.every(entry=>entry.reusable===false));
+  assert.ok(loaded.every(entry=>entry.cacheVersion===8));
   assert.deepEqual(loaded.find(entry=>entry.profileId==='A').result,entries()[0].result);
   await storage.saveResultCache(loaded.map(entry=>({...entry,reusable:false})));
   const reloaded=await storage.loadResultCache();
   assert.equal(reloaded.length,2);
   assert.ok(reloaded.every(entry=>entry.reusable===false));
   assert.deepEqual(reloaded.map(entry=>entry.result),loaded.map(entry=>entry.result));
+});
+
+
+test('native history keeps its rule marker while old or stale-engine results stay readable', async t => {
+  const { SCORING_REVISION, resultCacheInvalidationReason } = await import('../src/data/result-cache.js');
+  const previous = globalThis.indexedDB;
+  t.after(() => { if (previous === undefined) delete globalThis.indexedDB; else globalThis.indexedDB = previous; });
+  const current = {...entries()[0], key: 'native', cacheVersion: 9, result: {totalScore: 12345, scoringRevision: SCORING_REVISION}};
+  const old = {...entries()[0], key: 'old', cacheVersion: 8};
+  const stale = {...entries()[0], key: 'stale-wasm', cacheVersion: 9};
+  let value = [current, old, stale];
+  const request = result => { const r = {result}; queueMicrotask(() => r.onsuccess()); return r; };
+  const store = {get: () => request(structuredClone(value)), put: next => {value = structuredClone(next); return request();}};
+  globalThis.indexedDB = {open: () => request({transaction: () => ({objectStore: () => store})})};
+  const storage = createResultCacheStorage();
+  const loaded = await storage.loadResultCache();
+  assert.equal(loaded.length, 3);
+  assert.equal(loaded.find(e => e.key === 'native').reusable, true);
+  for (const key of ['old', 'stale-wasm']) {
+    const entry = loaded.find(e => e.key === key);
+    assert.equal(entry.reusable, false);
+    assert.match(resultCacheInvalidationReason(entry), /旧版计分规则/);
+    assert.deepEqual(entry.result, old.result);
+  }
+  await storage.saveResultCache(loaded);
+  assert.deepEqual((await storage.loadResultCache()).map(e => e.result), loaded.map(e => e.result));
 });

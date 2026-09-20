@@ -1,4 +1,4 @@
-const ASSET_VERSION = '8';
+const ASSET_VERSION = 'native-f32-6';
 
 let wasmPromise = null;
 
