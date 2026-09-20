@@ -19,6 +19,7 @@ pub(crate) enum SingleCardRole {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ResolvedSingleCard {
+    pub(crate) power: crate::scoring::MemberPower,
     pub(crate) card_id: u32,
     pub(crate) character_id: u32,
     pub(crate) stat: f64,
@@ -52,6 +53,12 @@ pub(crate) fn resolve_card(
         mode.resolve_skill(card)?
     };
     Ok(ResolvedSingleCard {
+        power: card.member_power(
+            area_item_percent,
+            &selected_items.band,
+            &selected_items.attribute,
+            selected_items.magazine.as_str(),
+        ),
         card_id: card.card_id,
         character_id: card.character_id,
         stat: card.add_up_stat(
@@ -176,9 +183,10 @@ fn filler_pruned_card_indices(
                 let other_bonus = replacement_values
                     .map(|values| values[other_index])
                     .unwrap_or_default();
-                card_stats[other_index] >= card_stats[candidate_index]
+                card_stats[other_index].componentwise_dominates(card_stats[candidate_index])
                     && other_bonus >= candidate_bonus
-                    && (card_stats[other_index] > card_stats[candidate_index]
+                    && (card_stats[other_index].linear_total()
+                        > card_stats[candidate_index].linear_total()
                         || other_bonus > candidate_bonus
                         || cards[other_index].card_id < cards[candidate_index].card_id)
             });

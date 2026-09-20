@@ -37,11 +37,11 @@ use crate::medley::disjoint_bound;
 
 #[derive(Debug, Clone)]
 struct MedleyCandidate {
+    power: crate::scoring::TeamPower,
     raw_indices: [usize; TEAM_SIZE],
     mask_words: Vec<u64>,
     card_ids: Vec<u32>,
     skills: [TeamCardSkill; TEAM_SIZE],
-    stat: i32,
     mean_numerators: [i64; SONG_COUNT],
 }
 
@@ -182,6 +182,7 @@ fn search_medley_for_items_seeded(
     selected_items: &SelectedAreaItems,
     metrics: &mut PtMaximizeMedleyMetrics,
 ) -> Result<EvaluatedPlan, PtMaximizeError> {
+    let initial_seed_start = Timer::start();
     let options = TeamGenerationOptions::default();
     let seed_raw_indices = seed_medley_raw_team_indices_for_items(
         cards,
@@ -196,8 +197,8 @@ fn search_medley_for_items_seeded(
     let mut seed_scratch = ExactScoreScratch::default();
     let seed_candidates = seed_raw_indices
         .map(|indices| {
-            let stat = crate::floor_team_stat(indices.iter().map(|&idx| card_stats[idx]));
-            mean_candidate_from_indices(cards, charts, indices, stat, &mut seed_scratch)
+            let power = crate::scoring::TeamPower::Members(indices.map(|idx| card_stats[idx]));
+            mean_candidate_from_indices(cards, charts, indices, power, &mut seed_scratch)
         })
         .transpose_array()?;
     let initial_seed_mean = (0..SONG_COUNT)
@@ -209,6 +210,12 @@ fn search_medley_for_items_seeded(
         / SHUFFLE_PATH_COUNT as i64)
         .saturating_sub(1)
         .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
+
+    let initial_seed_ms = initial_seed_start.elapsed_ms();
+    metrics.seed_ms += initial_seed_ms;
+    if trace_enabled() {
+        eprintln!("PT medley initial seed: elapsed_ms={initial_seed_ms:.3}");
+    }
 
     let raw_start = Timer::start();
     let mut raw = match build_raw_team_candidates_with_fixed_score_floor(
@@ -238,7 +245,7 @@ fn search_medley_for_items_seeded(
     }
     let raw_ms = raw_start.elapsed_ms();
     let mean_start = Timer::start();
-    let mut candidates = build_mean_candidates(cards, charts, raw)?;
+    let mut candidates = build_mean_candidates(cards, charts, &card_stats, raw)?;
     let mean_ms = mean_start.elapsed_ms();
     metrics.candidate_build_ms += raw_ms + mean_ms;
 
@@ -460,7 +467,8 @@ fn search_medley_for_items_above(
     }
 
     let mean_start = Timer::start();
-    let mut candidates = build_mean_candidates(cards, charts, raw)?;
+    let card_stats = adjusted_card_stats(cards, area_item_percent, selected_items);
+    let mut candidates = build_mean_candidates(cards, charts, &card_stats, raw)?;
     let mean_ms = mean_start.elapsed_ms();
     metrics.candidate_build_ms += raw_ms + mean_ms;
     let candidate_count = candidates.len();
@@ -727,13 +735,15 @@ fn trace_enabled() -> bool {
 fn build_mean_candidates(
     cards: &[PreparedCard],
     charts: &[Chart],
+    card_stats: &[crate::scoring::MemberPower],
     raw_candidates: Vec<RawTeamCandidate>,
 ) -> Result<Vec<MedleyCandidate>, PtMaximizeError> {
     let mut scratch = ExactScoreScratch::compressed();
     raw_candidates
         .into_iter()
         .map(|raw| {
-            mean_candidate_from_indices(cards, charts, raw.raw_indices, raw.stat, &mut scratch)
+            let power = crate::scoring::TeamPower::Members(raw.raw_indices.map(|i| card_stats[i]));
+            mean_candidate_from_indices(cards, charts, raw.raw_indices, power, &mut scratch)
         })
         .collect()
 }
@@ -742,7 +752,7 @@ fn mean_candidate_from_indices(
     cards: &[PreparedCard],
     charts: &[Chart],
     raw_indices: [usize; TEAM_SIZE],
-    stat: i32,
+    power: crate::scoring::TeamPower,
     scratch: &mut ExactScoreScratch,
 ) -> Result<MedleyCandidate, PtMaximizeError> {
     let selected = raw_indices.map(|idx| &cards[idx]);
@@ -751,8 +761,9 @@ fn mean_candidate_from_indices(
         .map(|card| mode.resolve_skill(card))
         .transpose_array()?;
     let mut mean_numerators = [0; SONG_COUNT];
+    let groups = power.groups_for_charts(charts, true);
     for song in 0..SONG_COUNT {
-        mean_numerators[song] = best_mean_numerator(&charts[song], &skills, stat, scratch)?;
+        mean_numerators[song] = best_mean_numerator(&charts[song], &skills, &groups, scratch)?;
     }
     let mut card_ids = selected.map(|card| card.card_id).to_vec();
     card_ids.sort_unstable();
@@ -761,7 +772,7 @@ fn mean_candidate_from_indices(
         mask_words: Vec::new(),
         card_ids,
         skills,
-        stat,
+        power,
         mean_numerators,
     })
 }
@@ -827,17 +838,58 @@ fn selected_team_mode(cards: &[&PreparedCard; TEAM_SIZE]) -> SongMode {
 fn best_mean_numerator(
     chart: &Chart,
     skills: &[TeamCardSkill; TEAM_SIZE],
-    stat: i32,
+    groups: &[crate::scoring::TeamPowerGroup],
     scratch: &mut ExactScoreScratch,
 ) -> Result<i64, PtMaximizeError> {
-    if let Some(matrix) = chart.independent_skill_score_matrix(skills, stat, true, scratch)? {
-        return Ok(skill_shuffle::matrix_best_mean_numerator(&matrix));
+    let mut best = i64::MIN;
+    for group in groups {
+        if let Some(matrix) =
+            chart.independent_skill_score_matrix(skills, group.power, true, scratch)?
+        {
+            let marginal = &skill_shuffle::tables().slot_activation_counts;
+            let values: [[i64; 5]; 5] = std::array::from_fn(|slot| {
+                std::array::from_fn(|card| {
+                    (0..5)
+                        .map(|p| i64::from(marginal[slot][p]) * i64::from(matrix.deltas[card][p]))
+                        .sum::<i64>()
+                        + if slot == 2 {
+                            1024 * i64::from(matrix.deltas[card][5])
+                        } else {
+                            0
+                        }
+                })
+            });
+            for &index in group.layouts.iter() {
+                let layout = &skill_shuffle::tables().layouts[index];
+                best = best.max(
+                    1024 * i64::from(matrix.base_score)
+                        + (0..5)
+                            .map(|slot| values[slot][layout.cards[slot]])
+                            .sum::<i64>(),
+                );
+            }
+        } else {
+            let scores = skill_shuffle::exact_order_scores_with_scratch(
+                chart,
+                skills,
+                group.power,
+                true,
+                scratch,
+            )?;
+            for &index in group.layouts.iter() {
+                let layout = &skill_shuffle::tables().layouts[index];
+                let row = &scores[layout.cards[2]];
+                best = best.max(
+                    layout
+                        .weighted_orders
+                        .iter()
+                        .map(|order| i64::from(row[order.index]) * i64::from(order.count))
+                        .sum(),
+                );
+            }
+        }
     }
-    // A weighted sum needs neither histogram construction nor stochastic
-    // dominance across layouts. Queue-aware order scores preserve all weights.
-    let scores =
-        skill_shuffle::exact_order_scores_with_scratch(chart, skills, stat, true, scratch)?;
-    Ok(skill_shuffle::best_weighted_mean_numerator(&scores))
+    Ok(best)
 }
 
 fn plan_mean_numerator(candidates: &[MedleyCandidate], indices: [usize; SONG_COUNT]) -> i64 {
@@ -905,13 +957,20 @@ fn candidate_distributions(
     song_idx: usize,
     cache: &mut HashMap<(usize, usize), Vec<CaptainScoreDistribution>>,
 ) -> Result<Vec<CaptainScoreDistribution>, PtMaximizeError> {
-    if let Some(cached) = cache.get(&(candidate_idx, song_idx)) {
+    use crate::scoring::cache_audit::{self as audit, Cache};
+    let cached = audit::enabled(Cache::MedleyDistribution)
+        .then(|| cache.get(&(candidate_idx, song_idx)))
+        .flatten();
+    audit::lookup(Cache::MedleyDistribution, cached.is_some(), cache.len());
+    if let Some(cached) = cached {
         return Ok(cached.clone());
     }
     let candidate = &candidates[candidate_idx];
     let value =
-        full_team_score_distributions(&charts[song_idx], &candidate.skills, candidate.stat, true)?;
-    cache.insert((candidate_idx, song_idx), value.clone());
+        full_team_score_distributions(&charts[song_idx], &candidate.skills, candidate.power, true)?;
+    if audit::enabled(Cache::MedleyDistribution) {
+        cache.insert((candidate_idx, song_idx), value.clone());
+    }
     Ok(value)
 }
 
@@ -1030,6 +1089,21 @@ fn medley_result_for_distributions(
             i128::from(histogram.score_sum) * i128::from(sample_count / histogram.sample_count)
         })
         .sum();
+    let display_values = std::array::from_fn(|song| {
+        let candidate = &candidates[candidate_indices[song]];
+        candidate.power.display_unrounded(
+            distributions[song]
+                .recommended_team_card_ids
+                .unwrap_or(candidate.skills.map(|s| s.card_id))
+                .map(|id| {
+                    candidate
+                        .skills
+                        .iter()
+                        .position(|skill| skill.card_id == id)
+                        .unwrap()
+                }),
+        )
+    });
     let teams = (0..SONG_COUNT)
         .map(|song| {
             let candidate = &candidates[candidate_indices[song]];
@@ -1037,13 +1111,28 @@ fn medley_result_for_distributions(
                 recommended_team_card_ids: distributions[song].recommended_team_card_ids,
                 team_card_ids: candidate.card_ids.clone(),
                 captain_card_id: distributions[song].captain_card_id,
-                total_stat: candidate.stat,
+                total_stat: candidate.power.display_unrounded(
+                    distributions[song]
+                        .recommended_team_card_ids
+                        .unwrap_or(candidate.skills.map(|s| s.card_id))
+                        .map(|id| {
+                            candidate
+                                .skills
+                                .iter()
+                                .position(|skill| skill.card_id == id)
+                                .unwrap()
+                        }),
+                ) as i32,
                 items: items.clone(),
                 score_distribution: distributions[song].distribution.clone(),
             }
         })
         .collect();
     Ok(PtMaximizeMedleyResult {
+        total_stat: Some(
+            crate::scoring::DeckPower::display_total_values(display_values)
+                .map_err(crate::ChartError::from)?,
+        ),
         teams,
         average_pt: AveragePt::new(pt_sum, sample_count)?,
         min_pt: medley_three_song_points(min_score),
@@ -1193,11 +1282,11 @@ mod tests {
         });
         let candidates = (0..3)
             .map(|song| MedleyCandidate {
+                power: 250_000.into(),
                 raw_indices: std::array::from_fn(|i| song * 5 + i),
                 mask_words: vec![],
                 card_ids: skills.map(|s| s.card_id).to_vec(),
                 skills,
-                stat: 250_000,
                 mean_numerators: [0; 3],
             })
             .collect::<Vec<_>>();
@@ -1268,6 +1357,7 @@ mod tests {
     #[test]
     fn equal_average_pt_prefers_higher_average_score() {
         let result = |score_sum| PtMaximizeMedleyResult {
+            total_stat: None,
             teams: Vec::new(),
             average_pt: AveragePt::new(1_000, 2).unwrap(),
             min_pt: 500,

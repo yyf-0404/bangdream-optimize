@@ -140,17 +140,9 @@ impl ChainModels {
                 })
             })
             .collect();
-        let max_meta = total_meta
-            .iter()
-            .flat_map(|r| r.iter())
-            .map(|r| r.high)
-            .fold(0.0, f64::max);
         // Floor(stat), base-note floor and skill floor; a conservative allowance
         // for one replacement, including all six queued windows and rate-up.
-        let rounding = chart.meta.no_skill
-            + max_meta
-            + chart.nodes.len() as f64
-            + 6.0 * machine.max_note_count() as f64 * multiplier;
+        let rounding = owner.rounding_by_chart[chart_idx];
         Some(Self {
             machine,
             shapes,

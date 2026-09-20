@@ -149,6 +149,19 @@ mod tests {
                 10,
                 AreaItemDefinition {
                     area_item_id: 10,
+                    percent_points: BTreeMap::from([(1, PrepStatRate::all(0.1))])
+                        .iter()
+                        .map(|(&level, rate)| {
+                            (
+                                level,
+                                [
+                                    rate.performance as f32 * 100.0,
+                                    rate.technique as f32 * 100.0,
+                                    rate.visual as f32 * 100.0,
+                                ],
+                            )
+                        })
+                        .collect(),
                     target_band_ids: vec![1],
                     target_attributes: vec![],
                     percents: BTreeMap::from([(1, PrepStatRate::all(0.1))]),
@@ -158,6 +171,19 @@ mod tests {
                 20,
                 AreaItemDefinition {
                     area_item_id: 20,
+                    percent_points: BTreeMap::from([(1, PrepStatRate::all(0.1))])
+                        .iter()
+                        .map(|(&level, rate)| {
+                            (
+                                level,
+                                [
+                                    rate.performance as f32 * 100.0,
+                                    rate.technique as f32 * 100.0,
+                                    rate.visual as f32 * 100.0,
+                                ],
+                            )
+                        })
+                        .collect(),
                     target_band_ids: vec![],
                     target_attributes: vec![Attribute::Cool],
                     percents: BTreeMap::from([(1, PrepStatRate::all(0.1))]),
@@ -167,6 +193,26 @@ mod tests {
                 80,
                 AreaItemDefinition {
                     area_item_id: 80,
+                    percent_points: BTreeMap::from([(
+                        1,
+                        PrepStatRate {
+                            performance: 0.1,
+                            technique: 0.0,
+                            visual: 0.0,
+                        },
+                    )])
+                    .iter()
+                    .map(|(&level, rate)| {
+                        (
+                            level,
+                            [
+                                rate.performance as f32 * 100.0,
+                                rate.technique as f32 * 100.0,
+                                rate.visual as f32 * 100.0,
+                            ],
+                        )
+                    })
+                    .collect(),
                     target_band_ids: vec![],
                     target_attributes: vec![],
                     percents: BTreeMap::from([(

@@ -278,6 +278,7 @@ pub fn calculate_best_result_for_items(
             })
         })
         .collect();
+    let mut display_powers = Vec::new();
     for (song, chart) in result.songs.iter_mut().zip(charts) {
         let selected = song
             .team_card_ids
@@ -316,17 +317,42 @@ pub fn calculate_best_result_for_items(
             .iter()
             .position(|card| card.card_id == song.captain_card_id)
             .ok_or(CalculationError::NoBuildResult)?;
+        let items = result
+            .items
+            .as_ref()
+            .ok_or(CalculationError::NoBuildResult)?;
+        let power = crate::scoring::TeamPower::Members(selected.map(|card| {
+            card.member_power(
+                area_item_percent,
+                &items.band,
+                &items.attribute,
+                items.magazine.as_str(),
+            )
+        }));
         song.team_order = Some(
             crate::skill_shuffle::recommend_max_score(
                 chart,
                 &skills,
-                song.stat,
+                power,
                 event_type == EventType::Medley,
                 captain,
             )
             .map_err(crate::DpModelError::from)?,
         );
+        let order = song.team_order.as_ref().unwrap();
+        let layout = order
+            .recommended_team_card_ids
+            .map(|id| selected.iter().position(|card| card.card_id == id).unwrap());
+        let display = power.display_unrounded(layout);
+        song.stat = display as i32;
+        display_powers.push(display);
     }
+    result.total_stat = if display_powers.len() == 3 {
+        crate::scoring::DeckPower::display_total_values(display_powers.try_into().unwrap())
+            .map_err(|error| crate::DpModelError::Chart(error.into()))?
+    } else {
+        display_powers[0] as i32
+    };
     let metrics = result.metrics.get_or_insert_with(Default::default);
     metrics.card_count = cards.len();
     metrics.song_count = song_list.len();
@@ -570,6 +596,7 @@ mod tests {
 
     fn prepared_card(card_id: u32, character_id: u32, band_id: u32) -> PreparedCard {
         PreparedCard {
+            native_power: None,
             card_id,
             character_id,
             band_id,
@@ -604,6 +631,7 @@ mod tests {
 
     fn area_item_percent() -> AreaItemPercent {
         AreaItemPercent {
+            native_items: Vec::new(),
             band: BTreeMap::from([
                 ("1".to_owned(), StatRate::all(0.10)),
                 ("2".to_owned(), StatRate::all(0.30)),
@@ -623,6 +651,7 @@ mod tests {
     #[test]
     fn medley_item_combinations_include_everyone_as_actual_target_set() {
         let area_item_percent = AreaItemPercent {
+            native_items: Vec::new(),
             band: BTreeMap::from([
                 ("1".to_owned(), StatRate::all(0.10)),
                 ("2".to_owned(), StatRate::all(0.10)),
@@ -673,6 +702,7 @@ mod tests {
             .map(|idx| prepared_card(idx, idx, 4))
             .collect::<Vec<_>>();
         let area_item_percent = AreaItemPercent {
+            native_items: Vec::new(),
             band: BTreeMap::from([("4".to_owned(), StatRate::all(0.10))]),
             attribute: BTreeMap::from([
                 ("cool".to_owned(), StatRate::all(0.10)),

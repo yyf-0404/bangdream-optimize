@@ -1,3 +1,4 @@
+use crate::scoring::{ScoringPower, TeamPower};
 use std::collections::{BTreeMap, HashMap};
 
 use crate::event_pt::{
@@ -16,7 +17,7 @@ use super::model::{
     PtMaximizeError, ScoreHistogram, CHALLENGE_CP_COST, RANDOM_SKILL_ORDER_COUNT,
 };
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct FullTeamScoreScratch {
     exact: ExactScoreScratch,
     score_entries: Vec<(i32, u64)>,
@@ -29,13 +30,26 @@ pub(crate) struct FullTeamScoreScratch {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct CooperativeScoreKey {
-    stat: i32,
-    duration_bits: u64,
-    score_up_bits: u64,
-    rateup: bool,
+    powers: [u32; 5],
+    skills: [(u64, u64, bool); 5],
+    repeated: u8,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Copy)]
+pub struct CooperativePower {
+    pub scoring: ScoringPower,
+    pub display: i32,
+}
+impl From<i32> for CooperativePower {
+    fn from(value: i32) -> Self {
+        Self {
+            scoring: ScoringPower::new(value as f32).expect("validated power"),
+            display: value,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub(crate) struct CooperativeScoreScratch {
     source_chart: usize,
     fever_chart: Option<Chart>,
@@ -91,7 +105,6 @@ pub(crate) struct FullTeamPtCutoff {
 #[derive(Debug)]
 pub(crate) enum FullTeamPtSummaryOutcome {
     Summary(FullTeamPtSummary),
-    Queued,
     PrunedByMetaUpperBound,
     PrunedByExactUpperBound,
 }
@@ -99,7 +112,7 @@ pub(crate) enum FullTeamPtSummaryOutcome {
 pub fn evaluate_full_team(
     chart: &Chart,
     team: &[TeamCardSkill; 5],
-    stat: i32,
+    stat: impl Into<crate::scoring::TeamPower>,
     is_medley: bool,
     scenario: FixedTeamPtScenario,
 ) -> Result<FixedTeamPtEvaluation, PtMaximizeError> {
@@ -110,129 +123,171 @@ pub fn evaluate_full_team(
 pub(crate) fn evaluate_full_team_with_scratch(
     chart: &Chart,
     team: &[TeamCardSkill; 5],
-    stat: i32,
+    stat: impl Into<crate::scoring::TeamPower>,
     is_medley: bool,
     scenario: FixedTeamPtScenario,
     scratch: &mut FullTeamScoreScratch,
 ) -> Result<FixedTeamPtEvaluation, PtMaximizeError> {
-    let event_type = scenario.event_type();
-    let live_variant = scenario.live_variant();
-    if !supports_live_variant(event_type, live_variant) {
-        return Err(PtMaximizeError::UnsupportedLiveVariant {
-            event_type,
-            live_variant,
-        });
-    }
-
-    let fever_chart;
-    let chart = if matches!(scenario, FixedTeamPtScenario::Festival { .. }) {
-        fever_chart = {
-            let mut chart = chart.clone();
-            chart.init_with_fever(chart.combo, is_medley)?;
-            chart
-        };
-        &fever_chart
-    } else {
-        chart
+    let summary = native_full_team_summary(
+        chart,
+        team,
+        stat.into(),
+        is_medley,
+        scenario,
+        None,
+        None,
+        scratch,
+    )?;
+    let FullTeamPtSummaryOutcome::Summary(summary) = summary else {
+        unreachable!("no cutoff")
     };
-    let scores = if let Some(matrix) =
-        independent_skill_score_matrix_cached(chart, team, stat, is_medley, scratch)?
-    {
-        skill_shuffle::matrix_order_scores(&matrix)
-    } else {
-        queued_order_scores(chart, team, stat, is_medley, scratch)?
-    };
-    let summary = best_weighted_layout_summary(&scores, team, scenario, scratch)?;
     Ok(materialize_full_team_summary(summary, scratch))
 }
 
+#[cfg(test)]
 pub(crate) fn evaluate_full_team_summary_with_scratch(
     chart: &Chart,
     team: &[TeamCardSkill; 5],
-    stat: i32,
+    stat: impl Into<crate::scoring::TeamPower>,
     is_medley: bool,
     scenario: FixedTeamPtScenario,
     cutoff: Option<FullTeamPtCutoff>,
     scratch: &mut FullTeamScoreScratch,
 ) -> Result<FullTeamPtSummaryOutcome, PtMaximizeError> {
-    let event_type = scenario.event_type();
-    let live_variant = scenario.live_variant();
-    if !supports_live_variant(event_type, live_variant) {
+    native_full_team_summary(
+        chart,
+        team,
+        stat.into(),
+        is_medley,
+        scenario,
+        cutoff,
+        None,
+        scratch,
+    )
+}
+
+pub(crate) fn evaluate_full_team_summary_with_minimum(
+    chart: &Chart,
+    team: &[TeamCardSkill; 5],
+    stat: impl Into<crate::scoring::TeamPower>,
+    is_medley: bool,
+    scenario: FixedTeamPtScenario,
+    cutoff: Option<FullTeamPtCutoff>,
+    minimum: Option<i32>,
+    scratch: &mut FullTeamScoreScratch,
+) -> Result<FullTeamPtSummaryOutcome, PtMaximizeError> {
+    native_full_team_summary(
+        chart,
+        team,
+        stat.into(),
+        is_medley,
+        scenario,
+        cutoff,
+        minimum,
+        scratch,
+    )
+}
+
+fn native_full_team_summary(
+    chart: &Chart,
+    team: &[TeamCardSkill; 5],
+    power: crate::scoring::TeamPower,
+    is_medley: bool,
+    scenario: FixedTeamPtScenario,
+    cutoff: Option<FullTeamPtCutoff>,
+    minimum: Option<i32>,
+    scratch: &mut FullTeamScoreScratch,
+) -> Result<FullTeamPtSummaryOutcome, PtMaximizeError> {
+    if !supports_live_variant(scenario.event_type(), scenario.live_variant()) {
         return Err(PtMaximizeError::UnsupportedLiveVariant {
-            event_type,
-            live_variant,
+            event_type: scenario.event_type(),
+            live_variant: scenario.live_variant(),
         });
     }
-
     let fever_chart;
     let chart = if matches!(scenario, FixedTeamPtScenario::Festival { .. }) {
         fever_chart = {
-            let mut chart = chart.clone();
-            chart.init_with_fever(chart.combo, is_medley)?;
-            chart
+            let mut copy = chart.clone();
+            copy.init_with_fever(copy.combo, is_medley)?;
+            copy
         };
         &fever_chart
     } else {
         chart
     };
-    let skills_overlap = chart.team_skills_may_overlap(team)?;
-    if skills_overlap && !crate::single::queue_optimization_enabled() {
-        return Ok(FullTeamPtSummaryOutcome::Queued);
-    }
-    if let Some(cutoff) = cutoff {
-        let meta_score_upper = meta_score_upper_bound_cached(chart, team, stat, scratch)?;
-        let meta_pt_upper = points_for_scenario(meta_score_upper, scenario)?;
-        let meta_average_upper = AveragePt::new(u128::from(meta_pt_upper), 1)?;
-        if meta_average_upper < cutoff.average_pt
-            || (meta_average_upper == cutoff.average_pt && !cutoff.equal_can_win)
-        {
-            return Ok(FullTeamPtSummaryOutcome::PrunedByMetaUpperBound);
+    let mut groups = power.groups_for_charts(std::slice::from_ref(chart), is_medley);
+    if let Some(minimum) = minimum {
+        for group in &mut groups {
+            group.layouts.to_mut().retain(|&index| {
+                (if super::displays_score_attack_parameters(scenario.event_type()) {
+                    power.score_attack_display_integer(skill_shuffle::tables().layouts[index].cards)
+                } else {
+                    power.display_unrounded(skill_shuffle::tables().layouts[index].cards) as i32
+                }) >= minimum
+            });
         }
-    }
-    if skills_overlap {
-        let scores = queued_order_scores(chart, team, stat, is_medley, scratch)?;
-        if let Some(cutoff) = cutoff {
-            let max_score = *scores.iter().flatten().max().unwrap();
-            let upper = AveragePt::new(u128::from(points_for_scenario(max_score, scenario)?), 1)?;
-            if upper < cutoff.average_pt || (upper == cutoff.average_pt && !cutoff.equal_can_win) {
-                return Ok(FullTeamPtSummaryOutcome::PrunedByExactUpperBound);
-            }
-        }
-        return Ok(FullTeamPtSummaryOutcome::Summary(
-            best_weighted_layout_summary(&scores, team, scenario, scratch)?,
-        ));
-    }
-    let Some(matrix) =
-        independent_skill_score_matrix_cached(chart, team, stat, is_medley, scratch)?
-    else {
-        return Ok(FullTeamPtSummaryOutcome::Queued);
-    };
-    let captain_index = (0..5)
-        .max_by_key(|&card_idx| (matrix.deltas[card_idx][5], std::cmp::Reverse(card_idx)))
-        .expect("a team always has five cards");
-    if let Some(cutoff) = cutoff {
-        let max_score = independent_max_score(&matrix, captain_index);
-        let max_pt = points_for_scenario(max_score, scenario)?;
-        let max_average = AveragePt::new(u128::from(max_pt), 1)?;
-        if max_average < cutoff.average_pt
-            || (max_average == cutoff.average_pt && !cutoff.equal_can_win)
-        {
+        groups.retain(|group| !group.layouts.is_empty());
+        if groups.is_empty() {
             return Ok(FullTeamPtSummaryOutcome::PrunedByExactUpperBound);
         }
     }
-    let scores = skill_shuffle::matrix_order_scores(&matrix);
-    Ok(FullTeamPtSummaryOutcome::Summary(
-        best_weighted_layout_summary(&scores, team, scenario, scratch)?,
-    ))
+    if let Some(cutoff) = cutoff {
+        let upper_score = meta_score_upper_bound_cached(chart, team, groups[0].power, scratch)?;
+        let upper = AveragePt::new(u128::from(points_for_scenario(upper_score, scenario)?), 1)?;
+        if upper < cutoff.average_pt || (upper == cutoff.average_pt && !cutoff.equal_can_win) {
+            return Ok(FullTeamPtSummaryOutcome::PrunedByMetaUpperBound);
+        }
+    }
+    let mut best: Option<(FullTeamPtSummary, Vec<(i32, u64)>)> = None;
+    for group in groups {
+        let scores = if let Some(matrix) =
+            independent_skill_score_matrix_cached(chart, team, group.power, is_medley, scratch)?
+        {
+            skill_shuffle::matrix_order_scores(&matrix)
+        } else {
+            queued_order_scores(chart, team, group.power, is_medley, scratch)?
+        };
+        if let Some(cutoff) = cutoff {
+            let maximum = *scores.iter().flatten().max().unwrap();
+            let upper = AveragePt::new(u128::from(points_for_scenario(maximum, scenario)?), 1)?;
+            if upper < cutoff.average_pt || (upper == cutoff.average_pt && !cutoff.equal_can_win) {
+                continue;
+            }
+        }
+        let summary =
+            weighted_layout_subset_summary(&scores, team, scenario, scratch, &group.layouts)?;
+        let key = |value: &FullTeamPtSummary| {
+            (
+                value.average_pt,
+                value.score_sum,
+                std::cmp::Reverse(value.captain_card_id),
+                std::cmp::Reverse(value.recommended_team_card_ids),
+            )
+        };
+        if best
+            .as_ref()
+            .is_none_or(|(old, _)| key(&summary) > key(old))
+        {
+            best = Some((summary, scratch.score_entries.clone()));
+        }
+    }
+    match best {
+        Some((summary, entries)) => {
+            scratch.score_entries = entries;
+            Ok(FullTeamPtSummaryOutcome::Summary(summary))
+        }
+        None => Ok(FullTeamPtSummaryOutcome::PrunedByExactUpperBound),
+    }
 }
 
 fn queued_order_scores(
     chart: &Chart,
     team: &[TeamCardSkill; 5],
-    stat: i32,
+    stat: impl Into<f64>,
     is_medley: bool,
     scratch: &mut FullTeamScoreScratch,
 ) -> Result<OrderScores, PtMaximizeError> {
+    let stat: f64 = stat.into();
     if crate::single::queue_optimization_enabled() {
         Ok(skill_shuffle::exact_order_scores_with_scratch(
             chart,
@@ -248,11 +303,28 @@ fn queued_order_scores(
     }
 }
 
+#[cfg(test)]
 fn best_weighted_layout_summary(
     scores: &OrderScores,
     team: &[TeamCardSkill; 5],
     scenario: FixedTeamPtScenario,
     scratch: &mut FullTeamScoreScratch,
+) -> Result<FullTeamPtSummary, PtMaximizeError> {
+    weighted_layout_subset_summary(
+        scores,
+        team,
+        scenario,
+        scratch,
+        &(0..120).collect::<Vec<_>>(),
+    )
+}
+
+fn weighted_layout_subset_summary(
+    scores: &OrderScores,
+    team: &[TeamCardSkill; 5],
+    scenario: FixedTeamPtScenario,
+    scratch: &mut FullTeamScoreScratch,
+    layouts: &[usize],
 ) -> Result<FullTeamPtSummary, PtMaximizeError> {
     let mut points = [[0u64; ORDER_COUNT]; 5];
     for captain in 0..5 {
@@ -261,7 +333,8 @@ fn best_weighted_layout_summary(
         }
     }
     let mut best = None;
-    for (index, layout) in skill_shuffle::tables().layouts.iter().enumerate() {
+    for &index in layouts {
+        let layout = &skill_shuffle::tables().layouts[index];
         let captain = layout.cards[CAPTAIN_SLOT];
         let mut pt_sum = 0u128;
         let mut score_sum = 0i64;
@@ -311,9 +384,10 @@ fn best_weighted_layout_summary(
 fn meta_score_upper_bound_cached(
     chart: &Chart,
     team: &[TeamCardSkill; 5],
-    stat: i32,
+    stat: impl Into<f64>,
     scratch: &mut FullTeamScoreScratch,
 ) -> Result<i32, PtMaximizeError> {
+    let stat: f64 = stat.into();
     let chart_address = chart as *const Chart as usize;
     let queue_supported = chart.supports_exact_queue_search(team.iter().map(|s| s.duration));
     if scratch.skill_meta_chart != chart_address
@@ -369,39 +443,21 @@ fn meta_score_upper_bound_cached(
         }
     }
     let captain = meta.iter().map(|values| values[5]).fold(0.0_f64, f64::max);
-    let continuous_upper = stat.max(0) as f64 * (chart.meta.no_skill + normal[31] + captain);
-    Ok(continuous_upper
-        .ceil()
-        .clamp(i32::MIN as f64, i32::MAX as f64) as i32)
-}
-
-fn independent_max_score(matrix: &IndependentSkillScoreMatrix, captain_index: usize) -> i32 {
-    let mut states = [i32::MIN; 32];
-    states[0] = 0;
-    for mask in 0usize..31 {
-        let position = mask.count_ones() as usize;
-        for card_index in 0..5 {
-            if mask & (1 << card_index) != 0 {
-                continue;
-            }
-            let next_mask = mask | (1 << card_index);
-            states[next_mask] = states[next_mask]
-                .max(states[mask].saturating_add(matrix.deltas[card_index][position]));
-        }
-    }
-    matrix
-        .base_score
-        .saturating_add(matrix.deltas[captain_index][5])
-        .saturating_add(states[31])
+    let continuous_upper = stat.max(0.0) * (chart.meta.no_skill + normal[31] + captain);
+    Ok(
+        crate::scoring::linear_score_upper(continuous_upper).clamp(i32::MIN as f64, i32::MAX as f64)
+            as i32,
+    )
 }
 
 fn independent_skill_score_matrix_cached(
     chart: &Chart,
     team: &[TeamCardSkill; 5],
-    stat: i32,
+    stat: impl Into<f64>,
     is_medley: bool,
     scratch: &mut FullTeamScoreScratch,
 ) -> Result<Option<IndependentSkillScoreMatrix>, PtMaximizeError> {
+    let stat: f64 = stat.into();
     if chart.team_skills_may_overlap(team)? {
         return Ok(None);
     }
@@ -466,55 +522,96 @@ pub(crate) fn materialize_full_team_summary(
 pub fn evaluate_cooperative_team(
     chart: &Chart,
     team: &[TeamCardSkill; 5],
-    stat: i32,
+    power: impl Into<TeamPower>,
     scenario: CooperativePtScenario,
 ) -> Result<FixedTeamPtEvaluation, PtMaximizeError> {
-    let mut scratch = CooperativeScoreScratch::default();
-    evaluate_cooperative_team_with_scratch(chart, team, stat, scenario, &mut scratch)
+    evaluate_cooperative_team_with_scratch(
+        chart,
+        team,
+        power,
+        scenario,
+        &mut CooperativeScoreScratch::default(),
+    )
 }
 
 pub(crate) fn evaluate_cooperative_team_with_scratch(
     chart: &Chart,
     team: &[TeamCardSkill; 5],
-    stat: i32,
+    power: impl Into<TeamPower>,
     scenario: CooperativePtScenario,
     scratch: &mut CooperativeScoreScratch,
 ) -> Result<FixedTeamPtEvaluation, PtMaximizeError> {
-    let player_stats = prepare_cooperative_evaluation(chart, stat, scenario, scratch)?;
-    let repeated_player_indices =
-        cooperative_repeated_player_indices(scenario.leader_selection, player_stats)?;
+    evaluate_cooperative_layouts(chart, team, power.into(), scenario, None, None, scratch)
+}
 
-    let mut best = None;
-    for captain_index in 0..5 {
-        let evaluation = evaluate_prepared_cooperative_captain(
+pub(crate) fn evaluate_cooperative_layouts(
+    chart: &Chart,
+    team: &[TeamCardSkill; 5],
+    power: TeamPower,
+    scenario: CooperativePtScenario,
+    captain: Option<usize>,
+    minimum: Option<i32>,
+    scratch: &mut CooperativeScoreScratch,
+) -> Result<FixedTeamPtEvaluation, PtMaximizeError> {
+    let mut best: Option<FixedTeamPtEvaluation> = None;
+    let mut seen = std::collections::HashSet::new();
+    for layout in &skill_shuffle::tables().layouts {
+        let captain_index = layout.cards[CAPTAIN_SLOT];
+        if captain.is_some_and(|index| index != captain_index) {
+            continue;
+        }
+        let display = if super::displays_score_attack_parameters(scenario.event_type) {
+            power.score_attack_display_integer(layout.cards)
+        } else {
+            power.display_unrounded(layout.cards) as i32
+        };
+        if minimum.is_some_and(|minimum| display < minimum) {
+            continue;
+        }
+        let scoring = power.power(layout.cards);
+        if !seen.insert((captain_index, scoring.cache_key(), display)) {
+            continue;
+        }
+        let mut evaluation = evaluate_cooperative_captain_with_scratch(
+            chart,
             team[captain_index],
             captain_index,
-            stat,
+            CooperativePower { scoring, display },
             scenario,
-            player_stats,
-            &repeated_player_indices,
             scratch,
         )?;
-        if best.as_ref().is_none_or(|current: &FixedTeamPtEvaluation| {
-            evaluation.average_pt > current.average_pt
+        evaluation.recommended_team_card_ids = Some(layout.cards.map(|i| team[i].card_id));
+        if best.as_ref().is_none_or(|old| {
+            evaluation.average_pt > old.average_pt
+                || (evaluation.average_pt == old.average_pt
+                    && evaluation.score_distribution.score_sum > old.score_distribution.score_sum)
         }) {
             best = Some(evaluation);
         }
     }
-    best.ok_or(PtMaximizeError::EmptyDistribution)
+    best.ok_or(PtMaximizeError::NoResult)
 }
 
 pub(crate) fn evaluate_cooperative_captain_with_scratch(
     chart: &Chart,
     captain: TeamCardSkill,
     captain_index: usize,
-    stat: i32,
+    stat: impl Into<CooperativePower>,
     scenario: CooperativePtScenario,
     scratch: &mut CooperativeScoreScratch,
 ) -> Result<FixedTeamPtEvaluation, PtMaximizeError> {
+    let stat = stat.into();
     let player_stats = prepare_cooperative_evaluation(chart, stat, scenario, scratch)?;
-    let repeated_player_indices =
-        cooperative_repeated_player_indices(scenario.leader_selection, player_stats)?;
+    let repeated_player_indices = cooperative_repeated_player_indices(
+        scenario.leader_selection,
+        std::array::from_fn(|i| {
+            if i == 0 {
+                stat.display
+            } else {
+                scenario.teammates[i - 1].expected_stat
+            }
+        }),
+    )?;
     evaluate_prepared_cooperative_captain(
         captain,
         captain_index,
@@ -528,10 +625,10 @@ pub(crate) fn evaluate_cooperative_captain_with_scratch(
 
 fn prepare_cooperative_evaluation(
     chart: &Chart,
-    stat: i32,
+    stat: CooperativePower,
     scenario: CooperativePtScenario,
     scratch: &mut CooperativeScoreScratch,
-) -> Result<[i32; 5], PtMaximizeError> {
+) -> Result<[ScoringPower; 5], PtMaximizeError> {
     if !supports_live_variant(scenario.event_type, LiveVariant::Cooperative) {
         return Err(PtMaximizeError::UnsupportedCooperativeEvent {
             event_type: scenario.event_type,
@@ -545,14 +642,18 @@ fn prepare_cooperative_evaluation(
         scratch.source_chart = chart_address;
         scratch.fever_chart = Some(fever_chart);
         scratch.score_histograms.clear();
-        scratch.exact = ExactScoreScratch::default();
+        scratch.exact = ExactScoreScratch::compressed();
     }
     Ok([
-        stat,
-        scenario.teammates[0].expected_stat,
-        scenario.teammates[1].expected_stat,
-        scenario.teammates[2].expected_stat,
-        scenario.teammates[3].expected_stat,
+        stat.scoring,
+        ScoringPower::new(scenario.teammates[0].expected_stat as f32)
+            .map_err(crate::ChartError::from)?,
+        ScoringPower::new(scenario.teammates[1].expected_stat as f32)
+            .map_err(crate::ChartError::from)?,
+        ScoringPower::new(scenario.teammates[2].expected_stat as f32)
+            .map_err(crate::ChartError::from)?,
+        ScoringPower::new(scenario.teammates[3].expected_stat as f32)
+            .map_err(crate::ChartError::from)?,
     ])
 }
 
@@ -560,18 +661,12 @@ fn prepare_cooperative_evaluation(
 fn evaluate_prepared_cooperative_captain(
     captain: TeamCardSkill,
     captain_index: usize,
-    stat: i32,
+    _stat: CooperativePower,
     scenario: CooperativePtScenario,
-    player_stats: [i32; 5],
+    player_stats: [ScoringPower; 5],
     repeated_player_indices: &[usize],
     scratch: &mut CooperativeScoreScratch,
 ) -> Result<FixedTeamPtEvaluation, PtMaximizeError> {
-    let score_key = CooperativeScoreKey {
-        stat,
-        duration_bits: captain.duration.to_bits(),
-        score_up_bits: captain.score_up.to_bits(),
-        rateup: captain.rateup,
-    };
     let player_skills = [
         captain,
         scenario.teammates[0].skill(1),
@@ -579,11 +674,33 @@ fn evaluate_prepared_cooperative_captain(
         scenario.teammates[2].skill(3),
         scenario.teammates[3].skill(4),
     ];
+    let score_key = CooperativeScoreKey {
+        powers: player_stats.map(ScoringPower::cache_key),
+        skills: player_skills.map(|skill| {
+            (
+                skill.duration.to_bits(),
+                skill.score_up.to_bits(),
+                skill.rateup,
+            )
+        }),
+        repeated: repeated_player_indices
+            .iter()
+            .fold(0, |mask, index| mask | (1 << index)),
+    };
     let chart = scratch
         .fever_chart
         .as_ref()
         .expect("cooperative scratch prepares a fever chart");
-    if let Some(joint) = scratch.score_histograms.get(&score_key) {
+    use crate::scoring::cache_audit::{self as audit, Cache};
+    let cached = audit::enabled(Cache::CooperativeScore)
+        .then(|| scratch.score_histograms.get(&score_key))
+        .flatten();
+    audit::lookup(
+        Cache::CooperativeScore,
+        cached.is_some(),
+        scratch.score_histograms.len(),
+    );
+    if let Some(joint) = cached {
         scratch.score_cache_hits += 1;
         return evaluate_cooperative_distribution(captain_index, captain.card_id, joint, scenario);
     } else {
@@ -597,7 +714,9 @@ fn evaluate_prepared_cooperative_captain(
         )?;
         let evaluation =
             evaluate_cooperative_distribution(captain_index, captain.card_id, &joint, scenario)?;
-        scratch.score_histograms.insert(score_key, joint);
+        if audit::enabled(Cache::CooperativeScore) {
+            scratch.score_histograms.insert(score_key, joint);
+        }
         Ok(evaluation)
     }
 }
@@ -632,7 +751,7 @@ fn cooperative_repeated_player_indices(
 fn cooperative_score_histogram(
     chart: &Chart,
     skills: &[TeamCardSkill; 5],
-    player_stats: [i32; 5],
+    player_stats: [ScoringPower; 5],
     repeated_player_indices: &[usize],
     scratch: &mut ExactScoreScratch,
 ) -> Result<BTreeMap<(i32, i64), u64>, PtMaximizeError> {
@@ -708,7 +827,7 @@ fn cooperative_score_histogram(
 fn cooperative_score_histogram_queued(
     chart: &Chart,
     skills: &[TeamCardSkill; 5],
-    player_stats: [i32; 5],
+    player_stats: [ScoringPower; 5],
     repeated_player_indices: &[usize],
 ) -> Result<BTreeMap<(i32, i64), u64>, PtMaximizeError> {
     let mut result = BTreeMap::new();
@@ -791,7 +910,7 @@ fn evaluate_cooperative_distribution(
 pub(crate) fn full_team_score_distributions(
     chart: &Chart,
     team: &[TeamCardSkill; 5],
-    stat: i32,
+    stat: impl Into<crate::scoring::TeamPower>,
     is_medley: bool,
 ) -> Result<Vec<CaptainScoreDistribution>, PtMaximizeError> {
     let mut scratch = FullTeamScoreScratch::default();
@@ -801,10 +920,11 @@ pub(crate) fn full_team_score_distributions(
 pub(crate) fn fixed_captain_score_distribution(
     chart: &Chart,
     team: &[TeamCardSkill; 5],
-    stat: i32,
+    stat: impl Into<f64>,
     is_medley: bool,
     captain_index: usize,
 ) -> Result<CaptainScoreDistribution, PtMaximizeError> {
+    let stat: f64 = stat.into();
     if captain_index >= team.len() {
         return Err(PtMaximizeError::InvalidCaptainIndex { captain_index });
     }
@@ -829,30 +949,33 @@ pub(crate) fn evaluate_fixed_distribution(
 fn full_team_score_distributions_with_scratch(
     chart: &Chart,
     team: &[TeamCardSkill; 5],
-    stat: i32,
+    stat: impl Into<crate::scoring::TeamPower>,
     is_medley: bool,
     scratch: &mut FullTeamScoreScratch,
 ) -> Result<Vec<CaptainScoreDistribution>, PtMaximizeError> {
-    let scores = if let Some(matrix) =
-        chart.independent_skill_score_matrix(team, stat, is_medley, &mut scratch.exact)?
+    let mut result = Vec::new();
+    for group in stat
+        .into()
+        .groups_for_charts(std::slice::from_ref(chart), is_medley)
     {
-        skill_shuffle::matrix_order_scores(&matrix)
-    } else {
-        queued_order_scores(chart, team, stat, is_medley, scratch)?
-    };
-    let mut result = skill_shuffle::tables()
-        .layouts
-        .iter()
-        .map(|layout| {
+        let scores = if let Some(matrix) =
+            independent_skill_score_matrix_cached(chart, team, group.power, is_medley, scratch)?
+        {
+            skill_shuffle::matrix_order_scores(&matrix)
+        } else {
+            queued_order_scores(chart, team, group.power, is_medley, scratch)?
+        };
+        for &index in group.layouts.iter() {
+            let layout = &skill_shuffle::tables().layouts[index];
             let captain_index = layout.cards[CAPTAIN_SLOT];
-            CaptainScoreDistribution {
+            result.push(CaptainScoreDistribution {
                 captain_index,
                 captain_card_id: team[captain_index].card_id,
                 recommended_team_card_ids: Some(layout.cards.map(|card| team[card].card_id)),
                 distribution: weighted_score_histogram(&scores[captain_index], layout),
-            }
-        })
-        .collect::<Vec<_>>();
+            });
+        }
+    }
     // First-order stochastic dominance preserves EVERY monotone PT objective,
     // including rounded three-song totals. A mean-score comparison alone cannot.
     result.sort_by_key(|value| (value.captain_card_id, value.recommended_team_card_ids));
@@ -1570,5 +1693,31 @@ mod tests {
             with_bonus.score_distribution
         );
         assert!(with_bonus.average_pt > without_bonus.average_pt);
+    }
+}
+
+impl Default for FullTeamScoreScratch {
+    fn default() -> Self {
+        Self {
+            exact: ExactScoreScratch::compressed(),
+            score_entries: Vec::new(),
+            skill_window_chart: 0,
+            skill_windows: Vec::new(),
+            skill_meta_chart: 0,
+            skill_meta_queue_supported: false,
+            skill_metas: Vec::new(),
+        }
+    }
+}
+impl Default for CooperativeScoreScratch {
+    fn default() -> Self {
+        Self {
+            source_chart: 0,
+            fever_chart: None,
+            exact: ExactScoreScratch::compressed(),
+            score_histograms: HashMap::new(),
+            score_cache_hits: 0,
+            score_cache_misses: 0,
+        }
     }
 }

@@ -38,6 +38,7 @@ pub(crate) fn prepared_card(
     attribute: Attribute,
 ) -> PreparedCard {
     PreparedCard {
+        native_power: None,
         card_id,
         character_id,
         band_id,

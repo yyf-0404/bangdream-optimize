@@ -17,3 +17,10 @@ pub use search::{
     event_bonus_application, search_single_song, search_single_song_with_metrics,
     search_team_for_mode,
 };
+
+pub(crate) fn displays_score_attack_parameters(event_type: crate::EventType) -> bool {
+    matches!(
+        event_type,
+        crate::EventType::Challenge | crate::EventType::Versus | crate::EventType::Festival
+    )
+}

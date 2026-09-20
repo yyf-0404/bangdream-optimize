@@ -240,7 +240,7 @@ fn four_card_bonus_bounds(
 
 fn same_shape_prefilter(
     cards: &[PreparedCard],
-    card_stats: &[f64],
+    card_stats: &[crate::scoring::MemberPower],
     mode: SongMode,
     replacement_values: Option<&[u64]>,
 ) -> Vec<usize> {
@@ -275,13 +275,15 @@ fn same_shape_prefilter(
                 if dominator.character_id != target.character_id
                     || dominator.skill.duration.to_bits() != target.skill.duration.to_bits()
                     || dominator.skill.rateup != target.skill.rateup
-                    || card_stats[dominator_index] < card_stats[target_index]
+                    || !card_stats[dominator_index]
+                        .componentwise_dominates(card_stats[target_index])
                 {
                     return false;
                 }
                 let dominator_score_up = dominator.score_up.resolve(band_id, attribute);
                 dominator_score_up >= target_score_up
-                    && (card_stats[dominator_index] > card_stats[target_index]
+                    && (card_stats[dominator_index].linear_total()
+                        > card_stats[target_index].linear_total()
                         || dominator_score_up > target_score_up
                         || dominator.card_id < target.card_id)
             })

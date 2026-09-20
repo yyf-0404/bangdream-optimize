@@ -2,7 +2,6 @@ use super::{candidate::ResolvedSingleCard, SingleSongError, SingleSongResult};
 use crate::single::profile::skill_meta_profile_for_pool;
 use crate::timing::{optional_elapsed_ms, Timer};
 use crate::{
-    floor_team_stat,
     model::chart::{CompiledSixSkillScore, OrderedQueueScoreCache},
     Chart, DpChartModel, TeamCardSkill,
 };
@@ -19,6 +18,7 @@ struct SkillShape {
 
 #[derive(Debug, Clone, Copy)]
 struct ExactCard {
+    power: crate::scoring::MemberPower,
     card_id: u32,
     stat: f64,
     skill_id: u16,
@@ -37,6 +37,7 @@ impl ExactCard {
 
 #[derive(Debug, Clone, Copy)]
 struct SearchState {
+    powers: [Option<crate::scoring::MemberPower>; 5],
     stat: f64,
     normal_meta: f64,
     selected_captain_meta: f64,
@@ -48,6 +49,7 @@ struct SearchState {
 impl SearchState {
     fn empty() -> Self {
         Self {
+            powers: [None; 5],
             stat: 0.0,
             normal_meta: 0.0,
             selected_captain_meta: 0.0,
@@ -92,8 +94,9 @@ struct SearchContext<'a> {
     groups: &'a [Vec<ExactCard>],
     suffix: &'a [SuffixBound],
     best: Option<SingleSongResult>,
-    score_cache: HashMap<(i32, [u16; SKILL_COUNT]), i32>,
+    score_cache: HashMap<(u32, [u16; SKILL_COUNT]), i32>,
     timeline_cache: HashMap<[u16; SKILL_COUNT], CompiledSixSkillScore>,
+    power_cache: HashMap<[u32; 5], (crate::scoring::TeamPower, crate::scoring::TeamPowerGroups)>,
     queued_scores: Option<OrderedQueueScoreCache<'a>>,
     trace: bool,
     profile: ExactProfile,
@@ -121,6 +124,7 @@ pub(super) fn solve(
         best: None,
         score_cache: HashMap::new(),
         timeline_cache: HashMap::new(),
+        power_cache: HashMap::new(),
         queued_scores: super::queue_optimization_enabled()
             .then(|| OrderedQueueScoreCache::new(chart, &skills[1..]))
             .flatten(),
@@ -213,6 +217,7 @@ fn prepare_cards(
             .entry(card.character_id)
             .or_default()
             .push(ExactCard {
+                power: card.power,
                 card_id: card.card_id,
                 stat: card.stat,
                 skill_id,
@@ -256,7 +261,7 @@ fn prune_same_character_cards(mut cards: Vec<ExactCard>) -> Vec<ExactCard> {
         let dominated = cards.iter().any(|other| {
             other.card_id != card.card_id
                 && other.shape == card.shape
-                && other.stat >= card.stat
+                && other.power.componentwise_dominates(card.power)
                 && other.score_up >= card.score_up
                 && (other.stat > card.stat
                     || other.score_up > card.score_up
@@ -357,6 +362,7 @@ fn search(
             }
             let mut next = *state;
             next.stat += card.stat;
+            next.powers[position] = Some(card.power);
             next.normal_meta += card.normal_meta[position];
             next.selected_captain_meta = next.selected_captain_meta.max(card.captain_meta);
             next.captain_meta[position] = card.captain_meta;
@@ -379,7 +385,7 @@ fn score_upper_bound(
     bound: &SuffixBound,
 ) -> i32 {
     let remaining_slots = TEAM_SIZE - mask.count_ones() as usize;
-    let stat = floor_team_stat([state.stat, bound.stat_by_slots[remaining_slots]]);
+    let stat = state.stat + bound.stat_by_slots[remaining_slots];
     let mut meta = context.no_skill_meta + state.normal_meta;
     let empty_mask = (!mask) & ((1 << TEAM_SIZE) - 1);
     meta += bound.normal_meta_by_mask[empty_mask];
@@ -388,11 +394,55 @@ fn score_upper_bound(
 }
 
 fn score_leaf(context: &mut SearchContext<'_>, state: &SearchState) -> Result<(), SingleSongError> {
+    use crate::scoring::cache_audit::{self as audit, Cache};
     context.profile.leaves += 1;
-    let stat = floor_team_stat([state.stat]);
+    let mut canonical = [0, 1, 2, 3, 4];
+    canonical.sort_unstable_by_key(|&i| state.card_ids[i]);
+    let ids = canonical.map(|i| state.card_ids[i]);
+    if context.power_cache.len() >= 4096 && !context.power_cache.contains_key(&ids) {
+        context.power_cache.clear();
+    }
+    let build_power = || {
+        let power = crate::scoring::TeamPower::Members(canonical.map(|i| state.powers[i].unwrap()));
+        (
+            power,
+            power.groups_for_charts(std::slice::from_ref(context.chart), false),
+        )
+    };
+    let uncached;
+    let (power, groups) = if audit::enabled(Cache::SinglePower) {
+        #[cfg(feature = "experimental-cache-audit")]
+        audit::lookup(
+            Cache::SinglePower,
+            context.power_cache.contains_key(&ids),
+            context.power_cache.len(),
+        );
+        context.power_cache.entry(ids).or_insert_with(build_power)
+    } else {
+        audit::lookup(Cache::SinglePower, false, 0);
+        uncached = build_power();
+        &uncached
+    };
+    let inverse: [usize; 5] =
+        std::array::from_fn(|i| canonical.iter().position(|&p| p == i).unwrap());
+    let order = crate::skill_shuffle::order_index(inverse);
     for captain_idx in 0..TEAM_SIZE {
+        let captain = inverse[captain_idx];
+        let group = groups
+            .iter()
+            .find(|group| group.reachable[captain] & (1_u128 << order) != 0)
+            .unwrap();
+        let stat = group.power;
+        let stat_key = stat.cache_key();
+        let layout = group
+            .layouts
+            .iter()
+            .map(|&i| &crate::skill_shuffle::tables().layouts[i])
+            .find(|l| l.cards[2] == captain && l.counts[order] != 0)
+            .unwrap();
+        let display_stat = power.score_attack_display_integer(layout.cards);
         let score_upper = integer_score_upper(
-            stat as f64
+            f64::from(stat)
                 * (context.no_skill_meta + state.normal_meta + state.captain_meta[captain_idx]),
         );
         if context
@@ -407,14 +457,24 @@ fn score_leaf(context: &mut SearchContext<'_>, state: &SearchState) -> Result<()
         skill_ids[..TEAM_SIZE].copy_from_slice(&state.skill_ids);
         skill_ids[TEAM_SIZE] = state.skill_ids[captain_idx];
         let score_start = context.trace.then(Timer::start);
-        let score = if let Some(&score) = context.score_cache.get(&(stat, skill_ids)) {
+        let cached = audit::enabled(Cache::SingleScore)
+            .then(|| context.score_cache.get(&(stat_key, skill_ids)))
+            .flatten();
+        audit::lookup(
+            Cache::SingleScore,
+            cached.is_some(),
+            context.score_cache.len(),
+        );
+        let score = if let Some(&score) = cached {
             context.profile.score_cache_hits += 1;
             score
         } else if let Some(cache) = &mut context.queued_scores {
             let score = cache
                 .score(stat, skill_ids.map(|id| id - 1))
                 .map_err(crate::DpModelError::from)?;
-            context.score_cache.insert((stat, skill_ids), score);
+            if audit::enabled(Cache::SingleScore) {
+                context.score_cache.insert((stat_key, skill_ids), score);
+            }
             context.profile.exact_score_calls += 1;
             score
         } else {
@@ -431,14 +491,16 @@ fn score_leaf(context: &mut SearchContext<'_>, state: &SearchState) -> Result<()
                 }
             };
             let score = context.chart.score_compiled_six_skills(compiled, stat);
-            context.score_cache.insert((stat, skill_ids), score);
+            if audit::enabled(Cache::SingleScore) {
+                context.score_cache.insert((stat_key, skill_ids), score);
+            }
             context.profile.exact_score_calls += 1;
             score
         };
         context.profile.score_ms += optional_elapsed_ms(score_start);
         let candidate = SingleSongResult {
             score,
-            stat,
+            stat: display_stat,
             team_card_ids: state.card_ids.to_vec(),
             captain_card_id: state.card_ids[captain_idx],
         };
@@ -457,7 +519,7 @@ fn score_leaf(context: &mut SearchContext<'_>, state: &SearchState) -> Result<()
 }
 
 fn integer_score_upper(value: f64) -> i32 {
-    value.ceil().clamp(i32::MIN as f64, i32::MAX as f64) as i32
+    crate::scoring::linear_score_upper(value).clamp(0.0, i32::MAX as f64) as i32
 }
 
 fn empty_positions(mask: usize) -> impl Iterator<Item = usize> {
@@ -471,6 +533,6 @@ mod tests {
     #[test]
     fn integer_upper_rounds_outward_at_score_boundary() {
         assert_eq!(integer_score_upper(74_249.000_000_1), 74_250);
-        assert_eq!(integer_score_upper(74_250.0), 74_250);
+        assert_eq!(integer_score_upper(74_250.0), 74_251);
     }
 }

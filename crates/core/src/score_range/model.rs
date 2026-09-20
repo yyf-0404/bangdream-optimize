@@ -285,6 +285,8 @@ impl ScoreRangeSong {
             return Err(crate::ChartError::EmptyChart);
         }
         Ok(ScoreRangeSongDuration {
+            level: self.level,
+            judgement: self.auto_base_multiplier as f32,
             base_factor: auto_score_base_factor(self.level, node_count, self.auto_base_multiplier),
             template,
         })
@@ -298,6 +300,8 @@ impl ScoreRangeSong {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ScoreRangeSongDuration {
+    level: i32,
+    judgement: f32,
     base_factor: f64,
     template: ScoreRangeDurationTemplate,
 }
@@ -317,6 +321,8 @@ impl ScoreRangeSongDuration {
 
     pub(crate) fn compressed_score(self, score_up: f64, rateup: bool) -> CompressedAutoScore {
         CompressedAutoScore::from_score_range_counts(
+            self.level,
+            self.judgement,
             self.base_factor,
             self.template.inactive_nodes,
             self.template.active_nodes,
@@ -327,7 +333,8 @@ impl ScoreRangeSongDuration {
 }
 
 fn auto_score_base_factor(level: i32, node_count: u32, base_multiplier: f64) -> f64 {
-    3.0 * (1.0 + 0.01 * (level as f64 - 5.0)) / node_count as f64 * base_multiplier
+    3.0 * (1.0_f32 + 0.01_f32 * (level - 5) as f32) as f64 / node_count as f64
+        * (base_multiplier as f32) as f64
 }
 
 pub const fn auto_base_multiplier(server: Server) -> f64 {
@@ -410,6 +417,8 @@ pub struct ScoreRangePlay {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScoreRangeResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scoring_revision: Option<String>,
     pub event_type: EventType,
     pub target_delta_pt: u64,
     pub team_card_ids: Vec<u32>,

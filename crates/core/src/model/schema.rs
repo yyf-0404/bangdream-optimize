@@ -495,6 +495,8 @@ pub struct CustomCardConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuildResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scoring_revision: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skill_queue_notices: Vec<SkillQueueNotice>,
     pub event_id: u32,

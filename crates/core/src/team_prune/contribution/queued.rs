@@ -177,10 +177,7 @@ impl QueuedModels {
                 // Covers floor(team stat), floor(base note score) and floor(skill
                 // multiplier). Thus a new queued edge is safe for integer scores,
                 // not just for a continuous contribution estimate.
-                let rounding_budget = chart.meta.no_skill
-                    + neighbor_any.iter().map(|r| r.high).sum::<f64>()
-                    + chart.nodes.len() as f64
-                    + rounding_by_position.iter().sum::<f64>();
+                let rounding_budget = owner.rounding_by_chart[chart_idx];
                 Some(QueuedChartModels::Predecessor(PredecessorChartModels {
                     cards,
                     predecessors,
@@ -327,7 +324,21 @@ mod tests {
             card.skill.rateup = i == 6;
         }
         let charts = [chart];
-        let profiles = medley_card_prune_profiles(&cards, &charts, &stats).unwrap();
+        let profiles = medley_card_prune_profiles(
+            &cards,
+            &charts,
+            &stats
+                .iter()
+                .map(|&v| {
+                    crate::scoring::MemberPower::from_resolved_parts(
+                        [v as f32, 0.0, 0.0],
+                        [0.0; 3],
+                        [0.0; 3],
+                    )
+                })
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
         let mut owner = MedleyContributionDominance::new(&cards, &charts, &profiles, 0);
         let models = owner.models_for_signature(MedleyPruneSignature::Mixed);
         if let QueuedChartModels::State(model) =

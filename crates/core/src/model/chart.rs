@@ -5,6 +5,8 @@ use thiserror::Error;
 use crate::timing::Timer;
 
 mod compressed;
+mod native;
+pub use native::NativeChartError;
 mod queue;
 pub use queue::SkillQueueKind;
 pub(crate) use queue::{ConditionalSkillMeta, QUEUE_DURATIONS};
@@ -202,6 +204,9 @@ impl SkillScheduler {
 
 #[derive(Debug, Error)]
 pub enum ChartError {
+    #[error(transparent)]
+    Arithmetic(#[from] crate::scoring::ScoringError),
+
     #[error("chart count must be positive")]
     EmptyChart,
 
@@ -285,54 +290,22 @@ pub struct AutoMultiplierGroup {
 /// floor per distinct multiplier instead of one per chart node.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompressedAutoScore {
+    level: i32,
+    count: u32,
+    judgement: f32,
     base_factor: f64,
     groups: Vec<AutoMultiplierGroup>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct CompiledSixSkillScore {
-    multipliers: Vec<f64>,
-    fever_multipliers: Option<Vec<f64>>,
-}
-
-impl CompiledSixSkillScore {
-    fn score(&self, score_factors: &[f64], stat: i32) -> i32 {
-        debug_assert_eq!(score_factors.len(), self.multipliers.len());
-        if let Some(fever_multipliers) = &self.fever_multipliers {
-            debug_assert_eq!(score_factors.len(), fever_multipliers.len());
-            return score_factors
-                .iter()
-                .zip(&self.multipliers)
-                .zip(fever_multipliers)
-                .map(|((&factor, &skill_multiplier), &fever_multiplier)| {
-                    let no_skill = (stat as f64 * factor * fever_multiplier).floor();
-                    (no_skill * skill_multiplier).floor() as i32
-                })
-                .sum();
-        }
-        if avx2_available() {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            {
-                // SAFETY: runtime AVX2 support is checked above and both slices have equal length.
-                return unsafe {
-                    compiled_six_skill_score_avx2(score_factors, &self.multipliers, stat)
-                };
-            }
-        }
-        score_factors
-            .iter()
-            .zip(&self.multipliers)
-            .map(|(&factor, &multiplier)| {
-                let no_skill = (stat as f64 * factor).floor();
-                (no_skill * multiplier).floor() as i32
-            })
-            .sum()
-    }
-}
+#[derive(Debug, Clone)]
+pub(crate) struct CompiledSixSkillScore(crate::scoring::CompiledScore);
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct NonRateupAutoScoreTemplate {
+    level: i32,
+    count: u32,
+    judgement: f32,
     base_factor: f64,
     inactive_count: usize,
     active_count: usize,
@@ -360,18 +333,12 @@ impl NonRateupAutoScoreTemplate {
         self.tail_risk
     }
 
-    pub(crate) fn score(self, stat: i32, score_up: f64) -> i32 {
-        let no_skill = (stat.max(0) as f64 * self.base_factor).floor();
-        let inactive = (no_skill as i64).saturating_mul(self.inactive_count as i64);
-        let active =
-            ((no_skill * (1.0 + score_up)).floor() as i64).saturating_mul(self.active_count as i64);
-        inactive
-            .saturating_add(active)
-            .clamp(i32::MIN as i64, i32::MAX as i64) as i32
+    pub(crate) fn score(self, stat: impl Into<f64>, score_up: f64) -> i32 {
+        self.with_score_up(score_up).score(stat)
     }
 
     pub(crate) fn with_score_up(self, score_up: f64) -> CompressedAutoScore {
-        let active_multiplier = 1.0 + score_up;
+        let active_multiplier = f64::from(native::ordinary_multiplier(score_up));
         let groups = if active_multiplier.to_bits() == 1.0_f64.to_bits() {
             vec![AutoMultiplierGroup {
                 multiplier: 1.0,
@@ -394,6 +361,9 @@ impl NonRateupAutoScoreTemplate {
             groups
         };
         CompressedAutoScore {
+            level: self.level,
+            count: self.count,
+            judgement: self.judgement,
             base_factor: self.base_factor,
             groups,
         }
@@ -402,6 +372,8 @@ impl NonRateupAutoScoreTemplate {
 
 impl CompressedAutoScore {
     pub(crate) fn from_score_range_counts(
+        level: i32,
+        judgement: f32,
         base_factor: f64,
         inactive_nodes: u32,
         active_nodes: [u32; 6],
@@ -425,30 +397,78 @@ impl CompressedAutoScore {
         add_group(1.0, inactive_nodes);
         if rateup {
             for active_count in active_nodes {
-                let mut multiplier = 1.0 + score_up;
+                let mut effect = native::Effect::from_parts(score_up, true);
                 for _ in 0..active_count {
-                    if sgn(multiplier - 2.5) < 0 {
-                        multiplier += 0.005;
-                    }
-                    add_group(multiplier, 1);
+                    add_group(f64::from(effect.next_multiplier()), 1);
                 }
             }
         } else {
             add_group(
-                1.0 + score_up,
+                f64::from(native::ordinary_multiplier(score_up)),
                 active_nodes.into_iter().fold(0_u32, u32::saturating_add),
             );
         }
 
         Self {
+            level,
+            count: inactive_nodes + active_nodes.into_iter().sum::<u32>(),
+            judgement,
             base_factor,
             groups: grouped.into_values().collect(),
         }
     }
 
-    pub fn score(&self, stat: i32) -> i32 {
-        let no_skill = (stat.max(0) as f64 * self.base_factor).floor();
-        self.score_for_no_skill(no_skill)
+    /// Checked production settlement. The saturating variant below is reserved
+    /// for monotone inverse probes and coarse search bounds beyond valid scores.
+    pub fn checked_score(&self, stat: impl Into<f64>) -> Result<i32, crate::scoring::ScoringError> {
+        let scorer = crate::scoring::NoteScorer::new(
+            crate::scoring::ScoringPower::new(stat.into() as f32)?,
+            self.level,
+            self.count,
+        )?;
+        let mut total = 0_u64;
+        for group in &self.groups {
+            let note = scorer.score_with_judgement_multiplier(
+                self.judgement,
+                1.0,
+                group.multiplier as f32,
+                1.0,
+            )?;
+            total = total
+                .checked_add(u64::from(note.final_score) * group.count as u64)
+                .ok_or(crate::scoring::ScoringError::TotalScoreOverflow)?;
+        }
+        i32::try_from(total).map_err(|_| crate::scoring::ScoringError::TotalScoreOverflow)
+    }
+
+    pub fn score(&self, stat: impl Into<f64>) -> i32 {
+        let stat = stat.into().max(0.0) as f32;
+        let level = 1.0_f32 + (self.level - 5) as f32 * 0.01_f32;
+        let base = ((stat * level) / self.count as f32) * 3.0_f32;
+        let first = (base * self.judgement) as u32;
+        self.score_for_no_skill(first as f64)
+    }
+
+    /// First representable power reaching a score; predecessor is one f32 ULP,
+    /// never one integer power point. The score is monotone at fixed timeline.
+    pub(crate) fn lower_bound_power(&self, target: u64) -> Option<crate::scoring::ScoringPower> {
+        if target > i32::MAX as u64 {
+            return None;
+        }
+        let mut low = 0_u32;
+        let mut high = (i32::MAX as f32).to_bits();
+        if (self.score(f32::from_bits(high)) as u64) < target {
+            return None;
+        }
+        while low < high {
+            let mid = low + (high - low) / 2;
+            if self.score(f32::from_bits(mid)) as u64 >= target {
+                high = mid;
+            } else {
+                low = mid + 1;
+            }
+        }
+        Some(crate::scoring::ScoringPower::new(f32::from_bits(low)).expect("finite power range"))
     }
 
     fn score_for_no_skill(&self, no_skill: f64) -> i32 {
@@ -456,7 +476,7 @@ impl CompressedAutoScore {
             .iter()
             .fold(0_i64, |total, group| {
                 total.saturating_add(
-                    ((no_skill * group.multiplier).floor() as i64)
+                    ((no_skill as f32 * group.multiplier as f32) as i64)
                         .saturating_mul(group.count as i64),
                 )
             })
@@ -465,113 +485,6 @@ impl CompressedAutoScore {
 
     pub fn groups(&self) -> &[AutoMultiplierGroup] {
         &self.groups
-    }
-
-    pub(crate) fn lower_bound_stat(&self, target: u64) -> Option<i32> {
-        if target > i32::MAX as u64 {
-            return None;
-        }
-        let target = target as i32;
-        if target <= self.score(0) {
-            return Some(0);
-        }
-
-        if !self.base_factor.is_finite() || self.base_factor <= 0.0 {
-            return None;
-        }
-        if self
-            .groups
-            .iter()
-            .any(|group| !group.multiplier.is_finite() || group.multiplier < 1.0)
-        {
-            return self.lower_bound_stat_binary(target);
-        }
-
-        let node_count = self
-            .groups
-            .iter()
-            .fold(0_usize, |count, group| count.saturating_add(group.count));
-        let weighted_multiplier = self.groups.iter().fold(0.0, |total, group| {
-            total + group.multiplier * group.count as f64
-        });
-        if node_count == 0 || !weighted_multiplier.is_finite() || weighted_multiplier <= 0.0 {
-            return None;
-        }
-
-        // For q = floor(stat * base_factor), the compressed score G(q) satisfies
-        // qW - N < G(q) <= qW, where W is the weighted multiplier sum and N is the
-        // node count. Since every multiplier is at least one, W >= N and the exact
-        // inverse lies in an interval only a few q values wide.
-        let mut low_q = (target as f64 / weighted_multiplier).floor().max(0.0) - 2.0;
-        let mut high_q = ((target as f64 + node_count as f64) / weighted_multiplier)
-            .ceil()
-            .max(low_q)
-            + 2.0;
-        low_q = low_q.clamp(0.0, i32::MAX as f64);
-        high_q = high_q.min(i32::MAX as f64);
-        let mut low_q = low_q as i32;
-        let mut high_q = high_q as i32;
-        while self.score_for_no_skill(high_q as f64) < target {
-            if high_q == i32::MAX {
-                return None;
-            }
-            high_q = high_q.saturating_add(1);
-        }
-        while low_q < high_q {
-            let middle = low_q + (high_q - low_q) / 2;
-            if self.score_for_no_skill(middle as f64) >= target {
-                high_q = middle;
-            } else {
-                low_q = middle + 1;
-            }
-        }
-        while low_q > 0 && self.score_for_no_skill((low_q - 1) as f64) >= target {
-            low_q -= 1;
-        }
-
-        let estimate = (low_q as f64 / self.base_factor)
-            .ceil()
-            .clamp(0.0, i32::MAX as f64) as i32;
-        let mut stat = estimate;
-        while self.score(stat) < target {
-            if stat == i32::MAX {
-                return None;
-            }
-            stat = stat.saturating_add(1);
-        }
-        while stat > 0 && self.score(stat - 1) >= target {
-            stat -= 1;
-        }
-        Some(stat)
-    }
-
-    fn lower_bound_stat_binary(&self, target: i32) -> Option<i32> {
-        let group_count = self
-            .groups
-            .iter()
-            .fold(0_usize, |count, group| count.saturating_add(group.count));
-        let estimated_no_skill = (target as u64)
-            .div_ceil(group_count.max(1) as u64)
-            .saturating_add(1);
-        let mut high = (estimated_no_skill as f64 / self.base_factor)
-            .ceil()
-            .clamp(1.0, i32::MAX as f64) as i32;
-        while self.score(high) < target {
-            if high == i32::MAX {
-                return None;
-            }
-            high = high.saturating_mul(2).max(high.saturating_add(1));
-        }
-        let mut low = 0;
-        while low < high {
-            let middle = low + (high - low) / 2;
-            if self.score(middle) >= target {
-                high = middle;
-            } else {
-                low = middle + 1;
-            }
-        }
-        Some(low)
     }
 }
 
@@ -672,20 +585,18 @@ struct RateUpProfileScratch {
 
 impl RateUpProfileScratch {
     fn prepare(&mut self, score_up: f64, len: usize) {
-        let score_up_bits = score_up.to_bits();
-        if !self.initialized || self.score_up_bits != score_up_bits {
-            self.score_up_bits = score_up_bits;
-            self.initialized = true;
-            self.multipliers.clear();
+        if self.initialized
+            && self.score_up_bits == score_up.to_bits()
+            && self.multipliers.len() >= len
+        {
+            return;
         }
-
-        let mut multiplier = self.multipliers.last().copied().unwrap_or(1.0 + score_up);
-        while self.multipliers.len() < len {
-            if sgn(multiplier - 2.5) < 0 {
-                multiplier += 0.005;
-            }
-            self.multipliers.push(multiplier);
-        }
+        self.score_up_bits = score_up.to_bits();
+        self.initialized = true;
+        self.multipliers.clear();
+        let mut effect = native::Effect::from_parts(score_up, true);
+        self.multipliers
+            .extend((0..len).map(|_| f64::from(effect.next_multiplier())));
     }
 }
 
@@ -921,6 +832,7 @@ impl Chart {
         &self,
         skill: TeamCardSkill,
     ) -> Result<CompressedAutoScore, ChartError> {
+        self.validate_native_domain(0.0, &[skill], false)?;
         let base_factor = *self.score_factors.first().ok_or(ChartError::EmptyChart)?;
         if self
             .score_factors
@@ -942,6 +854,9 @@ impl Chart {
                 });
         })?;
         Ok(CompressedAutoScore {
+            level: self.level,
+            count: self.count as u32,
+            judgement: self.score_rule.base_multiplier as f32,
             base_factor,
             groups: grouped.into_values().collect(),
         })
@@ -983,6 +898,9 @@ impl Chart {
         )?;
         let tail_risk = self.timeline_has_skill_tail_risk(duration, &timeline);
         Ok(NonRateupAutoScoreTemplate {
+            level: self.level,
+            count: self.count as u32,
+            judgement: self.score_rule.base_multiplier as f32,
             base_factor,
             inactive_count: self.nodes.len().saturating_sub(timeline.active_count),
             active_count: timeline.active_count,
@@ -1009,11 +927,13 @@ impl Chart {
         max_multiplier: f64,
     ) -> i32 {
         let (max_base_factor, count) = terms;
-        let no_skill = (stat.max(0) as f64 * max_base_factor).floor();
-        let per_node = (no_skill * max_multiplier.max(1.0)).ceil() as i64;
-        per_node
-            .saturating_mul(count as i64)
-            .clamp(0, i32::MAX as i64) as i32
+        crate::scoring::linear_score_upper(
+            stat.max(0) as f64
+                * max_base_factor
+                * (max_multiplier as f32).max(1.0) as f64
+                * count as f64,
+        )
+        .clamp(0.0, i32::MAX as f64) as i32
     }
 
     /// Treats every node as if it had both minimum base factor and minimum skill multiplier.
@@ -1023,11 +943,11 @@ impl Chart {
         min_multiplier: f64,
     ) -> i32 {
         let (min_base_factor, count) = terms;
-        let no_skill = (stat.max(0) as f64 * min_base_factor).floor();
-        let per_node = (no_skill * min_multiplier.clamp(0.0, 1.0)).floor() as i64;
-        per_node
-            .saturating_mul(count as i64)
-            .clamp(0, i32::MAX as i64) as i32
+        let factor = (min_multiplier as f32).clamp(0.0, 1.0) as f64;
+        let continuous = stat.max(0) as f64 * min_base_factor * factor * count as f64;
+        (continuous * (1.0 - crate::scoring::SCORE_GAMMA) - count as f64 * (factor + 1.0))
+            .floor()
+            .clamp(0.0, i32::MAX as f64) as i32
     }
 
     /// Returns true when a scoring node lies in the uncertain tail between 1/120 and 1/30
@@ -1096,15 +1016,16 @@ impl Chart {
         self.skill_node_indices.reserve(6);
 
         let mut combo_cursor = combo;
-        let base = 3.0 * (1.0 + 0.01 * (self.level as f64 - 5.0)) / self.count as f64;
+        let base =
+            f64::from(1.0_f32 + (self.level - 5) as f32 * 0.01_f32) / self.count as f64 * 3.0;
 
         for (node_idx, node) in self.nodes.iter().enumerate() {
             combo_cursor += 1;
-            let score_factor = base
-                * score_rule.base_multiplier
-                * combo_mod(combo_cursor, is_medley, score_rule.combo_mode);
+            let combo = combo_mod(combo_cursor, is_medley, score_rule.combo_mode) as f32;
+            let score_factor =
+                base * f64::from(score_rule.base_multiplier as f32) * f64::from(combo);
             self.score_factors.push(score_factor);
-            compressed::push_run(&mut self.score_factor_runs, node_idx, score_factor);
+            compressed::push_run(&mut self.score_factor_runs, node_idx, score_factor, combo);
             self.meta.no_skill += score_factor * self.fever_multiplier_at_node(node_idx);
 
             if node.node_type != ChartNodeType::Skill {
@@ -1123,8 +1044,8 @@ impl Chart {
                     }
                     temp_combo += 1;
                     value += base
-                        * score_rule.base_multiplier
-                        * combo_mod(temp_combo, is_medley, score_rule.combo_mode)
+                        * f64::from(score_rule.base_multiplier as f32)
+                        * f64::from(combo_mod(temp_combo, is_medley, score_rule.combo_mode) as f32)
                         * self.fever_multiplier_at_node(later_idx);
                 }
                 skill.insert(duration_key(duration), value);
@@ -1146,8 +1067,8 @@ impl Chart {
                     }
                     temp_combo += 1;
                     value += base
-                        * score_rule.base_multiplier
-                        * combo_mod(temp_combo, is_medley, score_rule.combo_mode)
+                        * f64::from(score_rule.base_multiplier as f32)
+                        * f64::from(combo_mod(temp_combo, is_medley, score_rule.combo_mode) as f32)
                         * skill_mod
                         / 200.0
                         * self.fever_multiplier_at_node(later_idx);
@@ -1196,8 +1117,9 @@ impl Chart {
         &self,
         activation: usize,
         skill: TeamCardSkill,
-        stat: i32,
+        stat: impl Into<f64>,
     ) -> Result<f64, ChartError> {
+        let stat: f64 = stat.into();
         self.skill_delta_at_stat_for_mode(activation, skill, stat, self.score_as_medley)
     }
 
@@ -1205,9 +1127,10 @@ impl Chart {
         &self,
         activation: usize,
         skill: TeamCardSkill,
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
     ) -> Result<f64, ChartError> {
+        let stat: f64 = stat.into();
         Ok(self.skill_delta_at_stat_i32(activation, skill, stat, is_medley)? as f64)
     }
 
@@ -1215,9 +1138,10 @@ impl Chart {
         &self,
         activation: usize,
         skill: TeamCardSkill,
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
     ) -> Result<i32, ChartError> {
+        let stat: f64 = stat.into();
         let window = self.compile_exact_skill_window(activation, skill)?;
         Ok(self.skill_delta_for_window_i32(window, stat, is_medley))
     }
@@ -1270,148 +1194,68 @@ impl Chart {
     fn skill_delta_for_window_i32(
         &self,
         window: ExactSkillWindow,
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
     ) -> i32 {
-        let base = 3.0 * stat as f64 * (1.0 + 0.01 * (self.level as f64 - 5.0)) / self.count as f64;
-        if !self.fever_enabled
-            && !window.rateup
-            && self.score_as_medley == is_medley
-            && avx2_available()
-        {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            {
-                // SAFETY: runtime AVX2 support is checked above and the score
-                // factors cover every chart node.
-                return unsafe {
-                    score_factor_range_delta_sum_avx2(
-                        &self.score_factors[window.range_start..window.range_end],
-                        stat,
-                        1.0 + window.score_up,
-                    )
-                };
-            }
-        }
-        let mut total = 0i32;
-        let mut rateup_mod = 1.0 + window.score_up;
+        let stat: f64 = stat.into();
 
-        for node_idx in window.range_start..window.range_end {
-            let combo = self.combo + node_idx as i32 + 1;
-            let no_skill =
-                self.exact_base_score_at_node(node_idx, stat, combo, is_medley, base) as i32;
-            let skill_mod = if window.rateup {
-                if sgn(rateup_mod - 2.5) < 0 {
-                    rateup_mod += 0.005;
-                }
-                rateup_mod
-            } else {
-                1.0 + window.score_up
-            };
-            total += (no_skill as f64 * skill_mod).floor() as i32 - no_skill;
-        }
-
-        total
+        let base = self.native_base(stat);
+        let mut effect = native::Effect::from_parts(window.score_up, window.rateup);
+        (window.range_start..window.range_end)
+            .map(|i| {
+                let first = self.native_first(base, i, is_medley);
+                native::settle(
+                    first,
+                    effect.next_multiplier(),
+                    self.fever_multiplier_at_node(i) as f32,
+                ) - native::settle(first, 1.0, self.fever_multiplier_at_node(i) as f32)
+            })
+            .sum()
     }
 
     pub fn no_skill_score_at_stat(&self, stat: i32) -> Result<f64, ChartError> {
         Ok(self.exact_no_skill_score_i32(stat, self.score_as_medley)? as f64)
     }
 
-    fn exact_no_skill_score_i32(&self, stat: i32, is_medley: bool) -> Result<i32, ChartError> {
+    fn exact_no_skill_score_i32(
+        &self,
+        stat: impl Into<f64>,
+        is_medley: bool,
+    ) -> Result<i32, ChartError> {
+        let stat: f64 = stat.into();
         if self.count == 0 {
             return Err(ChartError::EmptyChart);
         }
-
-        if !self.fever_enabled && self.score_as_medley == is_medley && avx2_available() {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            {
-                // SAFETY: runtime AVX2 support is checked above.
-                return Ok(unsafe { score_factor_range_sum_avx2(&self.score_factors, stat, 1.0) });
-            }
-        }
-
-        let base = 3.0 * stat as f64 * (1.0 + 0.01 * (self.level as f64 - 5.0)) / self.count as f64;
-        Ok(self
-            .nodes
-            .iter()
-            .enumerate()
-            .map(|(node_idx, _)| {
-                (self.exact_base_score_at_node(
-                    node_idx,
-                    stat,
-                    self.combo + node_idx as i32 + 1,
-                    is_medley,
-                    base,
-                )) as i32
+        let base = self.native_base(stat);
+        Ok((0..self.nodes.len())
+            .map(|i| {
+                native::settle(
+                    self.native_first(base, i, is_medley),
+                    1.0,
+                    self.fever_multiplier_at_node(i) as f32,
+                )
             })
             .sum())
     }
 
     fn populate_exact_base_scores(
         &self,
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
         output: &mut Vec<i32>,
     ) -> Result<i32, ChartError> {
+        let stat: f64 = stat.into();
         if self.count == 0 {
             return Err(ChartError::EmptyChart);
         }
+        let base = self.native_base(stat);
         output.resize(self.nodes.len(), 0);
-
-        if !self.fever_enabled && self.score_as_medley == is_medley && avx2_available() {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            {
-                // SAFETY: runtime AVX2 support is checked above and the output
-                // has exactly one slot for every score factor.
-                return Ok(unsafe {
-                    score_factor_base_scores_avx2(&self.score_factors, stat, output)
-                });
-            }
-        }
-
-        let base = 3.0 * stat as f64 * (1.0 + 0.01 * (self.level as f64 - 5.0)) / self.count as f64;
-        let mut total = 0i32;
-        for (node_idx, score) in output.iter_mut().enumerate() {
-            let combo = self.combo + node_idx as i32 + 1;
-            *score = self.exact_base_score_at_node(node_idx, stat, combo, is_medley, base) as i32;
-            total += *score;
+        let mut total = 0;
+        for (i, value) in output.iter_mut().enumerate() {
+            *value = self.native_first(base, i, is_medley);
+            total += native::settle(*value, 1.0, self.fever_multiplier_at_node(i) as f32);
         }
         Ok(total)
-    }
-
-    #[inline]
-    fn constant_delta_from_base_scores(&self, base_scores: &[i32], skill_mod: f64) -> i32 {
-        if avx2_available() {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            {
-                // SAFETY: runtime AVX2 support is checked above.
-                return unsafe { base_score_constant_delta_sum_avx2(base_scores, skill_mod) };
-            }
-        }
-
-        base_scores
-            .iter()
-            .map(|&base| (base as f64 * skill_mod).floor() as i32 - base)
-            .sum()
-    }
-
-    #[inline]
-    fn rateup_delta_from_base_scores(&self, base_scores: &[i32], multipliers: &[f64]) -> i32 {
-        debug_assert_eq!(base_scores.len(), multipliers.len());
-        if avx2_available() {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            {
-                // SAFETY: runtime AVX2 support is checked above and both slices
-                // have identical lengths.
-                return unsafe { base_score_multiplier_delta_sum_avx2(base_scores, multipliers) };
-            }
-        }
-
-        base_scores
-            .iter()
-            .zip(multipliers)
-            .map(|(&base, &multiplier)| (base as f64 * multiplier).floor() as i32 - base)
-            .sum()
     }
 
     pub fn get_max_meta_order(&self, team: &[TeamCardSkill]) -> Result<MaxMetaOrder, ChartError> {
@@ -1476,9 +1320,11 @@ impl Chart {
     pub fn get_max_score_order(
         &self,
         team: &[TeamCardSkill],
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
     ) -> Result<MaxScoreOrder, ChartError> {
+        let stat: f64 = stat.into();
+        self.validate_native_domain(stat, team, is_medley)?;
         let team: &[TeamCardSkill; 5] = team
             .try_into()
             .map_err(|_| ChartError::InvalidTeamSize { count: team.len() })?;
@@ -1523,13 +1369,14 @@ impl Chart {
     pub(crate) fn get_max_score_order_from_exact_windows(
         &self,
         team: &[TeamCardSkill; 5],
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
         seed_order_indices: [usize; 5],
         seed_captain_index: usize,
         skill_windows: &[[ExactSkillWindow; 6]; 5],
         scratch: &mut ExactScoreScratch,
     ) -> Result<ExactSkillOrder, ChartError> {
+        let stat: f64 = stat.into();
         self.get_max_score_order_from_exact_windows_internal::<false>(
             team,
             stat,
@@ -1548,13 +1395,14 @@ impl Chart {
     pub(crate) fn get_independent_medley_score_order_from_exact_windows(
         &self,
         team: &[TeamCardSkill; 5],
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
         seed_order_indices: [usize; 5],
         seed_captain_index: usize,
         skill_windows: &[[ExactSkillWindow; 6]; 5],
         scratch: &mut ExactScoreScratch,
     ) -> Result<ExactSkillOrder, ChartError> {
+        let stat: f64 = stat.into();
         self.get_max_score_order_from_exact_windows_internal::<false>(
             team,
             stat,
@@ -1573,10 +1421,11 @@ impl Chart {
     pub(crate) fn independent_skill_score_matrix(
         &self,
         team: &[TeamCardSkill; 5],
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
         scratch: &mut ExactScoreScratch,
     ) -> Result<Option<IndependentSkillScoreMatrix>, ChartError> {
+        let stat: f64 = stat.into();
         if self.team_skills_may_overlap(team)? {
             return Ok(None);
         }
@@ -1619,11 +1468,14 @@ impl Chart {
     pub(crate) fn independent_skill_score_matrix_from_windows(
         &self,
         team: &[TeamCardSkill; 5],
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
         skill_windows: &[[ExactSkillWindow; 6]; 5],
         scratch: &mut ExactScoreScratch,
     ) -> Result<IndependentSkillScoreMatrix, ChartError> {
+        let stat: f64 = stat.into();
+        self.validate_native_domain(stat, team, is_medley)?;
+
         if let Some(matrix) = self.compressed_independent_skill_score_matrix(
             team,
             stat,
@@ -1635,64 +1487,21 @@ impl Chart {
         }
         let base_score =
             self.populate_exact_base_scores(stat, is_medley, &mut scratch.base_scores)?;
-        for card_idx in 0..5 {
-            if !team[card_idx].rateup {
-                continue;
-            }
-            let max_len = skill_windows[card_idx]
-                .iter()
-                .map(|window| window.range_end - window.range_start)
-                .max()
-                .unwrap_or(0);
-            let padded_len = max_len.saturating_add(3) & !3;
-            scratch.rateup_profiles[card_idx].prepare(team[card_idx].score_up, padded_len);
-        }
-
-        let mut deltas = [[0i32; 6]; 5];
-        if avx2_available() {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        let mut deltas = [[0; 6]; 5];
+        for card in 0..5 {
             for activation in 0..6 {
-                let windows = std::array::from_fn(|card_idx| skill_windows[card_idx][activation]);
-                let profiles: [&[f64]; 5] = std::array::from_fn(|card_idx| {
-                    scratch.rateup_profiles[card_idx].multipliers.as_slice()
-                });
-                // SAFETY: runtime AVX2 support is checked above. All windows for one
-                // activation share their start, and rate-up profiles are vector-padded.
-                let activation_deltas = unsafe {
-                    five_skill_deltas_from_base_scores_avx2(
-                        &scratch.base_scores,
-                        &windows,
-                        &profiles,
-                    )
-                };
-                for card_idx in 0..5 {
-                    deltas[card_idx][activation] = activation_deltas[card_idx];
-                }
-            }
-        } else {
-            for activation in 0..6 {
-                let windows = std::array::from_fn(|card_idx| skill_windows[card_idx][activation]);
-                let representatives = skill_window_representatives(&windows);
-                for card_idx in 0..5 {
-                    let representative = representatives[card_idx];
-                    if representative != card_idx {
-                        deltas[card_idx][activation] = deltas[representative][activation];
-                        continue;
-                    }
-                    let window = skill_windows[card_idx][activation];
-                    let base_scores = &scratch.base_scores[window.range_start..window.range_end];
-                    deltas[card_idx][activation] = if window.rateup {
-                        self.rateup_delta_from_base_scores(
-                            base_scores,
-                            &scratch.rateup_profiles[card_idx].multipliers[..base_scores.len()],
-                        )
-                    } else {
-                        self.constant_delta_from_base_scores(base_scores, 1.0 + window.score_up)
-                    };
-                }
+                let window = skill_windows[card][activation];
+                let mut effect = native::Effect::from_parts(window.score_up, window.rateup);
+                deltas[card][activation] = (window.range_start..window.range_end)
+                    .map(|i| {
+                        let first = scratch.base_scores[i];
+                        let fever = self.fever_multiplier_at_node(i) as f32;
+                        native::settle(first, effect.next_multiplier(), fever)
+                            - native::settle(first, 1.0, fever)
+                    })
+                    .sum();
             }
         }
-
         Ok(IndependentSkillScoreMatrix { base_score, deltas })
     }
 
@@ -1702,7 +1511,7 @@ impl Chart {
     pub(crate) fn get_max_score_order_from_exact_windows_profiled(
         &self,
         team: &[TeamCardSkill; 5],
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
         seed_order_indices: [usize; 5],
         seed_captain_index: usize,
@@ -1710,6 +1519,7 @@ impl Chart {
         scratch: &mut ExactScoreScratch,
         profile: &mut ExactSkillOrderProfile,
     ) -> Result<ExactSkillOrder, ChartError> {
+        let stat: f64 = stat.into();
         self.get_max_score_order_from_exact_windows_internal::<true>(
             team,
             stat,
@@ -1727,7 +1537,7 @@ impl Chart {
     pub(crate) fn get_independent_medley_score_order_from_exact_windows_profiled(
         &self,
         team: &[TeamCardSkill; 5],
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
         seed_order_indices: [usize; 5],
         seed_captain_index: usize,
@@ -1735,6 +1545,7 @@ impl Chart {
         scratch: &mut ExactScoreScratch,
         profile: &mut ExactSkillOrderProfile,
     ) -> Result<ExactSkillOrder, ChartError> {
+        let stat: f64 = stat.into();
         self.get_max_score_order_from_exact_windows_internal::<true>(
             team,
             stat,
@@ -1752,7 +1563,7 @@ impl Chart {
     fn get_max_score_order_from_exact_windows_internal<const PROFILE: bool>(
         &self,
         team: &[TeamCardSkill; 5],
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
         seed_order_indices: [usize; 5],
         seed_captain_index: usize,
@@ -1761,6 +1572,8 @@ impl Chart {
         mut profile: Option<&mut ExactSkillOrderProfile>,
         use_queued_timeline_on_overlap: bool,
     ) -> Result<ExactSkillOrder, ChartError> {
+        let stat: f64 = stat.into();
+        self.validate_native_domain(stat, team, is_medley)?;
         let started = PROFILE.then(Timer::start);
         let overlaps = self.team_skills_may_overlap(team)?;
         if let (Some(profile), Some(started)) = (profile.as_deref_mut(), started) {
@@ -1825,134 +1638,17 @@ impl Chart {
         }
 
         let started = PROFILE.then(Timer::start);
-        if let Some(matrix) = self.compressed_independent_skill_score_matrix(
+        let matrix = self.independent_skill_score_matrix_from_windows(
             team,
             stat,
             is_medley,
             skill_windows,
             scratch,
-        ) {
-            if let (Some(profile), Some(started)) = (profile.as_deref_mut(), started) {
-                profile.exact_skill_ms += started.elapsed_ms();
-            }
-            let started = PROFILE.then(Timer::start);
-            let order = matrix.max_order(seed_order_indices, seed_captain_index);
-            if let (Some(profile), Some(started)) = (profile.as_deref_mut(), started) {
-                profile.assignment_ms += started.elapsed_ms();
-            }
-            return Ok(order);
-        }
-        let base_score =
-            self.populate_exact_base_scores(stat, is_medley, &mut scratch.base_scores)?;
-        if let (Some(profile), Some(started)) = (profile.as_deref_mut(), started) {
-            profile.base_score_ms += started.elapsed_ms();
-        }
-
-        let started = PROFILE.then(Timer::start);
-        for card_idx in 0..5 {
-            if !team[card_idx].rateup {
-                continue;
-            }
-            let max_len = skill_windows[card_idx]
-                .iter()
-                .map(|window| window.range_end - window.range_start)
-                .max()
-                .unwrap_or(0);
-            let padded_len = max_len.saturating_add(3) & !3;
-            scratch.rateup_profiles[card_idx].prepare(team[card_idx].score_up, padded_len);
-        }
-
-        let mut deltas = [[0i32; 6]; 5];
-        let mut exact_skill_delta_calls = 0usize;
-        if avx2_available() {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            for activation in 0..6 {
-                let windows = std::array::from_fn(|card_idx| skill_windows[card_idx][activation]);
-                if PROFILE {
-                    let representatives = skill_window_representatives(&windows);
-                    exact_skill_delta_calls += representatives
-                        .iter()
-                        .enumerate()
-                        .filter(|&(card_idx, &representative)| card_idx == representative)
-                        .count();
-                }
-                let profiles: [&[f64]; 5] = std::array::from_fn(|card_idx| {
-                    scratch.rateup_profiles[card_idx].multipliers.as_slice()
-                });
-                // SAFETY: runtime AVX2 support is checked above. All five
-                // windows for one activation share their range start, and the
-                // rate-up profiles are padded to a full vector.
-                let activation_deltas = unsafe {
-                    five_skill_deltas_from_base_scores_avx2(
-                        &scratch.base_scores,
-                        &windows,
-                        &profiles,
-                    )
-                };
-                for card_idx in 0..5 {
-                    deltas[card_idx][activation] = activation_deltas[card_idx];
-                }
-            }
-        } else {
-            for activation in 0..6 {
-                let windows = std::array::from_fn(|card_idx| skill_windows[card_idx][activation]);
-                let representatives = skill_window_representatives(&windows);
-                if PROFILE {
-                    exact_skill_delta_calls += representatives
-                        .iter()
-                        .enumerate()
-                        .filter(|&(card_idx, &representative)| card_idx == representative)
-                        .count();
-                }
-                for card_idx in 0..5 {
-                    let representative = representatives[card_idx];
-                    if representative != card_idx {
-                        deltas[card_idx][activation] = deltas[representative][activation];
-                        continue;
-                    }
-                    let window = skill_windows[card_idx][activation];
-                    let base_scores = &scratch.base_scores[window.range_start..window.range_end];
-                    deltas[card_idx][activation] = if window.rateup {
-                        self.rateup_delta_from_base_scores(
-                            base_scores,
-                            &scratch.rateup_profiles[card_idx].multipliers[..base_scores.len()],
-                        )
-                    } else {
-                        self.constant_delta_from_base_scores(base_scores, 1.0 + window.score_up)
-                    };
-                }
-            }
-        }
+        )?;
         if let (Some(profile), Some(started)) = (profile.as_deref_mut(), started) {
             profile.exact_skill_ms += started.elapsed_ms();
-            profile.exact_skill_delta_calls += exact_skill_delta_calls;
         }
-
-        let started = PROFILE.then(Timer::start);
-        let (best_delta, order_indices, captain_index) = max_independent_skill_delta(&deltas);
-        if let (Some(profile), Some(started)) = (profile.as_deref_mut(), started) {
-            profile.assignment_ms += started.elapsed_ms();
-        }
-
-        let seed_delta = seed_order_indices
-            .iter()
-            .enumerate()
-            .map(|(activation, &card_idx)| deltas[card_idx][activation])
-            .sum::<i32>()
-            + deltas[seed_captain_index][5];
-        if seed_delta == best_delta {
-            return Ok(ExactSkillOrder {
-                score: base_score + seed_delta,
-                order_indices: seed_order_indices,
-                captain_index: seed_captain_index,
-            });
-        }
-
-        Ok(ExactSkillOrder {
-            score: base_score + best_delta,
-            order_indices,
-            captain_index,
-        })
+        Ok(matrix.max_order(seed_order_indices, seed_captain_index))
     }
 
     pub(crate) fn team_skills_may_overlap(
@@ -1986,11 +1682,12 @@ impl Chart {
     fn overlapping_max_score_order(
         &self,
         team: &[TeamCardSkill; 5],
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
         seed_order_indices: [usize; 5],
         seed_captain_index: usize,
     ) -> Result<ExactSkillOrder, ChartError> {
+        let stat: f64 = stat.into();
         self.exhaustive_max_score_order_fallback(
             team,
             stat,
@@ -2003,11 +1700,12 @@ impl Chart {
     fn exhaustive_max_score_order_fallback(
         &self,
         team: &[TeamCardSkill; 5],
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
         seed_order_indices: [usize; 5],
         seed_captain_index: usize,
     ) -> Result<ExactSkillOrder, ChartError> {
+        let stat: f64 = stat.into();
         let mut best = ExactSkillOrder {
             score: self.score_five_skill_order(
                 team,
@@ -2047,11 +1745,12 @@ impl Chart {
     fn score_five_skill_order(
         &self,
         team: &[TeamCardSkill; 5],
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
         order_indices: [usize; 5],
         captain_index: usize,
     ) -> Result<i32, ChartError> {
+        let stat: f64 = stat.into();
         let skill_order: [TeamCardSkill; 6] = std::array::from_fn(|activation| {
             if activation == 5 {
                 team[captain_index]
@@ -2065,99 +1764,33 @@ impl Chart {
     pub fn get_score(
         &self,
         skill_order: &[TeamCardSkill],
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
     ) -> Result<i32, ChartError> {
-        if self.count == 0 {
-            return Err(ChartError::EmptyChart);
-        }
+        let stat: f64 = stat.into();
 
-        let base = 3.0 * stat as f64 * (1.0 + 0.01 * (self.level as f64 - 5.0)) / self.count as f64;
-        let mut result = 0i32;
-        let mut skill_count = 0usize;
-        let mut combo = self.combo;
-        let mut skill_mod = 1.0;
-        let mut rateup = false;
-        let mut events: VecDeque<SkillEvent> = VecDeque::new();
-        let mut scheduler = SkillScheduler::new(self.uses_ideal_60fps_timing());
-
-        for (node_idx, node) in self.nodes.iter().enumerate() {
-            while events
-                .front()
-                .map(|event| scheduler.event_is_due(node.time, event.time))
-                .unwrap_or(false)
-            {
-                let event = events.pop_front().expect("front event exists");
-                skill_mod = event.skill_mod;
-                rateup = event.rateup;
-            }
-
-            combo += 1;
-            if rateup && sgn(skill_mod - 2.5) < 0 {
-                skill_mod += 0.005;
-            }
-
-            let no_skill =
-                self.exact_base_score_at_node(node_idx, stat, combo, is_medley, base) as f64;
-            result += (no_skill * skill_mod).floor() as i32;
-
-            if node.node_type != ChartNodeType::Skill {
-                continue;
-            }
-
-            let skill =
-                skill_order
-                    .get(skill_count)
-                    .copied()
-                    .ok_or(ChartError::MissingSkillProfile {
-                        activation: skill_count,
-                    })?;
-
-            let scheduled = scheduler.schedule(node.time, skill.duration);
-            if sgn(scheduled.start - node.time) > 0 {
-                events.push_back(SkillEvent {
-                    time: scheduled.start,
-                    skill_mod: 1.0 + skill.score_up,
-                    rateup: skill.rateup,
-                });
-                events.push_back(SkillEvent {
-                    time: scheduled.end,
-                    skill_mod: 1.0,
-                    rateup: false,
-                });
-            } else {
-                skill_mod = 1.0 + skill.score_up;
-                rateup = skill.rateup;
-                events.push_back(SkillEvent {
-                    time: scheduled.end,
-                    skill_mod: 1.0,
-                    rateup: false,
-                });
-            }
-
-            skill_count += 1;
-        }
-
-        Ok(result)
+        let power = crate::scoring::ScoringPower::new(stat as f32)?;
+        let compiled = self
+            .compile_native_score(skill_order, is_medley)
+            .map_err(|error| match error {
+                NativeChartError::Chart(error) => error,
+                NativeChartError::Arithmetic(error) => ChartError::Arithmetic(error),
+                NativeChartError::InvalidDuration => {
+                    ChartError::UnsupportedSkillDuration { duration: f64::NAN }
+                }
+            })?;
+        i32::try_from(compiled.score(power)?)
+            .map_err(|_| crate::scoring::ScoringError::TotalScoreOverflow.into())
     }
 
     pub(crate) fn get_score_for_six_skills(
         &self,
         skill_order: &[TeamCardSkill; 6],
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
     ) -> Result<i32, ChartError> {
-        if !self.fever_enabled && self.score_as_medley == is_medley && avx2_available() {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            {
-                // SAFETY: runtime AVX2 support is checked above. The AVX2
-                // path only vectorizes contiguous note ranges whose modifiers
-                // are constant; event handling stays scalar.
-                return unsafe { self.get_score_for_six_skills_avx2(skill_order, stat, is_medley) };
-            }
-        }
-
-        self.get_score_for_six_skills_scalar(skill_order, stat, is_medley)
+        let stat: f64 = stat.into();
+        self.get_score(skill_order, stat, is_medley)
     }
 
     pub(crate) fn compile_six_skill_score(
@@ -2168,25 +1801,26 @@ impl Chart {
         if self.score_as_medley != is_medley {
             return Err(ChartError::ScoreModeMismatch);
         }
-        let mut multipliers = Vec::with_capacity(self.nodes.len());
-        self.for_each_multiplier_for_six_skills(skill_order, |value| multipliers.push(value))?;
-        let fever_multipliers = self.fever_enabled.then(|| {
-            (0..self.nodes.len())
-                .map(|node_idx| self.fever_multiplier_at_node(node_idx))
-                .collect()
-        });
-        Ok(CompiledSixSkillScore {
-            multipliers,
-            fever_multipliers,
-        })
+        self.compile_native_score(skill_order, is_medley)
+            .map(CompiledSixSkillScore)
+            .map_err(|error| match error {
+                NativeChartError::Chart(error) => error,
+                NativeChartError::Arithmetic(error) => ChartError::Arithmetic(error),
+                NativeChartError::InvalidDuration => {
+                    ChartError::UnsupportedSkillDuration { duration: f64::NAN }
+                }
+            })
     }
 
     pub(crate) fn score_compiled_six_skills(
         &self,
         compiled: &CompiledSixSkillScore,
-        stat: i32,
+        stat: impl Into<f64>,
     ) -> i32 {
-        compiled.score(&self.score_factors, stat)
+        let stat: f64 = stat.into();
+        let power = crate::scoring::ScoringPower::new(stat as f32).expect("validated power");
+        i32::try_from(compiled.0.score(power).expect("validated scoring domain"))
+            .expect("validated total score")
     }
 
     fn for_each_multiplier_for_six_skills(
@@ -2194,65 +1828,17 @@ impl Chart {
         skill_order: &[TeamCardSkill; 6],
         mut visit: impl FnMut(f64),
     ) -> Result<(), ChartError> {
-        if self.count == 0 {
-            return Err(ChartError::EmptyChart);
-        }
-
-        let mut skill_count = 0usize;
-        let mut skill_mod = 1.0;
-        let mut rateup = false;
-        let mut events: VecDeque<SkillEvent> = VecDeque::new();
-        let mut scheduler = SkillScheduler::new(self.uses_ideal_60fps_timing());
-
-        for node in &self.nodes {
-            while events
-                .front()
-                .map(|event| scheduler.event_is_due(node.time, event.time))
-                .unwrap_or(false)
-            {
-                let event = events.pop_front().expect("front event exists");
-                skill_mod = event.skill_mod;
-                rateup = event.rateup;
-            }
-
-            if rateup && sgn(skill_mod - 2.5) < 0 {
-                skill_mod += 0.005;
-            }
-            visit(skill_mod);
-
-            if node.node_type != ChartNodeType::Skill {
-                continue;
-            }
-            let skill =
-                skill_order
-                    .get(skill_count)
-                    .copied()
-                    .ok_or(ChartError::MissingSkillProfile {
-                        activation: skill_count,
-                    })?;
-
-            let scheduled = scheduler.schedule(node.time, skill.duration);
-            if sgn(scheduled.start - node.time) > 0 {
-                events.push_back(SkillEvent {
-                    time: scheduled.start,
-                    skill_mod: 1.0 + skill.score_up,
-                    rateup: skill.rateup,
-                });
-                events.push_back(SkillEvent {
-                    time: scheduled.end,
-                    skill_mod: 1.0,
-                    rateup: false,
-                });
-            } else {
-                skill_mod = 1.0 + skill.score_up;
-                rateup = skill.rateup;
-                events.push_back(SkillEvent {
-                    time: scheduled.end,
-                    skill_mod: 1.0,
-                    rateup: false,
-                });
-            }
-            skill_count += 1;
+        for note in self
+            .native_score_notes(skill_order, self.score_as_medley)
+            .map_err(|error| match error {
+                NativeChartError::Chart(error) => error,
+                NativeChartError::Arithmetic(error) => ChartError::Arithmetic(error),
+                NativeChartError::InvalidDuration => {
+                    ChartError::UnsupportedSkillDuration { duration: f64::NAN }
+                }
+            })?
+        {
+            visit(f64::from(note.skill));
         }
         Ok(())
     }
@@ -2344,19 +1930,16 @@ impl Chart {
                 events.push_back(SkillEvent {
                     time: scheduled.end,
                     skill_mod: 1.0,
-                    rateup: false,
                 });
                 event_min_index = skill_index.saturating_add(1);
             } else {
                 events.push_back(SkillEvent {
                     time: scheduled.start,
                     skill_mod: 2.0,
-                    rateup: false,
                 });
                 events.push_back(SkillEvent {
                     time: scheduled.end,
                     skill_mod: 1.0,
-                    rateup: false,
                 });
             }
         }
@@ -2371,179 +1954,28 @@ impl Chart {
         })
     }
 
+    #[cfg(test)]
     fn get_score_for_six_skills_scalar(
         &self,
         skill_order: &[TeamCardSkill; 6],
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
     ) -> Result<i32, ChartError> {
-        if self.count == 0 {
-            return Err(ChartError::EmptyChart);
-        }
-
-        let base = 3.0 * stat as f64 * (1.0 + 0.01 * (self.level as f64 - 5.0)) / self.count as f64;
-        let mut result = 0i32;
-        let mut skill_count = 0usize;
-        let mut combo = self.combo;
-        let mut skill_mod = 1.0;
-        let mut rateup = false;
-        let mut events = FixedSkillEventQueue::new();
-        let mut scheduler = SkillScheduler::new(self.uses_ideal_60fps_timing());
-
-        for (node_idx, node) in self.nodes.iter().enumerate() {
-            while let Some(event) = events.pop_front_if_after(node.time, scheduler) {
-                skill_mod = event.skill_mod;
-                rateup = event.rateup;
-            }
-
-            combo += 1;
-            if rateup && sgn(skill_mod - 2.5) < 0 {
-                skill_mod += 0.005;
-            }
-
-            let no_skill =
-                self.exact_base_score_at_node(node_idx, stat, combo, is_medley, base) as f64;
-            result += (no_skill * skill_mod).floor() as i32;
-
-            if node.node_type != ChartNodeType::Skill {
-                continue;
-            }
-
-            let skill =
-                skill_order
-                    .get(skill_count)
-                    .copied()
-                    .ok_or(ChartError::MissingSkillProfile {
-                        activation: skill_count,
-                    })?;
-
-            let scheduled = scheduler.schedule(node.time, skill.duration);
-            if sgn(scheduled.start - node.time) > 0 {
-                if !events.push_back(SkillEvent {
-                    time: scheduled.start,
-                    skill_mod: 1.0 + skill.score_up,
-                    rateup: skill.rateup,
-                }) || !events.push_back(SkillEvent {
-                    time: scheduled.end,
-                    skill_mod: 1.0,
-                    rateup: false,
-                }) {
-                    return self.get_score(skill_order, stat, is_medley);
-                }
-            } else {
-                skill_mod = 1.0 + skill.score_up;
-                rateup = skill.rateup;
-                if !events.push_back(SkillEvent {
-                    time: scheduled.end,
-                    skill_mod: 1.0,
-                    rateup: false,
-                }) {
-                    return self.get_score(skill_order, stat, is_medley);
-                }
-            }
-
-            skill_count += 1;
-        }
-
-        Ok(result)
+        let stat: f64 = stat.into();
+        self.get_score(skill_order, stat, is_medley)
     }
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[target_feature(enable = "avx2")]
+    #[cfg(test)]
     unsafe fn get_score_for_six_skills_avx2(
         &self,
         skill_order: &[TeamCardSkill; 6],
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
     ) -> Result<i32, ChartError> {
-        if self.count == 0 {
-            return Err(ChartError::EmptyChart);
-        }
-
-        let mut result = 0i32;
-        let mut skill_count = 0usize;
-        let mut skill_mod = 1.0;
-        let mut rateup = false;
-        let mut events = FixedSkillEventQueue::new();
-        let mut scheduler = SkillScheduler::new(self.uses_ideal_60fps_timing());
-        let mut node_idx = 0usize;
-
-        while node_idx < self.nodes.len() {
-            let node = &self.nodes[node_idx];
-            while let Some(event) = events.pop_front_if_after(node.time, scheduler) {
-                skill_mod = event.skill_mod;
-                rateup = event.rateup;
-            }
-
-            if !rateup && node.node_type != ChartNodeType::Skill {
-                let range_start = node_idx;
-                let mut range_end = node_idx + 1;
-                while range_end < self.nodes.len()
-                    && self.nodes[range_end].node_type != ChartNodeType::Skill
-                    && !events.should_pop_at(self.nodes[range_end].time, scheduler)
-                {
-                    range_end += 1;
-                }
-
-                result += score_factor_range_sum_avx2(
-                    &self.score_factors[range_start..range_end],
-                    stat,
-                    skill_mod,
-                );
-                node_idx = range_end;
-                continue;
-            }
-
-            if rateup && sgn(skill_mod - 2.5) < 0 {
-                skill_mod += 0.005;
-            }
-
-            let no_skill = (stat as f64 * self.score_factors[node_idx]).floor();
-            result += (no_skill * skill_mod).floor() as i32;
-
-            if node.node_type != ChartNodeType::Skill {
-                node_idx += 1;
-                continue;
-            }
-
-            let skill =
-                skill_order
-                    .get(skill_count)
-                    .copied()
-                    .ok_or(ChartError::MissingSkillProfile {
-                        activation: skill_count,
-                    })?;
-
-            let scheduled = scheduler.schedule(node.time, skill.duration);
-            if sgn(scheduled.start - node.time) > 0 {
-                if !events.push_back(SkillEvent {
-                    time: scheduled.start,
-                    skill_mod: 1.0 + skill.score_up,
-                    rateup: skill.rateup,
-                }) || !events.push_back(SkillEvent {
-                    time: scheduled.end,
-                    skill_mod: 1.0,
-                    rateup: false,
-                }) {
-                    return self.get_score_for_six_skills_scalar(skill_order, stat, is_medley);
-                }
-            } else {
-                skill_mod = 1.0 + skill.score_up;
-                rateup = skill.rateup;
-                if !events.push_back(SkillEvent {
-                    time: scheduled.end,
-                    skill_mod: 1.0,
-                    rateup: false,
-                }) {
-                    return self.get_score_for_six_skills_scalar(skill_order, stat, is_medley);
-                }
-            }
-
-            skill_count += 1;
-            node_idx += 1;
-        }
-
-        Ok(result)
+        let stat: f64 = stat.into();
+        self.get_score(skill_order, stat, is_medley)
     }
 
     pub(crate) fn skill_meta_value(
@@ -2568,14 +2000,12 @@ impl Chart {
         for first in 0..self.nodes.len() {
             let start_time = self.nodes[first].time;
             let mut total = 0.0_f64;
-            let mut multiplier = 1.0 + skill.score_up;
+            let mut effect = native::Effect::from_parts(skill.score_up, skill.rateup);
             for idx in first..self.nodes.len() {
                 if sgn(self.nodes[idx].time - start_time - window) > 0 {
                     break;
                 }
-                if skill.rateup && sgn(multiplier - 2.5) < 0 {
-                    multiplier += 0.005;
-                }
+                let multiplier = f64::from(effect.next_multiplier());
                 total += self.score_factors[idx]
                     * self.fever_multiplier_at_node(idx)
                     * (multiplier - 1.0);
@@ -2586,53 +2016,7 @@ impl Chart {
     }
 
     fn skill_meta(&self, activation: usize, skill: TeamCardSkill) -> Result<f64, ChartError> {
-        let key = duration_key(skill.duration);
-        if skill.rateup {
-            return self
-                .meta
-                .rateup
-                .get(activation)
-                .ok_or(ChartError::MissingSkillMeta { activation })?
-                .get(&key)
-                .copied()
-                .ok_or(ChartError::UnsupportedSkillDuration {
-                    duration: skill.duration,
-                });
-        }
-
-        let value = self
-            .meta
-            .skill
-            .get(activation)
-            .ok_or(ChartError::MissingSkillMeta { activation })?
-            .get(&key)
-            .copied()
-            .ok_or(ChartError::UnsupportedSkillDuration {
-                duration: skill.duration,
-            })?;
-        Ok(value * skill.score_up)
-    }
-
-    fn exact_base_score_at_node(
-        &self,
-        node_idx: usize,
-        stat: i32,
-        combo: i32,
-        is_medley: bool,
-        base: f64,
-    ) -> f64 {
-        let unrounded = if self.score_as_medley == is_medley {
-            if let Some(&factor) = self.score_factors.get(node_idx) {
-                stat as f64 * factor
-            } else {
-                base * combo_mod(combo, is_medley, self.score_rule.combo_mode)
-                    * self.score_rule.base_multiplier
-            }
-        } else {
-            base * combo_mod(combo, is_medley, self.score_rule.combo_mode)
-                * self.score_rule.base_multiplier
-        };
-        (unrounded * self.fever_multiplier_at_node(node_idx)).floor()
+        Ok(self.meta_for_exact_window(self.compile_exact_skill_window(activation, skill)?))
     }
 
     #[inline]
@@ -2706,24 +2090,6 @@ const FIVE_CARD_MASK_POPCOUNT: [u8; 32] = [
     0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
 ];
 
-#[inline]
-fn skill_window_representatives(windows: &[ExactSkillWindow; 5]) -> [usize; 5] {
-    let mut representatives = [0, 1, 2, 3, 4];
-    for card_idx in 1..5 {
-        for previous in 0..card_idx {
-            if windows[card_idx].range_start == windows[previous].range_start
-                && windows[card_idx].range_end == windows[previous].range_end
-                && windows[card_idx].score_up.to_bits() == windows[previous].score_up.to_bits()
-                && windows[card_idx].rateup == windows[previous].rateup
-            {
-                representatives[card_idx] = representatives[previous];
-                break;
-            }
-        }
-    }
-    representatives
-}
-
 fn next_permutation(values: &mut [usize]) -> bool {
     let Some(pivot) = (0..values.len().saturating_sub(1))
         .rev()
@@ -2744,53 +2110,6 @@ fn next_permutation(values: &mut [usize]) -> bool {
 struct SkillEvent {
     time: f64,
     skill_mod: f64,
-    rateup: bool,
-}
-
-struct FixedSkillEventQueue {
-    events: [SkillEvent; 16],
-    head: usize,
-    len: usize,
-}
-
-impl FixedSkillEventQueue {
-    fn new() -> Self {
-        Self {
-            events: [SkillEvent {
-                time: 0.0,
-                skill_mod: 1.0,
-                rateup: false,
-            }; 16],
-            head: 0,
-            len: 0,
-        }
-    }
-
-    fn pop_front_if_after(&mut self, time: f64, scheduler: SkillScheduler) -> Option<SkillEvent> {
-        if self.len == 0 || !scheduler.event_is_due(time, self.events[self.head].time) {
-            return None;
-        }
-
-        let event = self.events[self.head];
-        self.head = (self.head + 1) % self.events.len();
-        self.len -= 1;
-        Some(event)
-    }
-
-    fn should_pop_at(&self, time: f64, scheduler: SkillScheduler) -> bool {
-        self.len > 0 && scheduler.event_is_due(time, self.events[self.head].time)
-    }
-
-    fn push_back(&mut self, event: SkillEvent) -> bool {
-        if self.len == self.events.len() {
-            return false;
-        }
-
-        let index = (self.head + self.len) % self.events.len();
-        self.events[index] = event;
-        self.len += 1;
-        true
-    }
 }
 
 fn avx2_available() -> bool {
@@ -2807,136 +2126,7 @@ fn avx2_available() -> bool {
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx2")]
-unsafe fn score_factor_base_scores_avx2(factors: &[f64], stat: i32, output: &mut [i32]) -> i32 {
-    debug_assert_eq!(factors.len(), output.len());
-    let stat_vec = _mm256_set1_pd(stat as f64);
-    let mut sum_vec = _mm256_setzero_pd();
-    let mut idx = 0usize;
-    while idx + 4 <= factors.len() {
-        let factors_vec = _mm256_loadu_pd(factors.as_ptr().add(idx));
-        let base = _mm256_floor_pd(_mm256_mul_pd(factors_vec, stat_vec));
-        let base_i32 = _mm256_cvttpd_epi32(base);
-        _mm_storeu_si128(output.as_mut_ptr().add(idx).cast(), base_i32);
-        sum_vec = _mm256_add_pd(sum_vec, base);
-        idx += 4;
-    }
-
-    let mut lanes = [0.0; 4];
-    _mm256_storeu_pd(lanes.as_mut_ptr(), sum_vec);
-    let mut sum = lanes.iter().sum::<f64>();
-    for (&factor, slot) in factors[idx..].iter().zip(&mut output[idx..]) {
-        *slot = (stat as f64 * factor).floor() as i32;
-        sum += f64::from(*slot);
-    }
-    sum as i32
-}
-
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[target_feature(enable = "avx2")]
-unsafe fn five_skill_deltas_from_base_scores_avx2(
-    base_scores: &[i32],
-    windows: &[ExactSkillWindow; 5],
-    rateup_profiles: &[&[f64]; 5],
-) -> [i32; 5] {
-    let range_start = windows[0].range_start;
-    debug_assert!(windows
-        .iter()
-        .all(|window| window.range_start == range_start));
-    let representatives = skill_window_representatives(windows);
-    let range_end = windows
-        .iter()
-        .map(|window| window.range_end)
-        .max()
-        .unwrap_or(range_start);
-    debug_assert!(range_end <= base_scores.len());
-
-    let constant_mods = windows.map(|window| _mm256_set1_pd(1.0 + window.score_up));
-    let mut sums = [_mm256_setzero_pd(); 5];
-    let mut idx = range_start;
-    while idx + 4 <= range_end {
-        let base_i32 = _mm_loadu_si128(base_scores.as_ptr().add(idx).cast());
-        let base = _mm256_cvtepi32_pd(base_i32);
-        let local_idx = idx - range_start;
-        for card_idx in 0..5 {
-            if representatives[card_idx] != card_idx {
-                continue;
-            }
-            let active = windows[card_idx].range_end.saturating_sub(idx).min(4);
-            if active == 0 {
-                continue;
-            }
-            let multiplier = if windows[card_idx].rateup {
-                debug_assert!(local_idx + 4 <= rateup_profiles[card_idx].len());
-                _mm256_loadu_pd(rateup_profiles[card_idx].as_ptr().add(local_idx))
-            } else {
-                constant_mods[card_idx]
-            };
-            let score = _mm256_floor_pd(_mm256_mul_pd(base, multiplier));
-            let mut delta = _mm256_sub_pd(score, base);
-            if active < 4 {
-                let mask = match active {
-                    1 => _mm256_set_epi64x(0, 0, 0, -1),
-                    2 => _mm256_set_epi64x(0, 0, -1, -1),
-                    3 => _mm256_set_epi64x(0, -1, -1, -1),
-                    _ => unreachable!(),
-                };
-                delta = _mm256_and_pd(delta, _mm256_castsi256_pd(mask));
-            }
-            sums[card_idx] = _mm256_add_pd(sums[card_idx], delta);
-        }
-        idx += 4;
-    }
-
-    let mut result = [0i32; 5];
-    for card_idx in 0..5 {
-        if representatives[card_idx] != card_idx {
-            continue;
-        }
-        let mut lanes = [0.0; 4];
-        _mm256_storeu_pd(lanes.as_mut_ptr(), sums[card_idx]);
-        let mut sum = lanes.iter().sum::<f64>();
-        for node_idx in idx..windows[card_idx].range_end {
-            let base = base_scores[node_idx];
-            let multiplier = if windows[card_idx].rateup {
-                rateup_profiles[card_idx][node_idx - range_start]
-            } else {
-                1.0 + windows[card_idx].score_up
-            };
-            sum += (base as f64 * multiplier).floor() - f64::from(base);
-        }
-        result[card_idx] = sum as i32;
-    }
-    for card_idx in 0..5 {
-        result[card_idx] = result[representatives[card_idx]];
-    }
-    result
-}
-
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[target_feature(enable = "avx2")]
-unsafe fn base_score_constant_delta_sum_avx2(base_scores: &[i32], skill_mod: f64) -> i32 {
-    let skill_mod_vec = _mm256_set1_pd(skill_mod);
-    let mut sum_vec = _mm256_setzero_pd();
-    let mut idx = 0usize;
-    while idx + 4 <= base_scores.len() {
-        let base_i32 = _mm_loadu_si128(base_scores.as_ptr().add(idx).cast());
-        let base = _mm256_cvtepi32_pd(base_i32);
-        let score = _mm256_floor_pd(_mm256_mul_pd(base, skill_mod_vec));
-        sum_vec = _mm256_add_pd(sum_vec, _mm256_sub_pd(score, base));
-        idx += 4;
-    }
-
-    let mut lanes = [0.0; 4];
-    _mm256_storeu_pd(lanes.as_mut_ptr(), sum_vec);
-    let mut sum = lanes.iter().sum::<f64>();
-    for &base in &base_scores[idx..] {
-        sum += (base as f64 * skill_mod).floor() - f64::from(base);
-    }
-    sum as i32
-}
-
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[target_feature(enable = "avx2")]
+#[cfg(test)]
 unsafe fn base_score_multiplier_delta_sum_avx2(base_scores: &[i32], multipliers: &[f64]) -> i32 {
     debug_assert_eq!(base_scores.len(), multipliers.len());
     let mut sum_vec = _mm256_setzero_pd();
@@ -2955,85 +2145,6 @@ unsafe fn base_score_multiplier_delta_sum_avx2(base_scores: &[i32], multipliers:
     let mut sum = lanes.iter().sum::<f64>();
     for (&base, &multiplier) in base_scores[idx..].iter().zip(&multipliers[idx..]) {
         sum += (base as f64 * multiplier).floor() - f64::from(base);
-    }
-    sum as i32
-}
-
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[target_feature(enable = "avx2")]
-unsafe fn score_factor_range_sum_avx2(factors: &[f64], stat: i32, skill_mod: f64) -> i32 {
-    let stat_vec = _mm256_set1_pd(stat as f64);
-    let skill_mod_vec = _mm256_set1_pd(skill_mod);
-    let mut sum_vec = _mm256_setzero_pd();
-    let mut idx = 0usize;
-
-    while idx + 4 <= factors.len() {
-        let factors_vec = _mm256_loadu_pd(factors.as_ptr().add(idx));
-        let no_skill = _mm256_floor_pd(_mm256_mul_pd(factors_vec, stat_vec));
-        let score = _mm256_floor_pd(_mm256_mul_pd(no_skill, skill_mod_vec));
-        sum_vec = _mm256_add_pd(sum_vec, score);
-        idx += 4;
-    }
-
-    let mut lanes = [0.0; 4];
-    _mm256_storeu_pd(lanes.as_mut_ptr(), sum_vec);
-    let mut sum = lanes.iter().sum::<f64>();
-
-    for &factor in &factors[idx..] {
-        let no_skill = (stat as f64 * factor).floor();
-        sum += (no_skill * skill_mod).floor();
-    }
-
-    sum as i32
-}
-
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[target_feature(enable = "avx2")]
-unsafe fn score_factor_range_delta_sum_avx2(factors: &[f64], stat: i32, skill_mod: f64) -> i32 {
-    let stat_vec = _mm256_set1_pd(stat as f64);
-    let skill_mod_vec = _mm256_set1_pd(skill_mod);
-    let mut sum_vec = _mm256_setzero_pd();
-    let mut idx = 0usize;
-
-    while idx + 4 <= factors.len() {
-        let factors_vec = _mm256_loadu_pd(factors.as_ptr().add(idx));
-        let no_skill = _mm256_floor_pd(_mm256_mul_pd(factors_vec, stat_vec));
-        let score = _mm256_floor_pd(_mm256_mul_pd(no_skill, skill_mod_vec));
-        sum_vec = _mm256_add_pd(sum_vec, _mm256_sub_pd(score, no_skill));
-        idx += 4;
-    }
-
-    let mut lanes = [0.0; 4];
-    _mm256_storeu_pd(lanes.as_mut_ptr(), sum_vec);
-    let mut sum = lanes.iter().sum::<f64>();
-    for &factor in &factors[idx..] {
-        let no_skill = (stat as f64 * factor).floor();
-        sum += (no_skill * skill_mod).floor() - no_skill;
-    }
-    sum as i32
-}
-
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[target_feature(enable = "avx2")]
-unsafe fn compiled_six_skill_score_avx2(factors: &[f64], multipliers: &[f64], stat: i32) -> i32 {
-    debug_assert_eq!(factors.len(), multipliers.len());
-    let stat_vec = _mm256_set1_pd(stat as f64);
-    let mut sum_vec = _mm256_setzero_pd();
-    let mut idx = 0usize;
-    while idx + 4 <= factors.len() {
-        let factor_vec = _mm256_loadu_pd(factors.as_ptr().add(idx));
-        let multiplier_vec = _mm256_loadu_pd(multipliers.as_ptr().add(idx));
-        let no_skill = _mm256_floor_pd(_mm256_mul_pd(factor_vec, stat_vec));
-        let score = _mm256_floor_pd(_mm256_mul_pd(no_skill, multiplier_vec));
-        sum_vec = _mm256_add_pd(sum_vec, score);
-        idx += 4;
-    }
-    let mut lanes = [0.0; 4];
-    _mm256_storeu_pd(lanes.as_mut_ptr(), sum_vec);
-    let mut sum = lanes.iter().sum::<f64>();
-    for idx in idx..factors.len() {
-        let no_skill = (stat as f64 * factors[idx]).floor();
-        sum += (no_skill * multipliers[idx]).floor();
     }
     sum as i32
 }
@@ -3130,14 +2241,14 @@ mod tests {
         let scalar = base_scores
             .iter()
             .zip(&profile.multipliers)
-            .map(|(&base, &multiplier)| (base as f64 * multiplier).floor() as i32 - base)
+            .map(|(&base, &multiplier)| native::settle(base, multiplier as f32, 1.0) - base)
             .sum::<i32>();
 
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         let avx2 =
             unsafe { base_score_multiplier_delta_sum_avx2(&base_scores, &profile.multipliers) };
 
-        assert_eq!(profile.multipliers[0], 2.005);
+        assert_eq!(profile.multipliers[0], f64::from(2.005_f32));
         assert_eq!(
             profile.multipliers[159],
             *profile.multipliers.last().unwrap()
@@ -3181,7 +2292,7 @@ mod tests {
     }
 
     #[test]
-    fn fever_is_applied_before_inner_floor_and_skill_multiplier() {
+    fn fever_is_applied_after_inner_floor_together_with_skill() {
         let mut chart = Chart::new_with_fever_section(
             5,
             vec![
@@ -3201,14 +2312,14 @@ mod tests {
         let skill = skill(1, 0.5);
         let skills = [skill; 6];
 
-        assert_eq!(chart.no_skill_score_at_stat(1).unwrap(), 6.0);
-        assert_eq!(chart.get_score(&skills, 1, false).unwrap(), 7);
+        assert_eq!(chart.no_skill_score_at_stat(1).unwrap(), 4.0);
+        assert_eq!(chart.get_score(&skills, 1, false).unwrap(), 5);
         assert_eq!(
             chart.get_score_for_six_skills(&skills, 1, false).unwrap(),
-            7
+            5
         );
         let compiled = chart.compile_six_skill_score(&skills, false).unwrap();
-        assert_eq!(chart.score_compiled_six_skills(&compiled, 1), 7);
+        assert_eq!(chart.score_compiled_six_skills(&compiled, 1), 5);
     }
 
     #[test]
@@ -3620,7 +2731,15 @@ mod tests {
         let compiled = chart.compile_six_skill_score(&skills, false).unwrap();
         // Before t=10, skill 1 has ended, skill 2 has started and ended, and
         // skill 3 has started. The sparse node must therefore use skill 3.
-        assert_eq!(compiled.multipliers.last().copied(), Some(2.0));
+        assert_eq!(
+            chart
+                .native_score_notes(&skills, false)
+                .unwrap()
+                .last()
+                .unwrap()
+                .skill,
+            2.0
+        );
 
         let windows = chart
             .score_range_skill_window_counts(skills[0].duration)

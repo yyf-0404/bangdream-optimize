@@ -576,9 +576,13 @@ struct ContributionNearMiss {
 }
 
 pub(crate) struct MedleyContributionDominance<'a> {
+    rounding_by_chart: Vec<f64>,
     cards: &'a [PreparedCard],
     charts: &'a [Chart],
     profiles: &'a [MedleyCardPruneProfile],
+    // Profiles are immutable for this context; do not rescan the whole pool
+    // on every candidate-pair comparison.
+    has_queued_windows: bool,
     seed_score_floor_by_chart: Vec<f64>,
     fixed_teammate_skills: Option<[TeamCardSkill; 4]>,
     fixed_teammate_effective_stat: f64,
@@ -598,7 +602,9 @@ struct JointPointBonusContext<'a> {
 #[derive(Debug, Clone)]
 struct SignatureContributionContextCacheEntry {
     signature: MedleyPruneSignature,
-    bounds: Option<SignatureContributionContextBounds>,
+    // Pair comparisons share all five bound arrays, including across calls
+    // which may populate the separate queued-model cache.
+    bounds: Option<Arc<SignatureContributionContextBounds>>,
 }
 
 #[derive(Debug, Clone)]
@@ -765,6 +771,39 @@ fn contribution_replacement_reject(
     }
 }
 
+fn native_rounding_budgets(
+    cards: &[PreparedCard],
+    charts: &[Chart],
+    profiles: &[MedleyCardPruneProfile],
+) -> Vec<f64> {
+    let power = 5.0 * profiles.iter().map(|p| p.stat).fold(0.0_f64, f64::max);
+    let multiplier = cards
+        .iter()
+        .map(|card| {
+            let rate = card.score_up.default.max(
+                card.score_up
+                    .unification_activate_effect_value
+                    .unwrap_or(0.0),
+            );
+            let base = crate::scoring::skill_multiplier_from_percent((rate * 100.0) as f32)
+                .expect("validated skill") as f64;
+            if card.skill.rateup {
+                base.max(2.5)
+            } else {
+                base
+            }
+        })
+        .fold(1.0_f64, f64::max);
+    let duration = cards
+        .iter()
+        .map(|card| card.skill.duration)
+        .fold(0.0_f64, f64::max);
+    charts
+        .iter()
+        .map(|chart| chart.native_contribution_error(power, duration, multiplier))
+        .collect()
+}
+
 impl<'a> MedleyContributionDominance<'a> {
     pub(crate) fn new(
         cards: &'a [PreparedCard],
@@ -776,6 +815,10 @@ impl<'a> MedleyContributionDominance<'a> {
             cards,
             charts,
             profiles,
+            has_queued_windows: profiles
+                .iter()
+                .any(MedleyCardPruneProfile::has_queued_windows),
+            rounding_by_chart: native_rounding_budgets(cards, charts, profiles),
             seed_score_floor_by_chart: seed_score_floor_by_chart(
                 cards,
                 charts,
@@ -803,6 +846,10 @@ impl<'a> MedleyContributionDominance<'a> {
             cards,
             charts,
             profiles,
+            has_queued_windows: profiles
+                .iter()
+                .any(MedleyCardPruneProfile::has_queued_windows),
+            rounding_by_chart: native_rounding_budgets(cards, charts, profiles),
             seed_score_floor_by_chart: seed_score_floor_by_chart_from_upper_bounds(
                 charts.len(),
                 current_best,
@@ -822,6 +869,34 @@ impl<'a> MedleyContributionDominance<'a> {
         teammate_skills: &[TeamCardSkill; 4],
         teammate_effective_stat: f64,
     ) {
+        let extra_multiplier = teammate_skills
+            .iter()
+            .map(|s| {
+                let value =
+                    crate::scoring::skill_multiplier_from_percent((s.score_up * 100.0) as f32)
+                        .expect("validated skill") as f64;
+                if s.rateup {
+                    value.max(2.5)
+                } else {
+                    value
+                }
+            })
+            .fold(1.0_f64, f64::max);
+        let duration = teammate_skills
+            .iter()
+            .map(|s| s.duration)
+            .fold(0.0_f64, f64::max);
+        let own_power = 5.0 * self.profiles.iter().map(|p| p.stat).fold(0.0_f64, f64::max);
+        for (budget, chart) in self.rounding_by_chart.iter_mut().zip(self.charts) {
+            // Conservatively cover own score plus the four 1/10-weighted teammates.
+            *budget =
+                budget.max(chart.native_contribution_error(own_power, duration, extra_multiplier))
+                    + chart.native_contribution_error(
+                        teammate_effective_stat * 10.0,
+                        duration,
+                        extra_multiplier,
+                    );
+        }
         self.fixed_teammate_skills = Some(*teammate_skills);
         self.fixed_teammate_effective_stat = teammate_effective_stat;
         self.signature_context_cache.clear();
@@ -1025,7 +1100,7 @@ impl<'a> MedleyContributionDominance<'a> {
                         0.0,
                     );
                 };
-                let margin = endpoint.margin;
+                let margin = endpoint.margin - self.rounding_budget(chart_idx, left_idx, right_idx);
                 if margin < min_margin {
                     min_margin = margin;
                     min_margin_chart = Some(chart_idx);
@@ -1202,6 +1277,8 @@ impl<'a> MedleyContributionDominance<'a> {
             else {
                 return false;
             };
+            let margin = margin
+                - self.rounding_budget(index / CONTRIBUTION_SCENARIO_COUNT, left_idx, right_idx);
             if margin < 0.0 {
                 return false;
             }
@@ -1209,6 +1286,17 @@ impl<'a> MedleyContributionDominance<'a> {
         }
 
         strictly_better || left.card_id < right.card_id
+    }
+
+    fn rounding_budget(&self, chart: usize, left: usize, right: usize) -> f64 {
+        let mut budget = self.rounding_by_chart.get(chart).copied().unwrap_or(0.0);
+        if let Some(context) = self.joint_point_bonus {
+            let own = context.card_bonus_micros[left].max(context.card_bonus_micros[right]);
+            let multiplier = 10_000_u64
+                .saturating_add(own.saturating_add(context.teammate_bonus_bounds[1]) / 10_000);
+            budget *= multiplier as f64;
+        }
+        budget
     }
 
     fn contribution_endpoint_comparison(
@@ -1281,7 +1369,7 @@ impl<'a> MedleyContributionDominance<'a> {
     fn signature_context_bounds(
         &mut self,
         signature: MedleyPruneSignature,
-    ) -> Option<SignatureContributionContextBounds> {
+    ) -> Option<Arc<SignatureContributionContextBounds>> {
         if let Some(entry) = self
             .signature_context_cache
             .iter()
@@ -1290,7 +1378,7 @@ impl<'a> MedleyContributionDominance<'a> {
             return entry.bounds.clone();
         }
 
-        let bounds = self.build_signature_context_bounds(signature);
+        let bounds = self.build_signature_context_bounds(signature).map(Arc::new);
         self.signature_context_cache
             .push(SignatureContributionContextCacheEntry {
                 signature,
@@ -1304,11 +1392,7 @@ impl<'a> MedleyContributionDominance<'a> {
         signature: MedleyPruneSignature,
         context: &SignatureContributionContextBounds,
     ) -> Option<Arc<QueuedModels>> {
-        if self
-            .profiles
-            .iter()
-            .all(|profile| !profile.has_queued_windows())
-        {
+        if !self.has_queued_windows {
             return None;
         }
         if let Some((_, models)) = self
@@ -1808,7 +1892,8 @@ fn signature_team_stat_floor(seed_score_floor: f64, team_meta_upper: f64) -> f64
 
     // Exact note-by-note scoring is bounded by ceil(stat * continuous_meta). Therefore a team
     // reaching integer score S only proves stat * meta > S - 1, not stat * meta >= S.
-    (seed_score_floor - 1.0).max(0.0) / team_meta_upper
+    (seed_score_floor - 1.0).max(0.0)
+        / (team_meta_upper * (1.0 + crate::scoring::SCORE_GAMMA + 32.0 * f64::EPSILON))
 }
 
 fn seed_score_floor_by_chart(
@@ -2310,7 +2395,7 @@ mod tests {
             MedleyContributionDominance::new(&cards, std::slice::from_ref(&chart), &profiles, 0);
         without_external.set_fixed_teammate_context(&teammate_skills, 0.0);
         let base = without_external
-            .build_signature_context_bounds(MedleyPruneSignature::Mixed)
+            .signature_context_bounds(MedleyPruneSignature::Mixed)
             .unwrap();
 
         let external_stat = 118_000.0;
@@ -2320,6 +2405,18 @@ mod tests {
         let shifted = with_external
             .build_signature_context_bounds(MedleyPruneSignature::Mixed)
             .unwrap();
+
+        // A retained cached value must stay unchanged when a new teammate
+        // context invalidates the cache and resolves different bounds.
+        without_external.set_fixed_teammate_context(&teammate_skills, external_stat);
+        let recached = without_external
+            .signature_context_bounds(MedleyPruneSignature::Mixed)
+            .unwrap();
+        assert_eq!(recached.stat_high, shifted.stat_high);
+        assert_eq!(
+            recached.teammate_stat_low_by_chart_scenario,
+            shifted.teammate_stat_low_by_chart_scenario
+        );
 
         assert_eq!(shifted.stat_high - base.stat_high, external_stat);
         for (&shifted_low, &base_low) in shifted

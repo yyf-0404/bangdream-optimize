@@ -5,6 +5,7 @@ pub mod model;
 pub mod pt_evaluate;
 pub mod pt_maximize;
 pub mod score_range;
+pub mod scoring;
 pub mod single;
 mod skill_assignment;
 pub mod skill_shuffle;

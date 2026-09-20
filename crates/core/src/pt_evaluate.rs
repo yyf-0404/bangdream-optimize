@@ -9,7 +9,7 @@ use crate::pt_maximize::distribution::{
     evaluate_fixed_distribution, fixed_captain_score_distribution,
 };
 use crate::{
-    event_bonus_application, floor_team_stat, medley_three_song_points, AreaItemPercent, AveragePt,
+    event_bonus_application, medley_three_song_points, AreaItemPercent, AveragePt,
     EventBonusApplication, EventType, FixedTeamPtScenario, LiveVariant, PreparedCard,
     PtMaximizeError, PtMaximizeMedleyResult, PtMaximizeMedleyTeamResult, PtMaximizeScenarioSummary,
     PtMaximizeTeamResult, ScoreHistogram, SelectedAreaItems, SongMode, SongSelection, VersusInput,
@@ -189,6 +189,8 @@ pub struct PtEvaluateMetrics {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PtEvaluateResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scoring_revision: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skill_queue_notices: Vec<crate::SkillQueueNotice>,
     pub event_id: u32,
@@ -230,14 +232,23 @@ pub fn evaluate_specified_teams(
         let skills = selected
             .map(|card| mode.resolve_skill(card))
             .transpose_array()?;
-        let total_stat = floor_team_stat(selected.iter().map(|card| {
-            card.add_up_stat(
+        let members = selected.map(|card| {
+            card.member_power(
                 area_item_percent,
                 &request.items.band,
                 &request.items.attribute,
                 request.items.magazine.as_str(),
             )
-        }));
+        });
+        let power = crate::scoring::DeckPower::from_members(&members)
+            .map_err(|error| PtMaximizeError::Chart(error.into()))?;
+        let total_stat =
+            if crate::pt_maximize::displays_score_attack_parameters(request.event_type) {
+                power.score_attack_display_integer()
+            } else {
+                power.display_integer()
+            }
+            .map_err(|error| PtMaximizeError::Chart(error.into()))?;
         let point_bonus_basis_points = if application == EventBonusApplication::PointMultiplier {
             point_bonus_basis_points(selected.iter().map(|card| {
                 point_bonus_micros
@@ -248,16 +259,16 @@ pub fn evaluate_specified_teams(
         } else {
             0
         };
-        resolved.push((skills, total_stat, point_bonus_basis_points));
+        resolved.push((skills, total_stat, point_bonus_basis_points, power));
     }
 
     if request.live_variant != LiveVariant::Medley {
-        let (skills, total_stat, point_bonus_basis_points) = resolved[0];
+        let (skills, total_stat, point_bonus_basis_points, power) = resolved[0];
         let scenario = single_scenario(request, point_bonus_basis_points)?;
         let distribution = fixed_captain_score_distribution(
             &charts[0],
             &skills,
-            total_stat,
+            power.scoring(),
             false,
             FIXED_CAPTAIN_INDEX,
         )?;
@@ -277,11 +288,11 @@ pub fn evaluate_specified_teams(
 
     let mut team_results = Vec::with_capacity(MEDLEY_SONG_COUNT);
     for song in 0..MEDLEY_SONG_COUNT {
-        let (skills, total_stat, _) = resolved[song];
+        let (skills, total_stat, _, power) = resolved[song];
         let distribution = fixed_captain_score_distribution(
             &charts[song],
             &skills,
-            total_stat,
+            power.scoring(),
             true,
             FIXED_CAPTAIN_INDEX,
         )?;
@@ -294,7 +305,11 @@ pub fn evaluate_specified_teams(
             score_distribution: distribution.distribution,
         });
     }
-    let medley = fixed_medley_result(team_results)?;
+    let mut medley = fixed_medley_result(team_results)?;
+    medley.total_stat = Some(
+        crate::scoring::DeckPower::medley_display(&std::array::from_fn(|i| resolved[i].3))
+            .map_err(|error| PtMaximizeError::Chart(error.into()))?,
+    );
     Ok((None, Some(medley)))
 }
 
@@ -435,6 +450,7 @@ fn fixed_medley_result(
         .map(|value| i128::from(value.score_sum) * i128::from(sample_count / value.sample_count))
         .sum();
     Ok(PtMaximizeMedleyResult {
+        total_stat: None,
         teams,
         average_pt: AveragePt::new(pt_sum, sample_count)?,
         min_pt: medley_three_song_points(min_score),

@@ -502,6 +502,8 @@ pub struct PtMaximizeTeamResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PtMaximizeResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scoring_revision: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skill_queue_notices: Vec<crate::SkillQueueNotice>,
     pub event_id: u32,
@@ -601,6 +603,8 @@ pub struct PtMaximizeMedleyTeamResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PtMaximizeMedleyResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_stat: Option<i32>,
     pub teams: Vec<PtMaximizeMedleyTeamResult>,
     pub average_pt: AveragePt,
     pub min_pt: u64,

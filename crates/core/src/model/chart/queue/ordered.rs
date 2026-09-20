@@ -14,7 +14,7 @@ pub(crate) struct OrderedQueueScoreCache<'a> {
     skills: Vec<TeamCardSkill>,
     durations: Vec<usize>,
     profiles: Vec<RateUpProfileScratch>,
-    stats: HashMap<i32, StatScores>,
+    stats: HashMap<u32, StatScores>,
 }
 
 impl<'a> OrderedQueueScoreCache<'a> {
@@ -41,19 +41,30 @@ impl<'a> OrderedQueueScoreCache<'a> {
         })
     }
 
-    pub(crate) fn score(&mut self, stat: i32, skill_ids: [u16; 6]) -> Result<i32, ChartError> {
+    pub(crate) fn score(
+        &mut self,
+        stat: impl Into<f64>,
+        skill_ids: [u16; 6],
+    ) -> Result<i32, ChartError> {
+        use crate::scoring::cache_audit::{self as audit, Cache};
+        let stat: f64 = stat.into();
+        let key = (stat as f32).to_bits();
         let chart = self.chart;
         // Bound memory independently of the number of leaves / stat values.
-        if self.stats.len() >= 128 && !self.stats.contains_key(&stat) {
+        if self.stats.len() >= 128 && !self.stats.contains_key(&key) {
             self.stats.clear();
         }
         let compressed = !chart.fever_enabled;
-        if !self.stats.contains_key(&stat) {
+        let build_stat = || {
             let mut runs = Vec::new();
             let base = if compressed {
                 let mut total = 0;
                 for run in &chart.score_factor_runs {
-                    let value = (stat as f64 * chart.score_factors[run.start]).floor() as i32;
+                    let value = chart.native_first(
+                        chart.native_base(stat),
+                        run.start,
+                        chart.score_as_medley,
+                    );
                     total += value * (run.end - run.start) as i32;
                     runs.push(value);
                 }
@@ -61,23 +72,32 @@ impl<'a> OrderedQueueScoreCache<'a> {
             } else {
                 chart.exact_no_skill_score_i32(stat, chart.score_as_medley)?
             };
-            self.stats.insert(
-                stat,
-                StatScores {
-                    base,
-                    runs,
-                    deltas: HashMap::new(),
-                },
-            );
-        }
-        let cached = self.stats.get_mut(&stat).unwrap();
+            Ok::<_, ChartError>(StatScores {
+                base,
+                runs,
+                deltas: HashMap::new(),
+            })
+        };
+        let mut uncached;
+        let cached = if audit::enabled(Cache::QueuePower) {
+            let hit = self.stats.contains_key(&key);
+            audit::lookup(Cache::QueuePower, hit, self.stats.len());
+            if !hit {
+                self.stats.insert(key, build_stat()?);
+            }
+            self.stats.get_mut(&key).unwrap()
+        } else {
+            audit::lookup(Cache::QueuePower, false, 0);
+            uncached = build_stat()?;
+            &mut uncached
+        };
         let machine = chart.queue_state_machine().unwrap();
         let mut state = 0;
         let mut score = cached.base;
         for (p, id) in skill_ids.into_iter().enumerate() {
             let index = usize::from(id);
             let edge = machine.layers[p][state][self.durations[index]];
-            let delta = cached.deltas.entry((id, edge.window)).or_insert_with(|| {
+            let mut build_delta = || {
                 let range = machine.window_range(edge.window);
                 let window = range.with_skill(self.skills[index]);
                 if compressed {
@@ -85,8 +105,23 @@ impl<'a> OrderedQueueScoreCache<'a> {
                 } else {
                     chart.skill_delta_for_window_i32(window, stat, chart.score_as_medley)
                 }
-            });
-            score += *delta;
+            };
+            let delta = if audit::enabled(Cache::QueueDelta) {
+                #[cfg(feature = "experimental-cache-audit")]
+                audit::lookup(
+                    Cache::QueueDelta,
+                    cached.deltas.contains_key(&(id, edge.window)),
+                    cached.deltas.len(),
+                );
+                *cached
+                    .deltas
+                    .entry((id, edge.window))
+                    .or_insert_with(build_delta)
+            } else {
+                audit::lookup(Cache::QueueDelta, false, 0);
+                build_delta()
+            };
+            score += delta;
             state = edge.next;
         }
         Ok(score)
@@ -115,7 +150,7 @@ impl Chart {
                     &profile.multipliers[start - window.range_start..end - window.range_start],
                 )
             } else {
-                ((base as f64 * (1.0 + window.score_up)).floor() as i32 - base)
+                (native::settle(base, native::ordinary_multiplier(window.score_up), 1.0) - base)
                     * (end - start) as i32
             };
         }

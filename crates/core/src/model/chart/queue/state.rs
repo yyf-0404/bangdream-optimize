@@ -102,14 +102,6 @@ impl QueueStateMachine {
             .collect()
     }
 
-    pub(crate) fn max_note_count(&self) -> usize {
-        self.windows
-            .iter()
-            .map(|w| w.end - w.start)
-            .max()
-            .unwrap_or(0)
-    }
-
     pub(super) fn window_range(&self, id: usize) -> WindowRange {
         self.windows[id]
     }
@@ -166,13 +158,11 @@ impl Chart {
             && durations.into_iter().all(|d| duration_index(d).is_some())
     }
 
-    fn meta_for_exact_window(&self, window: ExactSkillWindow) -> f64 {
-        let mut multiplier = 1.0 + window.score_up;
+    pub(in crate::model::chart) fn meta_for_exact_window(&self, window: ExactSkillWindow) -> f64 {
+        let mut effect = native::Effect::from_parts(window.score_up, window.rateup);
         let mut value = 0.0;
         for note in window.range_start..window.range_end {
-            if window.rateup && sgn(multiplier - 2.5) < 0 {
-                multiplier += 0.005;
-            }
+            let multiplier = f64::from(effect.next_multiplier());
             value +=
                 self.score_factors[note] * self.fever_multiplier_at_node(note) * (multiplier - 1.0);
         }
@@ -457,10 +447,11 @@ impl Chart {
     pub(crate) fn state_skill_scores(
         &self,
         team: &[TeamCardSkill; 5],
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
         scratch: &mut ExactScoreScratch,
     ) -> Result<Option<StateSkillScores>, ChartError> {
+        let stat: f64 = stat.into();
         let Some(machine) = self.queue_state_machine() else {
             return Ok(None);
         };
@@ -478,7 +469,7 @@ impl Chart {
             scratch.base_scores.resize(self.score_factor_runs.len(), 0);
             let mut total = 0;
             for (run, value) in self.score_factor_runs.iter().zip(&mut scratch.base_scores) {
-                *value = (stat as f64 * self.score_factors[run.start]).floor() as i32;
+                *value = self.native_first(self.native_base(stat), run.start, is_medley);
                 total += *value * (run.end - run.start) as i32;
             }
             total

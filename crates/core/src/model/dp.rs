@@ -120,35 +120,12 @@ impl DpChartModel {
             });
         }
 
-        let key = duration_key(skill.duration);
-        let value = if skill.rateup {
-            chart
-                .meta
-                .rateup
-                .get(activation)
-                .ok_or(DpModelError::MissingSkillMeta { activation })?
-                .get(&key)
-                .copied()
-                .ok_or(DpModelError::UnsupportedSkillDuration {
-                    duration: skill.duration,
-                })?
-        } else {
-            chart
-                .meta
-                .skill
-                .get(activation)
-                .ok_or(DpModelError::MissingSkillMeta { activation })?
-                .get(&key)
-                .copied()
-                .ok_or(DpModelError::UnsupportedSkillDuration {
-                    duration: skill.duration,
-                })?
-                * skill.score_up
-        };
+        let value = chart.skill_meta_value(activation, skill)?;
 
         Ok(ModelTerm { sb: value, c: 0.0 })
     }
 
+    /// Continuous heuristic only; final scores are settled by Chart.
     pub fn score_raw(self, sa: i32, sb: f64, c: f64) -> f64 {
         sa as f64 * (self.d + sb) + self.c + c
     }
@@ -160,10 +137,6 @@ impl DpChartModel {
 
 pub fn floor_score(score: f64) -> i32 {
     score.floor().clamp(i32::MIN as f64, i32::MAX as f64) as i32
-}
-
-fn duration_key(duration: f64) -> i32 {
-    (duration * 1000.0).round() as i32
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

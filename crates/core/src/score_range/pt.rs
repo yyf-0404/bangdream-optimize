@@ -57,7 +57,7 @@ pub fn score_interval_for_points_with_support(
     let interval = match event_type {
         EventType::Versus => simple_interval(base_points, 100, 9_750),
         EventType::Medley => simple_interval(base_points, 30, 18_500),
-        EventType::Festival => simple_interval(base_points, 80, 14_000),
+        EventType::Festival => bonus_interval(base_points, 80, 14_000, point_bonus_basis_points),
         EventType::LiveTry => bonus_interval(base_points, 130, 26_000, point_bonus_basis_points),
         EventType::Challenge => bonus_interval(
             base_points,
@@ -225,6 +225,45 @@ mod tests {
     }
 
     #[test]
+    fn festival_bonus_inverse_preserves_score_boundaries_and_unreachable_points() {
+        for (bonus, base_points, min_score, max_score) in [
+            (5_000, 135, 140_000, 153_999),
+            (3_750, 130, 210_000, 223_999),
+            (30_600, 365, 140_000, 153_999),
+        ] {
+            for fire in FIRE_MULTIPLIERS {
+                let points = base_points * fire as u64;
+                let interval =
+                    score_interval_for_points(EventType::Festival, points, bonus, fire).unwrap();
+                assert_eq!(
+                    interval,
+                    Some(ScoreInterval {
+                        min_score,
+                        max_score
+                    })
+                );
+                for score in [min_score, max_score] {
+                    assert_eq!(
+                        points_for_score(EventType::Festival, score as i32, bonus, fire).unwrap(),
+                        points
+                    );
+                }
+                for score in [min_score - 1, max_score + 1] {
+                    assert_ne!(
+                        points_for_score(EventType::Festival, score as i32, bonus, fire).unwrap(),
+                        points
+                    );
+                }
+            }
+        }
+        // With +50%, consecutive raw PT values 89 and 90 become 133 and 135.
+        assert_eq!(
+            score_interval_for_points(EventType::Festival, 134, 5_000, 1).unwrap(),
+            None
+        );
+    }
+
+    #[test]
     fn mission_support_bonus_is_added_after_event_multiplier() {
         let points =
             points_for_score_with_support(EventType::MissionLive, 1_500_000, 5_000, 5, 97).unwrap();
@@ -285,7 +324,10 @@ mod tests {
         ] {
             let bonus = if matches!(
                 event_type,
-                EventType::MissionLive | EventType::LiveTry | EventType::Challenge
+                EventType::MissionLive
+                    | EventType::LiveTry
+                    | EventType::Challenge
+                    | EventType::Festival
             ) {
                 3_750
             } else {

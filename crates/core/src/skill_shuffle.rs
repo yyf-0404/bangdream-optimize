@@ -37,6 +37,8 @@ pub(crate) struct WeightedOrder {
 #[derive(Debug)]
 pub(crate) struct DisplayLayout {
     pub cards: [usize; 5],
+    pub counts: [u16; ORDER_COUNT],
+    pub reachable: u128,
     pub weighted_orders: Vec<WeightedOrder>,
 }
 
@@ -82,6 +84,20 @@ pub(crate) fn tables() -> &'static ShuffleTables {
             .iter()
             .map(|&cards| DisplayLayout {
                 cards,
+                reachable: orders
+                    .iter()
+                    .zip(&path_counts)
+                    .filter(|(_, count)| **count > 0)
+                    .fold(0_u128, |mask, (order, _)| {
+                        mask | (1_u128 << order_index(order.map(|slot| cards[slot])))
+                    }),
+                counts: {
+                    let mut counts = [0; ORDER_COUNT];
+                    for (order, &count) in orders.iter().zip(&path_counts) {
+                        counts[order_index(order.map(|slot| cards[slot]))] = count;
+                    }
+                    counts
+                },
                 weighted_orders: orders
                     .iter()
                     .zip(&path_counts)
@@ -128,6 +144,7 @@ pub(crate) fn matrix_order_scores(matrix: &IndependentSkillScoreMatrix) -> Order
     })
 }
 
+#[cfg(test)]
 pub(crate) fn matrix_best_mean_numerator(matrix: &IndependentSkillScoreMatrix) -> i64 {
     let marginal = &tables().slot_activation_counts;
     let values: [[i64; 5]; 5] = std::array::from_fn(|slot| {
@@ -162,9 +179,10 @@ pub(crate) fn matrix_best_mean_numerator(matrix: &IndependentSkillScoreMatrix) -
 pub(crate) fn exact_order_scores(
     chart: &Chart,
     skills: &[TeamCardSkill; 5],
-    stat: i32,
+    stat: impl Into<f64>,
     is_medley: bool,
 ) -> Result<OrderScores, ChartError> {
+    let stat: f64 = stat.into();
     exact_order_scores_with_scratch(
         chart,
         skills,
@@ -177,10 +195,12 @@ pub(crate) fn exact_order_scores(
 pub(crate) fn exact_order_scores_with_scratch(
     chart: &Chart,
     skills: &[TeamCardSkill; 5],
-    stat: i32,
+    stat: impl Into<f64>,
     is_medley: bool,
     scratch: &mut ExactScoreScratch,
 ) -> Result<OrderScores, ChartError> {
+    let stat: f64 = stat.into();
+    chart.validate_native_domain(stat, skills, is_medley)?;
     if let Some(matrix) = chart.independent_skill_score_matrix(skills, stat, is_medley, scratch)? {
         return Ok(matrix_order_scores(&matrix));
     }
@@ -205,31 +225,14 @@ pub(crate) fn exact_order_scores_with_scratch(
     Ok(scores)
 }
 
-pub(crate) fn best_weighted_mean_numerator(scores: &OrderScores) -> i64 {
-    tables()
-        .layouts
-        .iter()
-        .map(|layout| {
-            let row = &scores[layout.cards[CAPTAIN_SLOT]];
-            layout
-                .weighted_orders
-                .iter()
-                .map(|order| i64::from(row[order.index]) * i64::from(order.count))
-                .sum()
-        })
-        .max()
-        .expect("there are 120 layouts")
-}
-
-/// Specified teams keep both their display slots and their captain. Enumerate
-/// the actual shuffled orders with the full scheduler, including chained queues.
 pub(crate) fn fixed_captain_order_scores(
     chart: &Chart,
     skills: &[TeamCardSkill; 5],
-    stat: i32,
+    stat: impl Into<f64>,
     is_medley: bool,
     captain: usize,
 ) -> Result<[i32; ORDER_COUNT], ChartError> {
+    let stat: f64 = stat.into();
     let mut scores = [0; ORDER_COUNT];
     for (index, order) in tables().orders.iter().enumerate() {
         let activations = std::array::from_fn(|i| skills[if i == 5 { captain } else { order[i] }]);
@@ -241,18 +244,143 @@ pub(crate) fn fixed_captain_order_scores(
 pub(crate) fn recommend_max_score(
     chart: &Chart,
     skills: &[TeamCardSkill; 5],
-    stat: i32,
+    stat: impl Into<crate::scoring::TeamPower>,
     is_medley: bool,
     captain: usize,
 ) -> Result<MaxScoreTeamOrder, ChartError> {
-    let scores = exact_order_scores(chart, skills, stat, is_medley)?;
-    Ok(recommend_max_score_from_scores(
-        skills.map(|card| card.card_id),
-        &scores[captain],
-        captain,
-    ))
+    let mut scratch = ExactScoreScratch::compressed();
+    let mut best = None;
+    for group in stat
+        .into()
+        .groups_for_charts(std::slice::from_ref(chart), is_medley)
+    {
+        let scores =
+            exact_order_scores_with_scratch(chart, skills, group.power, is_medley, &mut scratch)?;
+        for &layout_index in group.layouts.iter() {
+            let layout = &tables().layouts[layout_index];
+            if layout.cards[CAPTAIN_SLOT] != captain {
+                continue;
+            }
+            let row = &scores[captain];
+            let maximum = layout
+                .weighted_orders
+                .iter()
+                .map(|o| row[o.index])
+                .max()
+                .unwrap();
+            let mut max_paths = 0;
+            let mut optimal_count = 0;
+            let mut chosen = None;
+            let mut score_sum = 0_i64;
+            for weighted in &layout.weighted_orders {
+                score_sum += i64::from(row[weighted.index]) * i64::from(weighted.count);
+                if row[weighted.index] == maximum {
+                    max_paths += weighted.count;
+                    optimal_count += 1;
+                    let ids = tables().orders[weighted.index].map(|i| skills[i].card_id);
+                    let key = (weighted.count, std::cmp::Reverse(ids));
+                    if chosen.is_none_or(|old| key > old) {
+                        chosen = Some(key);
+                    }
+                }
+            }
+            let (order_paths, std::cmp::Reverse(order_ids)) = chosen.unwrap();
+            let layout_ids = layout.cards.map(|i| skills[i].card_id);
+            let key = (
+                maximum,
+                max_paths,
+                order_paths,
+                score_sum,
+                std::cmp::Reverse(layout_ids),
+            );
+            if best.as_ref().is_none_or(|(old, _)| key > *old) {
+                best = Some((
+                    key,
+                    MaxScoreTeamOrder {
+                        recommended_team_card_ids: layout_ids,
+                        skill_order_card_ids: order_ids,
+                        skill_order_path_count: order_paths,
+                        max_score_path_count: max_paths,
+                        optimal_order_count: optimal_count,
+                        total_path_count: SHUFFLE_PATH_COUNT as u16,
+                    },
+                ));
+            }
+        }
+    }
+    Ok(best.expect("captain has a physical layout").1)
 }
 
+/// Optimize skill order AND physical layout. Only 96 orders are reachable for
+/// any one layout; sharing a power does not make the other 24 reachable.
+pub(crate) fn maximum_with_power(
+    chart: &Chart,
+    skills: &[TeamCardSkill; 5],
+    windows: &[[crate::model::chart::ExactSkillWindow; 6]; 5],
+    seed: ([usize; 5], usize),
+    groups: &[crate::scoring::TeamPowerGroup],
+    is_medley: bool,
+    scratch: &mut ExactScoreScratch,
+) -> Result<crate::model::chart::ExactSkillOrder, ChartError> {
+    let mut best = None;
+    for group in groups {
+        let unrestricted = chart.get_max_score_order_from_exact_windows(
+            skills,
+            group.power,
+            is_medley,
+            seed.0,
+            seed.1,
+            windows,
+            scratch,
+        )?;
+        if best.as_ref().is_some_and(
+            |(old, _): &(
+                (i32, std::cmp::Reverse<u32>, std::cmp::Reverse<[u32; 5]>),
+                _,
+            )| unrestricted.score < old.0,
+        ) {
+            continue;
+        }
+        if group.reachable[unrestricted.captain_index]
+            & (1_u128 << order_index(unrestricted.order_indices))
+            != 0
+        {
+            // Power groups are descending. This is an upper bound for every
+            // lower-power layout too; no additional permutations are necessary.
+            return Ok(unrestricted);
+        }
+        let scores =
+            exact_order_scores_with_scratch(chart, skills, group.power, is_medley, scratch)?;
+        for captain in 0..5 {
+            let row = &scores[captain];
+            let mut mask = group.reachable[captain];
+            while mask != 0 {
+                let index = mask.trailing_zeros() as usize;
+                mask &= mask - 1;
+                let score = row[index];
+                let ids = tables().orders[index].map(|i| skills[i].card_id);
+                let key = (
+                    score,
+                    std::cmp::Reverse(skills[captain].card_id),
+                    std::cmp::Reverse(ids),
+                );
+                if best.as_ref().is_none_or(|(old, _)| key > *old) {
+                    best = Some((
+                        key,
+                        crate::model::chart::ExactSkillOrder {
+                            score,
+                            order_indices: tables().orders[index],
+                            captain_index: captain,
+                        },
+                    ));
+                }
+            }
+        }
+    }
+    Ok(best.expect("at least one power group").1)
+}
+
+#[cfg(test)]
 fn recommend_max_score_from_scores(
     ids: [u32; 5],
     scores: &[i32; ORDER_COUNT],

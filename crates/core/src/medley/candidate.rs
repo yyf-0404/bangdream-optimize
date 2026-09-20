@@ -156,6 +156,7 @@ pub(crate) fn calculate_medley_from_raw_candidates(
     }
 
     Ok(BuildResult {
+        scoring_revision: Some(crate::scoring::ARITHMETIC_REVISION.to_owned()),
         skill_queue_notices: Vec::new(),
         event_id: request.event_id,
         event_type: EventType::Medley,
@@ -293,6 +294,7 @@ fn calculate_medley(request: CandidateBuildRequest) -> Result<BuildResult, Build
     }
 
     Ok(BuildResult {
+        scoring_revision: Some(crate::scoring::ARITHMETIC_REVISION.to_owned()),
         skill_queue_notices: Vec::new(),
         event_id: request.event_id,
         event_type: request.event_type,
@@ -465,6 +467,7 @@ fn calculate_single_team(request: CandidateBuildRequest) -> Result<BuildResult, 
     let song = song_result(&request.song_list[0], candidate, 0);
 
     Ok(BuildResult {
+        scoring_revision: Some(crate::scoring::ARITHMETIC_REVISION.to_owned()),
         skill_queue_notices: Vec::new(),
         event_id: request.event_id,
         event_type: request.event_type,

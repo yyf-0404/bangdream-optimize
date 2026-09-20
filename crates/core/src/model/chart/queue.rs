@@ -514,16 +514,7 @@ impl Chart {
                 let window = self.conditional_skill_window(position, skill, duration)?;
                 let range = (window.range_start, window.range_end);
                 if last_range != Some(range) {
-                    let mut multiplier = 1.0 + skill.score_up;
-                    last_value = 0.0;
-                    for note in window.range_start..window.range_end {
-                        if skill.rateup && sgn(multiplier - 2.5) < 0 {
-                            multiplier += 0.005;
-                        }
-                        last_value += self.score_factors[note]
-                            * self.fever_multiplier_at_node(note)
-                            * (multiplier - 1.0);
-                    }
+                    last_value = self.meta_for_exact_window(window);
                     last_range = Some(range);
                 }
                 row[index] = last_value;
@@ -582,10 +573,11 @@ impl Chart {
     pub(crate) fn predecessor_skill_score_matrix(
         &self,
         team: &[TeamCardSkill; 5],
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
         scratch: &mut ExactScoreScratch,
     ) -> Result<Option<PredecessorSkillScoreMatrix>, ChartError> {
+        let stat: f64 = stat.into();
         let duration = team.iter().map(|s| s.duration).fold(0.0, f64::max);
         if self.skill_queue_kind(duration) != SkillQueueKind::Single {
             return Ok(None);
@@ -605,10 +597,11 @@ impl Chart {
     unsafe fn predecessor_matrix_avx2(
         &self,
         team: &[TeamCardSkill; 5],
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
         scratch: &mut ExactScoreScratch,
     ) -> Result<PredecessorSkillScoreMatrix, ChartError> {
+        let stat: f64 = stat.into();
         self.predecessor_matrix_impl(team, stat, is_medley, scratch)
     }
 
@@ -616,16 +609,17 @@ impl Chart {
     fn predecessor_matrix_impl(
         &self,
         team: &[TeamCardSkill; 5],
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
         scratch: &mut ExactScoreScratch,
     ) -> Result<PredecessorSkillScoreMatrix, ChartError> {
+        let stat: f64 = stat.into();
         let compressed = !self.fever_enabled && self.score_as_medley == is_medley;
         let mut base = 0;
         if compressed {
             scratch.base_scores.resize(self.score_factor_runs.len(), 0);
             for (run, value) in self.score_factor_runs.iter().zip(&mut scratch.base_scores) {
-                *value = (stat as f64 * self.score_factors[run.start]).floor() as i32;
+                *value = self.native_first(self.native_base(stat), run.start, is_medley);
                 base += *value * (run.end - run.start) as i32;
             }
         } else {
@@ -669,7 +663,11 @@ impl Chart {
                                     [start - window.range_start..end - window.range_start],
                             );
                         } else {
-                            total += ((base as f64 * (1.0 + skill.score_up)).floor() as i32 - base)
+                            total += (native::settle(
+                                base,
+                                native::ordinary_multiplier(skill.score_up),
+                                1.0,
+                            ) - base)
                                 * (end - start) as i32;
                         }
                     }

@@ -46,13 +46,20 @@ pub(super) fn area_item_definition(
             })?;
 
     let mut percents = BTreeMap::new();
+    let mut percent_points = BTreeMap::new();
     for level in performance.keys().filter_map(|key| key.parse::<u8>().ok()) {
+        let points = [
+            area_item_percent_at(performance, level, server_index)?,
+            area_item_percent_at(technique, level, server_index)?,
+            area_item_percent_at(visual, level, server_index)?,
+        ];
+        percent_points.insert(level, points.map(|v| v as f32));
         percents.insert(
             level,
             PrepStatRate {
-                performance: area_item_percent_at(performance, level, server_index)?,
-                technique: area_item_percent_at(technique, level, server_index)?,
-                visual: area_item_percent_at(visual, level, server_index)?,
+                performance: points[0] / 100.0,
+                technique: points[1] / 100.0,
+                visual: points[2] / 100.0,
             },
         );
     }
@@ -62,6 +69,7 @@ pub(super) fn area_item_definition(
         target_band_ids,
         target_attributes,
         percents,
+        percent_points,
     })
 }
 
@@ -83,5 +91,23 @@ fn area_item_percent_at(
     let Some(value) = value else {
         return Ok(0.0);
     };
-    parse_numeric_value(value, "areaItem.percent").map(|value| value / 100.0)
+    parse_numeric_value(value, "areaItem.percent")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn retains_master_percentages_and_existing_server_fallback() {
+        let raw = json!({"targetBandIds":[4],"targetAttributes":["cool"],
+            "performance":{"1":[1.1,null,null,3.3]},
+            "technique":{"1":[7.5,null,null,null]},
+            "visual":{"1":[18,null,null,22.5]}});
+        let cn = area_item_definition(1, &raw, 3).unwrap();
+        assert_eq!(cn.percent_points[&1], [3.3, 7.5, 22.5]);
+        assert_eq!(cn.percents[&1].performance, 3.3 / 100.0);
+        let fallback = area_item_definition(1, &raw, 2).unwrap();
+        assert_eq!(fallback.percent_points[&1], [1.1, 7.5, 18.0]);
+    }
 }

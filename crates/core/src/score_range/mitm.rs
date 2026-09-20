@@ -6,6 +6,7 @@ use super::{
     ScoreRangeTeamDomain, SkillBucketKey, SongKey,
 };
 use crate::model::preparation::{ALL_ATTRIBUTE_KEY, ALL_BAND_KEY};
+use crate::scoring::{linear_power_lower, linear_power_upper, ScoringPower, TeamPower};
 use crate::timing::{optional_elapsed_ms, Timer};
 use crate::{
     AreaItemPercent, CompressedAutoScore, Magazine, PreparedCard, SelectedAreaItems, SongMode,
@@ -136,8 +137,8 @@ struct SkillSearchContext {
 
 #[derive(Debug, Clone, Copy)]
 struct ValidStatInterval {
-    min_stat: i32,
-    max_stat: i32,
+    min_stat: u32,
+    max_stat: u32,
     plan: IntervalPlan,
 }
 
@@ -149,8 +150,8 @@ enum IntervalPlan {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct StatRange {
-    min_stat: i32,
-    max_stat: i32,
+    min_stat: u32,
+    max_stat: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -172,8 +173,8 @@ struct PointStatIndex {
 
 #[derive(Debug, Clone, Default)]
 struct ScoreLowerBoundCache {
-    individual: BTreeMap<(usize, u64), Option<i32>>,
-    batches: BTreeMap<u64, Vec<i32>>,
+    individual: BTreeMap<(usize, u64), Option<u32>>,
+    batches: BTreeMap<u64, Vec<Option<u32>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -188,7 +189,7 @@ enum CandidateSongs {
     Two(SongKey, SongKey),
 }
 
-type CandidateKey = (SkillBucketKey, u32, i32, CandidateSongs);
+type CandidateKey = (SkillBucketKey, u32, u32, CandidateSongs);
 type CandidateMap = BTreeMap<CandidateKey, Candidate>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -1008,8 +1009,8 @@ fn team_bounds<'a>(
         .take(5)
         .fold(0_u64, u64::saturating_add);
     Some(TeamBounds {
-        min_stat: crate::floor_team_stat(min_stats.into_iter().take(5)),
-        max_stat: crate::floor_team_stat(max_stats.into_iter().take(5)),
+        min_stat: linear_power_lower(min_stats.into_iter().take(5).sum()).floor() as i32,
+        max_stat: linear_power_upper(max_stats.into_iter().take(5).sum()).ceil() as i32,
         min_bonus_basis_points: bonus_micros_to_basis_points(min_bonus_micros),
         max_bonus_basis_points: bonus_micros_to_basis_points(max_bonus_micros),
     })
@@ -1686,7 +1687,8 @@ fn resolve_cards_for_items<'a>(
     area_item_percent: &AreaItemPercent,
     items: &SelectedAreaItems,
 ) -> Vec<ResolvedCard<'a>> {
-    let mut canonical = BTreeMap::<(u32, u64, u64, u32, &'static str), ResolvedCard<'a>>::new();
+    let mut canonical =
+        BTreeMap::<(u32, [u32; 3], u64, u32, &'static str), ResolvedCard<'a>>::new();
     for entry in cards {
         let exact_stat = entry.card.add_up_stat(
             area_item_percent,
@@ -1701,7 +1703,16 @@ fn resolve_cards_for_items<'a>(
         };
         let key = (
             resolved.card.character_id,
-            exact_stat.to_bits(),
+            entry
+                .card
+                .member_power(
+                    area_item_percent,
+                    &items.band,
+                    &items.attribute,
+                    items.magazine.as_str(),
+                )
+                .final_parameters()
+                .map(f32::to_bits),
             resolved.point_bonus_micros,
             resolved.card.band_id,
             resolved.card.attribute.as_str(),
@@ -1725,7 +1736,7 @@ fn resolve_cards_for_batch<'a>(
     inner_contexts: &[&SelectedAreaItems],
 ) -> Vec<ResolvedCard<'a>> {
     let mut canonical =
-        BTreeMap::<(u32, Vec<u64>, u64, u32, &'static str), ResolvedCard<'a>>::new();
+        BTreeMap::<(u32, Vec<[u32; 3]>, u64, u32, &'static str), ResolvedCard<'a>>::new();
     for entry in cards {
         let stat_for = |items: &SelectedAreaItems| {
             entry.card.add_up_stat(
@@ -1737,8 +1748,20 @@ fn resolve_cards_for_batch<'a>(
         };
         let exact_base_stat = stat_for(base_items);
         let mut stat_signature = Vec::with_capacity(inner_contexts.len() + 1);
-        stat_signature.push(exact_base_stat.to_bits());
-        stat_signature.extend(inner_contexts.iter().map(|items| stat_for(items).to_bits()));
+        let bits_for = |items: &SelectedAreaItems| {
+            entry
+                .card
+                .member_power(
+                    area_item_percent,
+                    &items.band,
+                    &items.attribute,
+                    items.magazine.as_str(),
+                )
+                .final_parameters()
+                .map(f32::to_bits)
+        };
+        stat_signature.push(bits_for(base_items));
+        stat_signature.extend(inner_contexts.iter().map(|items| bits_for(items)));
         let resolved = ResolvedCard {
             card: entry.card,
             stat: exact_base_stat,
@@ -2126,15 +2149,20 @@ fn search_triple_candidate(
         let (min_pair_stat, max_pair_stat) = pair_stat_bounds(pairs, pair_bonus, base_pair_records);
         let min_total_stat = triple_stat + min_pair_stat;
         let max_total_stat = triple_stat + max_pair_stat;
-        let first_range = interval_set
-            .union
-            .partition_point(|range| range.max_stat as f64 + 1.0 <= min_total_stat);
+        let first_range = interval_set.union.partition_point(|range| {
+            linear_power_upper(f32::from_bits(range.max_stat.saturating_add(1)) as f64)
+                <= min_total_stat
+        });
         for range in interval_set.union[first_range..]
             .iter()
-            .take_while(|range| range.min_stat as f64 <= max_total_stat)
+            .take_while(|range| {
+                linear_power_lower(f32::from_bits(range.min_stat) as f64) <= max_total_stat
+            })
         {
-            let min_pair = range.min_stat as f64 - triple_stat;
-            let max_pair_exclusive = range.max_stat as f64 + 1.0 - triple_stat;
+            let min_pair = linear_power_lower(f32::from_bits(range.min_stat) as f64) - triple_stat;
+            let max_pair_exclusive =
+                linear_power_upper(f32::from_bits(range.max_stat.saturating_add(1)) as f64)
+                    - triple_stat;
             let skip_touching = match pairs {
                 PairQuery::Full(_) => None,
                 PairQuery::Incremental { affected_cards, .. } => Some(*affected_cards),
@@ -2230,8 +2258,11 @@ fn build_triple_stat_ranges(
             )?);
         }
         for range in &interval_cache[&point_bonus_basis_points].union {
-            let min_stat = range.min_stat as f64 - max_pair_stat;
-            let max_stat_exclusive = range.max_stat as f64 + 1.0 - min_pair_stat;
+            let min_stat =
+                linear_power_lower(f32::from_bits(range.min_stat) as f64) - max_pair_stat;
+            let max_stat_exclusive =
+                linear_power_upper(f32::from_bits(range.max_stat.saturating_add(1)) as f64)
+                    - min_pair_stat;
             if min_stat < max_stat_exclusive {
                 ranges.push(ExactStatRange {
                     min_stat,
@@ -2289,7 +2320,7 @@ fn candidate_from_pair_records(
     skill_key: SkillBucketKey,
     skill: TeamCardSkill,
     items: &SelectedAreaItems,
-    _area_item_percent: &AreaItemPercent,
+    area_item_percent: &AreaItemPercent,
     cards: &[ResolvedCard<'_>],
     songs: &[SongModel],
     interval_set: &ValidIntervalSet,
@@ -2297,7 +2328,7 @@ fn candidate_from_pair_records(
     triple: [usize; 3],
     min_pair: f64,
     max_pair_exclusive: f64,
-    triple_stat: f64,
+    _triple_stat: f64,
     pair_records: &[PairRecord],
     skip_touching: Option<&[bool]>,
 ) -> Result<Option<(CandidateKey, Candidate)>, ScoreRangeError> {
@@ -2309,25 +2340,43 @@ fn candidate_from_pair_records(
         {
             continue;
         }
-        let indices = [pair.left, pair.right, triple[0], triple[1], triple[2]];
+        let mut indices = [pair.left, pair.right, triple[0], triple[1], triple[2]];
+        indices.sort_unstable_by_key(|&i| cards[i].card.card_id);
         if !matches_mode(mode, indices, cards) {
             continue;
         }
-        let total_stat = crate::floor_team_stat([pair.stat, triple_stat]);
-        let Some(interval) = interval_set
-            .ranked
-            .iter()
-            .find(|interval| interval.min_stat <= total_stat && total_stat <= interval.max_stat)
-        else {
+        let power = TeamPower::Members(indices.map(|index| {
+            cards[index].card.member_power(
+                area_item_percent,
+                &items.band,
+                &items.attribute,
+                items.magazine.as_str(),
+            )
+        }));
+        let groups = power.groups();
+        let Some((interval, group)) = interval_set.ranked.iter().find_map(|interval| {
+            groups
+                .iter()
+                .find(|group| {
+                    interval.min_stat <= group.power.cache_key()
+                        && group.power.cache_key() <= interval.max_stat
+                })
+                .map(|group| (interval, group))
+        }) else {
             continue;
         };
+        let total_stat = group.power;
+        let layout = crate::skill_shuffle::tables().layouts[group.layouts[0]].cards;
         let (candidate_songs, plan) = match interval.plan {
             IntervalPlan::OneSong {
                 song_index,
                 base_points: expected_base_points,
             } => {
                 let song = &songs[song_index];
-                let score = song.exact.score(total_stat);
+                let score = song
+                    .exact
+                    .checked_score(total_stat)
+                    .map_err(crate::ChartError::from)?;
                 let base_points = points_for_score_with_support(
                     request.event_type,
                     score,
@@ -2361,13 +2410,12 @@ fn candidate_from_pair_records(
                 (CandidateSongs::Two(song_keys[0], song_keys[1]), plan)
             }
         };
-        let mut card_ids = indices.map(|index| cards[index].card.card_id);
-        card_ids.sort_unstable();
+        let card_ids = layout.map(|slot| cards[indices[slot]].card.card_id);
         let mut resolved_skill = skill;
         resolved_skill.card_id = card_ids[0];
         let team = ScoreRangeTeam {
             card_ids,
-            stat: total_stat,
+            stat: power.display_unrounded(layout) as i32,
             skill: resolved_skill,
             point_bonus_basis_points,
             items: items.clone(),
@@ -2376,7 +2424,7 @@ fn candidate_from_pair_records(
         let key = (
             skill_key,
             point_bonus_basis_points,
-            total_stat,
+            total_stat.cache_key(),
             candidate_songs,
         );
         return Ok(Some((key, Candidate { team, plan })));
@@ -2485,8 +2533,8 @@ fn build_single_valid_intervals(
                     next_score,
                 )
                 .map(|stat| stat.saturating_sub(1))
-                .unwrap_or(i32::MAX),
-                None => i32::MAX,
+                .unwrap_or((i32::MAX as f32).to_bits()),
+                None => (i32::MAX as f32).to_bits(),
             };
             if min_stat <= max_stat {
                 result.push(ValidStatInterval {
@@ -2609,15 +2657,17 @@ fn ensure_point_stat_indexes(
         let lower_stats = &score_lower_bounds.batches[&band.min_score];
         let upper_stats = next_target.map(|target| &score_lower_bounds.batches[&target]);
         for song_index in 0..songs.len() {
-            let min_stat = decode_cached_stat(lower_stats[song_index]);
+            let min_stat = lower_stats[song_index];
             let Some(min_stat) = min_stat else {
                 continue;
             };
             let max_stat = if let Some(upper_stats) = upper_stats {
-                let upper = decode_cached_stat(upper_stats[song_index]);
-                upper.map(|stat| stat.saturating_sub(1)).unwrap_or(i32::MAX)
+                let upper = upper_stats[song_index];
+                upper
+                    .map(|stat| stat.saturating_sub(1))
+                    .unwrap_or((i32::MAX as f32).to_bits())
             } else {
-                i32::MAX
+                (i32::MAX as f32).to_bits()
             };
             if min_stat <= max_stat {
                 intervals.push(StatRange { min_stat, max_stat });
@@ -2664,40 +2714,63 @@ fn cached_lower_bound_score(
     song_index: usize,
     model: &CompressedAutoScore,
     target: u64,
-) -> Option<i32> {
-    if let Some(values) = cache.batches.get(&target) {
-        return decode_cached_stat(values[song_index]);
+) -> Option<u32> {
+    use crate::scoring::cache_audit::{self as audit, Cache};
+    let batch = audit::enabled(Cache::ControlBatch)
+        .then(|| cache.batches.get(&target))
+        .flatten();
+    audit::lookup(
+        Cache::ControlBatchProbe,
+        batch.is_some(),
+        cache.batches.len(),
+    );
+    if let Some(values) = batch {
+        return values[song_index];
     }
     let key = (song_index, target);
-    if let Some(&value) = cache.individual.get(&key) {
+    let cached = audit::enabled(Cache::ControlScalar)
+        .then(|| cache.individual.get(&key))
+        .flatten();
+    audit::lookup(
+        Cache::ControlScalar,
+        cached.is_some(),
+        cache.individual.len(),
+    );
+    if let Some(&value) = cached {
         return value;
     }
     let value = lower_bound_score(model, target);
-    cache.individual.insert(key, value);
+    if audit::enabled(Cache::ControlScalar) {
+        cache.individual.insert(key, value);
+    }
     value
 }
 
 fn ensure_score_boundary_batch(cache: &mut ScoreLowerBoundCache, target: u64, songs: &[SongModel]) {
-    if cache.batches.contains_key(&target) {
+    use crate::scoring::cache_audit::{self as audit, Cache};
+    let hit = audit::enabled(Cache::ControlBatch) && cache.batches.contains_key(&target);
+    audit::lookup(Cache::ControlBatch, hit, cache.batches.len());
+    if hit {
         return;
     }
     let values = songs
         .iter()
         .enumerate()
         .map(|(song_index, song)| {
-            let value = cache
-                .individual
-                .get(&(song_index, target))
+            let cached = audit::enabled(Cache::ControlScalar)
+                .then(|| cache.individual.get(&(song_index, target)))
+                .flatten();
+            audit::lookup(
+                Cache::ControlScalar,
+                cached.is_some(),
+                cache.individual.len(),
+            );
+            cached
                 .copied()
-                .unwrap_or_else(|| lower_bound_score(&song.exact, target));
-            value.unwrap_or(-1)
+                .unwrap_or_else(|| lower_bound_score(&song.exact, target))
         })
         .collect();
     cache.batches.insert(target, values);
-}
-
-fn decode_cached_stat(value: i32) -> Option<i32> {
-    (value >= 0).then_some(value)
 }
 
 fn union_stat_ranges(intervals: &[ValidStatInterval]) -> Vec<StatRange> {
@@ -2746,8 +2819,8 @@ fn merge_exact_stat_ranges(mut ranges: Vec<ExactStatRange>) -> Vec<ExactStatRang
     result
 }
 
-fn lower_bound_score(model: &CompressedAutoScore, target: u64) -> Option<i32> {
-    model.lower_bound_stat(target)
+fn lower_bound_score(model: &CompressedAutoScore, target: u64) -> Option<u32> {
+    model.lower_bound_power(target).map(ScoringPower::cache_key)
 }
 
 fn pair_is_disjoint(pair: &PairRecord, triple: [usize; 3], cards: &[ResolvedCard<'_>]) -> bool {
@@ -2818,7 +2891,7 @@ type RecoveredTwoSongPlan = ([SongKey; 2], Vec<ScoreRangePlay>);
 fn recover_two_song_plan(
     request: &ScoreRangeRequest,
     target_delta: u64,
-    stat: i32,
+    stat: ScoringPower,
     point_bonus_basis_points: u32,
     songs: &[SongModel],
     two_song: TwoSongPlan,
@@ -2826,7 +2899,10 @@ fn recover_two_song_plan(
     let mut left = None::<(SongKey, i32)>;
     let mut right = None::<(SongKey, i32)>;
     for song in songs {
-        let score = song.exact.score(stat);
+        let score = song
+            .exact
+            .checked_score(stat)
+            .map_err(crate::ChartError::from)?;
         let points = points_for_score_with_support(
             request.event_type,
             score,
@@ -3251,7 +3327,7 @@ mod tests {
     #[test]
     fn exact_score_lower_bound_finds_first_stat() {
         let model = CompressedAutoScoreTest::linear();
-        assert_eq!(lower_bound_score(&model, 18), Some(9));
+        assert_eq!(lower_bound_score(&model, 18), Some(9.0_f32.to_bits()));
     }
 
     #[test]
@@ -3271,8 +3347,8 @@ mod tests {
                     let Some(found) = lower_bound_score(&model, target) else {
                         panic!("target produced by a finite stat must be reachable");
                     };
-                    assert!(model.score(found) as u64 >= target);
-                    assert!(found == 0 || (model.score(found - 1) as u64) < target);
+                    assert!(model.score(f32::from_bits(found)) as u64 >= target);
+                    assert!(found == 0 || (model.score(f32::from_bits(found - 1)) as u64) < target);
                 }
             }
         }
@@ -3314,6 +3390,53 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn sparse_boundary_batches_keep_song_indices_and_unreachable_answers() {
+        let song = fixture_song();
+        let songs = (0..3)
+            .map(|i| SongModel {
+                key: SongKey {
+                    song_id: i + 1,
+                    difficulty: 3,
+                },
+                exact: song
+                    .compressed_score(TeamCardSkill {
+                        card_id: i + 1,
+                        duration: 5.0,
+                        score_up: 0.2 + i as f64,
+                        rateup: false,
+                    })
+                    .unwrap(),
+            })
+            .collect::<Vec<_>>();
+        let mut cache = ScoreLowerBoundCache::default();
+        let unreachable = i32::MAX as u64 + 1;
+        // Sparse/out-of-order song entries and adjacent target scores must
+        // not shift a cached answer onto another song during batch completion.
+        for (target, index) in [
+            (40_000, 2),
+            (39_999, 1),
+            (40_000, 0),
+            (40_001, 0),
+            (unreachable, 1),
+        ] {
+            assert_eq!(
+                cached_lower_bound_score(&mut cache, index, &songs[index].exact, target),
+                lower_bound_score(&songs[index].exact, target)
+            );
+        }
+        for target in [40_000, unreachable, 39_999, 40_001, 40_000] {
+            ensure_score_boundary_batch(&mut cache, target, &songs);
+            assert_eq!(
+                cache.batches[&target],
+                songs
+                    .iter()
+                    .map(|song| lower_bound_score(&song.exact, target))
+                    .collect::<Vec<_>>()
+            );
         }
     }
 
@@ -3369,10 +3492,10 @@ mod tests {
             let score = songs[0].exact.score(stat);
             let actual_points = crate::points_for_score(EventType::Versus, score, 0, 1).unwrap();
             for &points in &required_points {
-                let indexed = indexes[&points]
-                    .union
-                    .iter()
-                    .any(|range| range.min_stat <= stat && stat <= range.max_stat);
+                let indexed = indexes[&points].union.iter().any(|range| {
+                    range.min_stat <= (stat as f32).to_bits()
+                        && (stat as f32).to_bits() <= range.max_stat
+                });
                 assert_eq!(
                     indexed,
                     actual_points == points,
@@ -3386,6 +3509,7 @@ mod tests {
     fn raw_mitm_finds_five_distinct_characters_for_one_song() {
         let cards = (1..=5)
             .map(|id| PreparedCard {
+                native_power: None,
                 card_id: id,
                 character_id: id,
                 band_id: if id == 1 { 1 } else { 2 },
@@ -3656,6 +3780,15 @@ mod tests {
 
     #[test]
     fn batched_mitm_matches_exhaustive_five_card_search() {
+        assert_batched_mitm_matches_exhaustive(EventType::LiveTry);
+    }
+
+    #[test]
+    fn festival_bonus_mitm_matches_exhaustive_five_card_search() {
+        assert_batched_mitm_matches_exhaustive(EventType::Festival);
+    }
+
+    fn assert_batched_mitm_matches_exhaustive(event_type: EventType) {
         let mut cards = (1..=7)
             .map(|id| {
                 fixture_card(
@@ -3705,10 +3838,9 @@ mod tests {
             .unwrap()
             .score(sample_stat);
         let target =
-            points_for_score_with_support(EventType::LiveTry, sample_score, sample_bonus, 1, 0)
-                .unwrap();
+            points_for_score_with_support(event_type, sample_score, sample_bonus, 1, 0).unwrap();
         let request = ScoreRangeRequest {
-            event_type: EventType::LiveTry,
+            event_type,
             current_pt: 0,
             target_total_pt: target,
             auto_base_multiplier: None,
@@ -3734,7 +3866,7 @@ mod tests {
                     (
                         SkillBucketKey::from_skill(team.skill),
                         team.point_bonus_basis_points,
-                        team.stat,
+                        (team.stat as f32).to_bits(),
                         CandidateSongs::One(song_key),
                     ),
                     Candidate { team, plan },
@@ -3761,11 +3893,33 @@ mod tests {
         assert!(expected
             .values()
             .any(|candidate| candidate.team.card_ids.contains(&8)));
-        assert_eq!(actual.len(), expected.len());
-        for (key, expected_candidate) in expected {
-            let actual_candidate = actual.get(&key).expect("MITM missed a brute-force state");
-            assert_eq!(actual_candidate.team, expected_candidate.team);
-            assert_eq!(actual_candidate.plan, expected_candidate.plan);
+        assert!(!actual.is_empty());
+        for actual_candidate in actual.values() {
+            assert_eq!(plan_objective(&actual_candidate.plan), best_objective);
+            let team = &actual_candidate.team;
+            let members = team.card_ids.map(|id| {
+                cards
+                    .iter()
+                    .find(|card| card.card_id == id)
+                    .unwrap()
+                    .member_power(
+                        &area_item_percent,
+                        &team.items.band,
+                        &team.items.attribute,
+                        team.items.magazine.as_str(),
+                    )
+            });
+            let deck = crate::scoring::DeckPower::from_members(&members).unwrap();
+            assert_eq!(team.stat, deck.display_integer().unwrap());
+            let exact = song.compressed_score(team.skill).unwrap();
+            for play in &actual_candidate.plan {
+                assert_eq!(play.score, exact.score(deck.scoring()));
+            }
+            let mut characters = team
+                .card_ids
+                .map(|id| cards.iter().find(|c| c.card_id == id).unwrap().character_id);
+            characters.sort_unstable();
+            assert!(characters.windows(2).all(|pair| pair[0] != pair[1]));
         }
 
         let impossible_request = ScoreRangeRequest {
@@ -3824,20 +3978,24 @@ mod tests {
                             }
                             let score_model = song.compressed_score(skills[0]).unwrap();
                             for selected_items in items {
-                                let stat = crate::floor_team_stat(indices.iter().map(|&index| {
-                                    cards[index].add_up_stat(
-                                        area_item_percent,
-                                        &selected_items.band,
-                                        &selected_items.attribute,
-                                        selected_items.magazine.as_str(),
-                                    )
-                                }));
+                                let deck = crate::scoring::DeckPower::from_members(&indices.map(
+                                    |index| {
+                                        cards[index].member_power(
+                                            area_item_percent,
+                                            &selected_items.band,
+                                            &selected_items.attribute,
+                                            selected_items.magazine.as_str(),
+                                        )
+                                    },
+                                ))
+                                .unwrap();
+                                let stat = deck.display_integer().unwrap();
                                 let bonus = point_bonus_basis_points(
                                     indices
                                         .iter()
                                         .map(|&index| point_bonus_micros[&cards[index].card_id]),
                                 );
-                                let score = score_model.score(stat);
+                                let score = score_model.score(deck.scoring());
                                 let base_points = points_for_score_with_support(
                                     request.event_type,
                                     score,
@@ -3866,7 +4024,7 @@ mod tests {
                                 let key = (
                                     SkillBucketKey::from_skill(skill),
                                     bonus,
-                                    stat,
+                                    (stat as f32).to_bits(),
                                     CandidateSongs::One(song.key()),
                                 );
                                 insert_candidate(&mut result, key, Candidate { team, plan });
@@ -3901,6 +4059,7 @@ mod tests {
 
     fn fixture_card(card_id: u32, band_id: u32, attribute: Attribute) -> PreparedCard {
         PreparedCard {
+            native_power: None,
             card_id,
             character_id: card_id,
             band_id,
@@ -3940,6 +4099,7 @@ mod tests {
             visual: value,
         };
         AreaItemPercent {
+            native_items: Vec::new(),
             band: BTreeMap::from([
                 ("1".to_owned(), uniform(0.10)),
                 ("2".to_owned(), uniform(0.10)),

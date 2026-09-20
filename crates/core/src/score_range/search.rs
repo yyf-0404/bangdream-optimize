@@ -69,6 +69,7 @@ fn make_result(
     plays: Vec<ScoreRangePlay>,
 ) -> ScoreRangeResult {
     ScoreRangeResult {
+        scoring_revision: Some(crate::scoring::ARITHMETIC_REVISION.to_owned()),
         event_type: request.event_type,
         target_delta_pt: target_delta,
         team_card_ids: card_ids.to_vec(),

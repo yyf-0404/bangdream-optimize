@@ -121,6 +121,9 @@ mod tests {
             _options: MaximizeOptions,
         ) -> Result<BuildResult, DataError> {
             Ok(BuildResult {
+                scoring_revision: Some(
+                    bangdream_optimize_core::scoring::ARITHMETIC_REVISION.to_owned(),
+                ),
                 skill_queue_notices: Vec::new(),
                 event_id: event_id.or(player.current_event).unwrap_or_default(),
                 event_type: EventType::Challenge,

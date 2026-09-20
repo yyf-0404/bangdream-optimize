@@ -48,6 +48,9 @@ pub(in crate::medley) struct CandidateScorer<'a> {
 }
 
 fn enabled() -> bool {
+    if !crate::scoring::cache_audit::enabled(crate::scoring::cache_audit::Cache::MedleySeed) {
+        return false;
+    }
     #[cfg(feature = "experimental-candidate-seed-cache")]
     {
         static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -181,6 +184,11 @@ impl<'a> CandidateScorer<'a> {
         }
         let index = slot_index(key, self.entries.len());
         let entry = self.entries[index];
+        crate::scoring::cache_audit::lookup(
+            crate::scoring::cache_audit::Cache::MedleySeed,
+            entry.key == key,
+            self.entries.len(),
+        );
         if entry.key == key {
             self.hits += 1;
             return entry.restore();
@@ -242,6 +250,16 @@ mod tests {
                     rateup: class == 4,
                 };
                 ResolvedMedleyCardInput {
+                    power: crate::scoring::MemberPower::from_resolved_parts(
+                        [
+                            (40_000.0 + class as f64 * 110.4 + if group == 2 { 123.0 } else { 0.0 })
+                                as f32,
+                            0.0,
+                            0.0,
+                        ],
+                        [0.0; 3],
+                        [0.0; 3],
+                    ),
                     raw_index: index * 7 + 3,
                     stat: 40_000.0 + class as f64 * 110.4 + if group == 2 { 123.0 } else { 0.0 },
                     band_id: 1,

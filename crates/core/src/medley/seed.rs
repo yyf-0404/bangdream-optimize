@@ -59,6 +59,7 @@ pub(crate) fn seed_medley_result_for_items(
         .collect();
 
     Ok(Some(BuildResult {
+        scoring_revision: Some(crate::scoring::ARITHMETIC_REVISION.to_owned()),
         skill_queue_notices: Vec::new(),
         event_id,
         event_type: EventType::Medley,
@@ -86,7 +87,7 @@ struct SeedScoredCard {
 fn seed_team_candidates_for_song(
     cards: &[PreparedCard],
     charts: &[Chart],
-    card_stats: &[f64],
+    card_stats: &[crate::scoring::MemberPower],
     options: TeamGenerationOptions,
     song_idx: usize,
     skill_meta_cache: &mut SkillMetaCache,
@@ -148,7 +149,7 @@ fn seed_team_candidates_for_song(
 fn seed_scored_cards(
     cards: &[PreparedCard],
     charts: &[Chart],
-    card_stats: &[f64],
+    card_stats: &[crate::scoring::MemberPower],
     signature: MedleyPruneSignature,
     song_idx: usize,
 ) -> Result<Vec<SeedScoredCard>, TeamBuildError> {
@@ -171,7 +172,7 @@ fn seed_scored_cards(
         for activation in 0..=TEAM_SIZE {
             best_meta = best_meta.max(chart.skill_meta_value(activation, skill)?);
         }
-        let stat = card_stats[idx];
+        let stat = card_stats[idx].linear_total();
         scored.push(SeedScoredCard {
             idx,
             value: stat * (chart.meta.no_skill + best_meta),
@@ -216,7 +217,7 @@ fn push_seed_candidate(
     candidates: &mut Vec<SeedTeamCandidate>,
     cards: &[PreparedCard],
     charts: &[Chart],
-    card_stats: &[f64],
+    card_stats: &[crate::scoring::MemberPower],
     options: TeamGenerationOptions,
     raw_indices: [usize; TEAM_SIZE],
     skill_meta_cache: &mut SkillMetaCache,
@@ -249,7 +250,7 @@ fn push_seed_candidate(
 fn seed_candidate_from_raw_indices(
     cards: &[PreparedCard],
     charts: &[Chart],
-    card_stats: &[f64],
+    card_stats: &[crate::scoring::MemberPower],
     options: TeamGenerationOptions,
     raw_indices: [usize; TEAM_SIZE],
     skill_meta_cache: &mut SkillMetaCache,
@@ -261,7 +262,8 @@ fn seed_candidate_from_raw_indices(
         .map(|raw_idx| MedleyCardInput {
             card: &cards[raw_idx],
             raw_index: raw_idx,
-            stat: card_stats[raw_idx],
+            stat: card_stats[raw_idx].linear_total(),
+            power: card_stats[raw_idx],
         })
         .collect();
     let selected_indices = [0, 1, 2, 3, 4];
@@ -316,7 +318,7 @@ fn improve_seed_partition(
     teams: &mut [SeedTeamCandidate; MEDLEY_TEAM_COUNT],
     cards: &[PreparedCard],
     charts: &[Chart],
-    card_stats: &[f64],
+    card_stats: &[crate::scoring::MemberPower],
     options: TeamGenerationOptions,
     skill_meta_cache: &mut SkillMetaCache,
     exact_score_scratch: &mut ExactScoreScratch,
@@ -512,7 +514,7 @@ fn seed_medley_candidates_for_items(
     }
     let card_stats = adjusted_card_stats(cards, area_item_percent, selected_items);
     let mut skill_meta_cache = SkillMetaCache::new(charts.len());
-    let mut exact_score_scratch = ExactScoreScratch::default();
+    let mut exact_score_scratch = ExactScoreScratch::compressed();
     let mut song_candidates = Vec::with_capacity(MEDLEY_TEAM_COUNT);
     for song_idx in 0..MEDLEY_TEAM_COUNT {
         let candidates = seed_team_candidates_for_song(

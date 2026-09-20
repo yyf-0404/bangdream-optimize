@@ -460,6 +460,7 @@ mod tests {
         score_up: f64,
     ) -> PreparedCard {
         PreparedCard {
+            native_power: None,
             card_id,
             character_id,
             band_id,

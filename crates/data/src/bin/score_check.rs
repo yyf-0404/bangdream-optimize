@@ -21,6 +21,7 @@ struct Diagnostic {
 struct RecalculatedSong {
     score: i32,
     stat: i32,
+    display_unrounded: f32,
     captain_card_id: u32,
     skill_order: Vec<u32>,
     score_ups: Vec<f64>,
@@ -124,7 +125,8 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let mut failed = false;
     let mut total_score = 0;
-    let mut total_stat = 0;
+    let mut display_powers = Vec::new();
+    let mut display_stats = Vec::new();
     println!(
         "score_check: event={} items={:?} songs={}",
         event_id,
@@ -145,13 +147,15 @@ fn run() -> Result<(), Box<dyn Error>> {
             .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
         let recalculated = recalculate_song(
             &team,
+            reported,
             &area,
             &items,
             &charts[song_idx],
             diagnostic.result.event_type == bangdream_optimize_core::EventType::Medley,
         )?;
         total_score += recalculated.score;
-        total_stat += recalculated.stat;
+        display_powers.push(recalculated.display_unrounded);
+        display_stats.push(recalculated.stat);
 
         let ok = reported.score == recalculated.score
             && reported.stat == recalculated.stat
@@ -172,6 +176,13 @@ fn run() -> Result<(), Box<dyn Error>> {
         );
     }
 
+    let total_stat = if display_powers.len() == 3 {
+        bangdream_optimize_core::scoring::DeckPower::display_total_values(
+            display_powers.try_into().unwrap(),
+        )?
+    } else {
+        display_stats[0]
+    };
     let total_ok =
         diagnostic.result.total_score == total_score && diagnostic.result.total_stat == total_stat;
     failed |= !total_ok;
@@ -193,6 +204,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
 fn recalculate_song(
     team: &[&PreparedCard],
+    reported: &bangdream_optimize_core::SongBuildResult,
     area: &bangdream_optimize_core::AreaItemPercent,
     items: &bangdream_optimize_core::SelectedAreaItems,
     chart: &bangdream_optimize_core::Chart,
@@ -200,9 +212,26 @@ fn recalculate_song(
 ) -> Result<RecalculatedSong, Box<dyn Error>> {
     let band = unified_band_for_cards(team);
     let attribute = unified_attribute_for_cards(team);
-    let stat = bangdream_optimize_core::floor_team_stat(team.iter().map(|card| {
-        card.add_up_stat(area, &items.band, &items.attribute, items.magazine.as_str())
-    }));
+    let order = reported.team_order.as_ref().ok_or("diagnostic lacks a saved physical/skill order; recalculate before checking native arithmetic")?;
+    let members = order
+        .recommended_team_card_ids
+        .map(|id| {
+            team.iter()
+                .find(|card| card.card_id == id)
+                .map(|card| {
+                    card.member_power(area, &items.band, &items.attribute, items.magazine.as_str())
+                })
+                .ok_or("saved physical order references a card outside the team")
+        })
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+    let power = bangdream_optimize_core::scoring::DeckPower::from_members(&members)?;
+    let display_unrounded = power.display_unrounded();
+    let stat = if score_as_medley {
+        power.display_integer()?
+    } else {
+        power.score_attack_display_integer()?
+    };
     let skills = team
         .iter()
         .map(|card| TeamCardSkill {
@@ -212,19 +241,25 @@ fn recalculate_song(
             rateup: card.skill.rateup,
         })
         .collect::<Vec<_>>();
-    let order = chart.get_max_score_order(&skills, stat, score_as_medley)?;
     let skill_order = order
-        .order_indices
-        .iter()
-        .map(|&idx| skills[idx])
-        .chain(std::iter::once(skills[order.captain_index]))
-        .collect::<Vec<_>>();
-    let score = order.score;
+        .skill_order_card_ids
+        .into_iter()
+        .chain(std::iter::once(reported.captain_card_id))
+        .map(|id| {
+            skills
+                .iter()
+                .copied()
+                .find(|skill| skill.card_id == id)
+                .ok_or("saved skill order references a card outside the team")
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let score = chart.get_score(&skill_order, power.scoring(), score_as_medley)?;
 
     Ok(RecalculatedSong {
         score,
         stat,
-        captain_card_id: skills[order.captain_index].card_id,
+        display_unrounded,
+        captain_card_id: reported.captain_card_id,
         skill_order: skill_order.iter().map(|skill| skill.card_id).collect(),
         score_ups: skill_order.iter().map(|skill| skill.score_up).collect(),
     })

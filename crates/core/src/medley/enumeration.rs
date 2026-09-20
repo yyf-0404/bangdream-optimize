@@ -94,7 +94,7 @@ impl CandidateIncumbentFilter {
 #[allow(clippy::too_many_arguments)]
 pub(in crate::medley) fn enumerate_signature_pool(
     cards: &[PreparedCard],
-    card_stats: &[f64],
+    card_stats: &[crate::scoring::MemberPower],
     charts: &[Chart],
     profiles: &[MedleyCardPruneProfile],
     options: TeamGenerationOptions,
@@ -339,18 +339,18 @@ fn process_final_layer_flat_card(
     let mut build_profile = stats
         .should_profile_next_candidate()
         .then(ResolvedCandidateBuildProfile::default);
-    let build_start = Timer::start();
+    let build_start = stats.build_profile_enabled.then(Timer::start);
     let candidate = candidate_scorer.score(&team_indices, build_profile.as_mut())?;
-    stats.build_candidate_ms += build_start.elapsed_ms();
+    stats.build_candidate_ms += crate::timing::optional_elapsed_ms(build_start);
     stats.candidate_builds += 1;
     if let Some(profile) = build_profile {
         stats.build_profile.add(&profile);
     }
 
-    let filter_start = Timer::start();
+    let filter_start = stats.build_profile_enabled.then(Timer::start);
     let rejected =
         candidate_filter.is_some_and(|filter| !filter.candidate_can_beat_incumbent(&candidate));
-    stats.candidate_filter_ms += filter_start.elapsed_ms();
+    stats.candidate_filter_ms += crate::timing::optional_elapsed_ms(filter_start);
     if rejected {
         stats.candidate_filter_rejects += 1;
         return Ok(());
@@ -616,18 +616,18 @@ fn process_complete_signature_team(
     let mut build_profile = stats
         .should_profile_next_candidate()
         .then(ResolvedCandidateBuildProfile::default);
-    let build_start = Timer::start();
+    let build_start = stats.build_profile_enabled.then(Timer::start);
     let candidate = candidate_scorer.score(selected_indices, build_profile.as_mut())?;
-    stats.build_candidate_ms += build_start.elapsed_ms();
+    stats.build_candidate_ms += crate::timing::optional_elapsed_ms(build_start);
     stats.candidate_builds += 1;
     if let Some(profile) = build_profile {
         stats.build_profile.add(&profile);
     }
 
-    let filter_start = Timer::start();
+    let filter_start = stats.build_profile_enabled.then(Timer::start);
     let rejected =
         candidate_filter.is_some_and(|filter| !filter.candidate_can_beat_incumbent(&candidate));
-    stats.candidate_filter_ms += filter_start.elapsed_ms();
+    stats.candidate_filter_ms += crate::timing::optional_elapsed_ms(filter_start);
     if rejected {
         stats.candidate_filter_rejects += 1;
         return Ok(());
@@ -844,8 +844,9 @@ impl PrefixUpperBoundFilter {
             + suffix.normal_meta_by_chart_and_slots[chart_idx][remaining_slots];
         let captain_meta =
             state.captain_meta_by_chart[chart_idx].max(suffix.captain_meta_by_chart[chart_idx]);
-        let score_upper_bound =
-            (stat * (self.no_skill_by_chart[chart_idx] + normal_meta + captain_meta)).ceil();
+        let score_upper_bound = crate::scoring::linear_score_upper(
+            stat * (self.no_skill_by_chart[chart_idx] + normal_meta + captain_meta),
+        );
 
         score_upper_bound + self.other_song_upper_bounds[chart_idx] > current_best
     }
@@ -1112,7 +1113,7 @@ pub(in crate::medley) fn raw_candidate_used_card_count(
 
 fn active_medley_cards<'a>(
     cards: &'a [PreparedCard],
-    card_stats: &[f64],
+    card_stats: &[crate::scoring::MemberPower],
     active_card_indices: &[usize],
 ) -> Vec<MedleyCardInput<'a>> {
     active_card_indices
@@ -1121,7 +1122,8 @@ fn active_medley_cards<'a>(
         .map(|card_idx| MedleyCardInput {
             card: &cards[card_idx],
             raw_index: card_idx,
-            stat: card_stats[card_idx],
+            stat: card_stats[card_idx].linear_total(),
+            power: card_stats[card_idx],
         })
         .collect()
 }

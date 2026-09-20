@@ -540,13 +540,15 @@ fn refresh_candidate_indices(candidates: &[RawTeamCandidate], current_best: i32)
 
 fn trace_prune_timing(trace: &MedleyPruneTrace) {
     eprintln!(
-        "medley prune timing: signatures={} contribution_graphs={} context_ms={:.3} upper_bounds_init_ms={:.3} signatures_ms={:.3} active_indices_ms={:.3} hard_graph_ms={:.3} hard_cover_ms={:.3} contribution_context_ms={:.3} contribution_graph_ms={:.3} contribution_cover_ms={:.3} upper_bound_ms={:.3} completion_ms={:.3} capacity_ms={:.3}",
+        "medley prune timing: signatures={} contribution_graphs={} context_ms={:.3} upper_bounds_init_ms={:.3} signatures_ms={:.3} active_indices_ms={:.3} same_shape_contribution_ms={:.3} fixed_point_ms={:.3} hard_graph_ms={:.3} hard_cover_ms={:.3} contribution_context_ms={:.3} contribution_graph_ms={:.3} contribution_cover_ms={:.3} upper_bound_ms={:.3} completion_ms={:.3} capacity_ms={:.3}",
         trace.signature_count,
         trace.contribution_graph_count,
         trace.context_ms,
         trace.upper_bounds_init_ms,
         trace.signatures_ms,
         trace.active_indices_ms,
+        trace.same_shape_contribution_ms,
+        trace.fixed_point_ms,
         trace.hard_graph_ms,
         trace.hard_cover_ms,
         trace.contribution_context_ms,
@@ -562,11 +564,11 @@ pub(crate) fn adjusted_card_stats(
     cards: &[PreparedCard],
     area_item_percent: &AreaItemPercent,
     selected_items: &SelectedAreaItems,
-) -> Vec<f64> {
+) -> Vec<crate::scoring::MemberPower> {
     cards
         .iter()
         .map(|card| {
-            card.add_up_stat(
+            card.member_power(
                 area_item_percent,
                 &selected_items.band,
                 &selected_items.attribute,
@@ -887,6 +889,7 @@ mod tests {
             unification_activate_condition_type: Some(Attribute::Cool),
         };
         let area = AreaItemPercent {
+            native_items: Vec::new(),
             band: BTreeMap::from([("1".to_owned(), StatRate::all(0.1))]),
             attribute: BTreeMap::new(),
             magazine: BTreeMap::new(),
@@ -1083,6 +1086,7 @@ mod tests {
             exhaustive_validation_charts(seed)
         };
         let area = AreaItemPercent {
+            native_items: Vec::new(),
             band: BTreeMap::from([("1".to_owned(), StatRate::all(0.08 + seed as f64 * 0.001))]),
             attribute: BTreeMap::from([(
                 "cool".to_owned(),
@@ -1109,7 +1113,8 @@ mod tests {
             .map(|(raw_index, card)| MedleyCardInput {
                 card,
                 raw_index,
-                stat: card_stats[raw_index],
+                stat: card_stats[raw_index].linear_total(),
+                power: card_stats[raw_index],
             })
             .collect::<Vec<_>>();
 

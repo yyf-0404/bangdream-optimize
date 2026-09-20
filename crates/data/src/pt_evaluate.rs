@@ -73,6 +73,9 @@ impl super::pt_maximize::SnapshotPtMaximizeInputBuilder {
             })
             .collect();
         Ok(PtEvaluateResult {
+            scoring_revision: Some(
+                bangdream_optimize_core::scoring::ARITHMETIC_REVISION.to_owned(),
+            ),
             skill_queue_notices,
             event_id: context.event_id,
             event_type: context.event_type,

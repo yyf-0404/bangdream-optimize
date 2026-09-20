@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::floor_team_stat;
 use std::collections::BTreeMap;
 
 use crate::event_pt::point_multiplier_fixed_score_equivalent;
@@ -5,13 +7,12 @@ use crate::single::candidate::{self, SingleCardRole};
 use crate::single::profile::{skill_meta_profile, skill_meta_profile_for_pool, SkillMetaProfile};
 use crate::timing::Timer;
 use crate::{
-    area_item_combinations, cooperative_points, floor_team_stat, mode_candidates, AreaItemPercent,
-    Chart, DpChartModel, EventType, PreparedCard, SelectedAreaItems, SongMode, TeamCardSkill,
+    area_item_combinations, cooperative_points, mode_candidates, AreaItemPercent, Chart,
+    DpChartModel, EventType, PreparedCard, SelectedAreaItems, SongMode, TeamCardSkill,
 };
 
 use super::distribution::{
-    evaluate_cooperative_captain_with_scratch, evaluate_cooperative_team_with_scratch,
-    evaluate_full_team_summary_with_scratch, evaluate_full_team_with_scratch,
+    evaluate_cooperative_layouts, evaluate_cooperative_team_with_scratch,
     materialize_full_team_summary, points_for_scenario, FullTeamPtCutoff, FullTeamPtSummary,
     FullTeamPtSummaryOutcome, SinglePtScoreScratch,
 };
@@ -49,6 +50,7 @@ pub fn event_bonus_application(
 
 #[derive(Debug, Clone, Copy)]
 struct SearchCard {
+    power: crate::scoring::MemberPower,
     card_id: u32,
     character_id: u32,
     stat: f64,
@@ -143,12 +145,13 @@ struct CooperativeFillerSelection {
     stat_sum: f64,
 }
 
-type CooperativeFillerBonusDp = BTreeMap<u64, CooperativeFillerDpState>;
+type CooperativeFillerBonusDp = BTreeMap<u64, Vec<CooperativeFillerDpState>>;
 type CooperativeFillerCountDp = [CooperativeFillerBonusDp; 5];
 
 #[derive(Debug)]
 struct CooperativeFillerPrefixSuffixDp {
     character_ids: Vec<u32>,
+    rounding_guard: f64,
     prefix: Vec<CooperativeFillerCountDp>,
     suffix: Vec<CooperativeFillerCountDp>,
 }
@@ -780,6 +783,7 @@ fn resolve_role_card_groups(
                 role,
             )?;
             let resolved = SearchCard {
+                power: card.power,
                 card_id: card.card_id,
                 character_id: card.character_id,
                 stat: card.stat,
@@ -792,7 +796,7 @@ fn resolve_role_card_groups(
             };
             let key = (
                 resolved.character_id,
-                resolved.stat.to_bits(),
+                resolved.power.cache_key(),
                 resolved.point_bonus_micros,
             );
             canonical
@@ -843,6 +847,7 @@ fn resolve_role_card_groups(
                 }
             };
             let resolved = SearchCard {
+                power: card.power,
                 card_id: card.card_id,
                 character_id: card.character_id,
                 stat: card.stat,
@@ -853,7 +858,7 @@ fn resolve_role_card_groups(
             };
             let key = (
                 resolved.character_id,
-                resolved.stat.to_bits(),
+                resolved.power.cache_key(),
                 resolved.point_bonus_micros,
                 resolved.skill.duration.to_bits(),
                 resolved.skill.score_up.to_bits(),
@@ -1015,9 +1020,10 @@ fn mode_meta_upper_can_beat(
         .values()
         .map(|value| value.captain_meta)
         .fold(0.0_f64, f64::max);
-    let score_upper = (stat.max(0) as f64 * (chart.meta.no_skill + normal_meta + captain_meta))
-        .ceil()
-        .clamp(i32::MIN as f64, i32::MAX as f64) as i32;
+    let score_upper = crate::scoring::linear_score_upper(
+        stat.max(0) as f64 * (chart.meta.no_skill + normal_meta + captain_meta),
+    )
+    .clamp(i32::MIN as f64, i32::MAX as f64) as i32;
     let point_bonus_basis_points =
         ((point_bonus_micros.saturating_add(5_000)) / 10_000).min(u32::MAX as u64) as u32;
     let fixed_scenario = match scenario.with_point_bonus(point_bonus_basis_points) {
@@ -1172,9 +1178,10 @@ fn branch_meta_can_beat(
         .iter()
         .map(|card| card.captain_meta)
         .fold(suffix.captain_meta, f64::max);
-    let score_upper = (stat.max(0) as f64 * (chart.meta.no_skill + normal_meta + captain_meta))
-        .ceil()
-        .clamp(i32::MIN as f64, i32::MAX as f64) as i32;
+    let score_upper = crate::scoring::linear_score_upper(
+        stat.max(0) as f64 * (chart.meta.no_skill + normal_meta + captain_meta),
+    )
+    .clamp(i32::MIN as f64, i32::MAX as f64) as i32;
 
     let point_bonus_micros = selected
         .iter()
@@ -1217,7 +1224,7 @@ fn prune_same_skill_dominated_cards(cards: &[SearchCard]) -> Vec<SearchCard> {
         .filter(|candidate| {
             !cards.iter().any(|other| {
                 same_skill(*candidate, *other)
-                    && other.stat >= candidate.stat
+                    && other.power.componentwise_dominates(candidate.power)
                     && other.point_bonus_micros >= candidate.point_bonus_micros
                     && (other.stat > candidate.stat
                         || other.point_bonus_micros > candidate.point_bonus_micros
@@ -1240,7 +1247,7 @@ fn prune_filler_dominated_cards(cards: &[SearchCard]) -> Vec<SearchCard> {
         .filter(|candidate| {
             !cards.iter().any(|other| {
                 other.card_id != candidate.card_id
-                    && other.stat >= candidate.stat
+                    && other.power.componentwise_dominates(candidate.power)
                     && other.point_bonus_micros >= candidate.point_bonus_micros
                     && (other.stat > candidate.stat
                         || other.point_bonus_micros > candidate.point_bonus_micros
@@ -1251,9 +1258,7 @@ fn prune_filler_dominated_cards(cards: &[SearchCard]) -> Vec<SearchCard> {
 }
 
 fn ceil_team_stat_upper(stats: impl IntoIterator<Item = f64>) -> i32 {
-    stats
-        .into_iter()
-        .sum::<f64>()
+    (stats.into_iter().sum::<f64>() * (1.0 + 64.0 * f64::from(f32::EPSILON)))
         .ceil()
         .clamp(i32::MIN as f64, i32::MAX as f64) as i32
 }
@@ -1297,7 +1302,7 @@ fn cooperative_branch_upper(
 
 fn empty_cooperative_filler_count_dp() -> CooperativeFillerCountDp {
     let mut dp = std::array::from_fn(|_| BTreeMap::new());
-    dp[0].insert(0, CooperativeFillerDpState::empty());
+    dp[0].insert(0, vec![CooperativeFillerDpState::empty()]);
     dp
 }
 
@@ -1305,50 +1310,70 @@ fn insert_cooperative_filler_state(
     states: &mut CooperativeFillerBonusDp,
     point_bonus_micros: u64,
     candidate: CooperativeFillerDpState,
+    rounding_guard: f64,
 ) {
-    states
-        .entry(point_bonus_micros)
-        .and_modify(|current| {
-            if candidate.stat_sum > current.stat_sum
-                || (candidate.stat_sum == current.stat_sum
-                    && candidate.sorted_card_ids() < current.sorted_card_ids())
-            {
-                *current = candidate;
-            }
-        })
-        .or_insert(candidate);
+    let bucket = states.entry(point_bonus_micros).or_default();
+    let best_stat = bucket
+        .iter()
+        .map(|state| state.stat_sum)
+        .fold(candidate.stat_sum, f64::max);
+    if candidate.stat_sum + rounding_guard < best_stat {
+        return;
+    }
+    bucket.retain(|state| state.stat_sum + rounding_guard >= best_stat);
+    // Equal scalar sums need not have equal binary32 accumulations. Deduplicate
+    // only identical member operands, retaining the canonical card selection.
+    let signature = |state: &CooperativeFillerDpState| {
+        let mut values = state
+            .cards
+            .into_iter()
+            .flatten()
+            .map(|c| c.power.cache_key())
+            .collect::<Vec<_>>();
+        values.sort_unstable();
+        values
+    };
+    let key = signature(&candidate);
+    if let Some(old) = bucket.iter_mut().find(|state| signature(state) == key) {
+        if candidate.sorted_card_ids() < old.sorted_card_ids() {
+            *old = candidate;
+        }
+    } else {
+        bucket.push(candidate);
+    }
 }
 
-fn cooperative_filler_role_frontier(group: &[SearchCard]) -> Vec<SearchCard> {
-    let mut by_bonus = BTreeMap::<u64, SearchCard>::new();
-    for &card in group {
-        by_bonus
-            .entry(card.point_bonus_micros)
-            .and_modify(|current| {
-                if card.stat > current.stat
-                    || (card.stat == current.stat && card.card_id < current.card_id)
-                {
-                    *current = card;
-                }
+fn cooperative_filler_role_frontier(group: &[SearchCard], rounding_guard: f64) -> Vec<SearchCard> {
+    group
+        .iter()
+        .copied()
+        .filter(|card| {
+            !group.iter().any(|other| {
+                other.point_bonus_micros == card.point_bonus_micros
+                    && (other.stat > card.stat + rounding_guard
+                        || (other.power == card.power && other.card_id < card.card_id))
             })
-            .or_insert(card);
-    }
-    by_bonus.into_values().collect()
+        })
+        .collect()
 }
 
 fn cooperative_filler_dp_advance(
     previous: &CooperativeFillerCountDp,
     role: &[SearchCard],
+    rounding_guard: f64,
 ) -> CooperativeFillerCountDp {
     let mut next = previous.clone();
     for selected in 0..4 {
-        for (&point_bonus_micros, &state) in &previous[selected] {
-            for &card in role {
-                insert_cooperative_filler_state(
-                    &mut next[selected + 1],
-                    point_bonus_micros.saturating_add(card.point_bonus_micros),
-                    state.with_card(card),
-                );
+        for (&bonus, states) in &previous[selected] {
+            for state in states {
+                for &card in role {
+                    insert_cooperative_filler_state(
+                        &mut next[selected + 1],
+                        bonus.saturating_add(card.point_bonus_micros),
+                        state.with_card(card),
+                        rounding_guard,
+                    );
+                }
             }
         }
     }
@@ -1358,9 +1383,18 @@ fn cooperative_filler_dp_advance(
 fn cooperative_filler_prefix_suffix_dp(
     groups: &[Vec<SearchCard>],
 ) -> CooperativeFillerPrefixSuffixDp {
+    // Enclose both sums, including a future captain and display accumulation.
+    let rounding_guard = groups
+        .iter()
+        .flatten()
+        .map(|c| c.stat)
+        .fold(0.0_f64, f64::max)
+        * 5.0
+        * 128.0
+        * f64::from(f32::EPSILON);
     let roles = groups
         .iter()
-        .map(|group| cooperative_filler_role_frontier(group))
+        .map(|group| cooperative_filler_role_frontier(group, rounding_guard))
         .collect::<Vec<_>>();
     let character_ids = groups
         .iter()
@@ -1378,17 +1412,20 @@ fn cooperative_filler_prefix_suffix_dp(
         prefix.push(cooperative_filler_dp_advance(
             prefix.last().expect("prefix contains the empty state"),
             role,
+            rounding_guard,
         ));
     }
 
     let mut suffix = Vec::with_capacity(roles.len() + 1);
     suffix.resize_with(roles.len() + 1, empty_cooperative_filler_count_dp);
     for index in (0..roles.len()).rev() {
-        suffix[index] = cooperative_filler_dp_advance(&suffix[index + 1], &roles[index]);
+        suffix[index] =
+            cooperative_filler_dp_advance(&suffix[index + 1], &roles[index], rounding_guard);
     }
 
     CooperativeFillerPrefixSuffixDp {
         character_ids,
+        rounding_guard,
         prefix,
         suffix,
     }
@@ -1406,13 +1443,18 @@ fn cooperative_filler_selections_without_character(
     {
         for left_count in 0..=4 {
             let right_count = 4 - left_count;
-            for (&left_bonus, &left) in &dp.prefix[excluded][left_count] {
-                for (&right_bonus, &right) in &dp.suffix[excluded + 1][right_count] {
-                    insert_cooperative_filler_state(
-                        &mut states,
-                        left_bonus.saturating_add(right_bonus),
-                        left.combined_with(right),
-                    );
+            for (&left_bonus, left_states) in &dp.prefix[excluded][left_count] {
+                for (&right_bonus, right_states) in &dp.suffix[excluded + 1][right_count] {
+                    for &left in left_states {
+                        for &right in right_states {
+                            insert_cooperative_filler_state(
+                                &mut states,
+                                left_bonus.saturating_add(right_bonus),
+                                left.combined_with(right),
+                                dp.rounding_guard,
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -1422,10 +1464,12 @@ fn cooperative_filler_selections_without_character(
 
     let mut result = states
         .iter()
-        .map(|(&point_bonus_micros, &state)| CooperativeFillerSelection {
-            cards: state.complete_cards(),
-            point_bonus_micros,
-            stat_sum: state.stat_sum,
+        .flat_map(|(&point_bonus_micros, states)| {
+            states.iter().map(move |&state| CooperativeFillerSelection {
+                cards: state.complete_cards(),
+                point_bonus_micros,
+                stat_sum: state.stat_sum,
+            })
         })
         .collect::<Vec<_>>();
     result.sort_unstable_by(|left, right| {
@@ -1537,8 +1581,20 @@ fn evaluate_cooperative_selection(
     trace: &mut SingleSearchTrace,
     exact_scratch: &mut SinglePtScoreScratch,
 ) -> Result<(), PtMaximizeError> {
-    let stat = floor_team_stat(selected.iter().map(|card| card.stat));
-    if minimum_stat.is_some_and(|minimum| stat < minimum) {
+    let power = crate::scoring::TeamPower::Members(std::array::from_fn(|i| selected[i].power));
+    if minimum_stat.is_some_and(|minimum| {
+        crate::skill_shuffle::tables()
+            .layouts
+            .iter()
+            .filter(|layout| layout.cards[2] == 0)
+            .all(|layout| {
+                (if super::displays_score_attack_parameters(scenario.event_type) {
+                    power.score_attack_display_integer(layout.cards)
+                } else {
+                    power.display_unrounded(layout.cards) as i32
+                }) < minimum
+            })
+    }) {
         trace.minimum_stat_rejects += u64::from(trace.enabled);
         return Ok(());
     }
@@ -1550,9 +1606,10 @@ fn evaluate_cooperative_selection(
         ((point_bonus_micros.saturating_add(5_000)) / 10_000).min(u32::MAX as u64) as u32;
     scenario.point_bonus_basis_points = point_bonus_basis_points;
     if let Some(current) = best.as_ref() {
-        let personal_score_upper = (stat.max(0) as f64 * upper.score_factor)
-            .ceil()
-            .clamp(i32::MIN as f64, i32::MAX as f64) as i32;
+        let personal_score_upper = crate::scoring::linear_score_upper(
+            (selected.iter().map(|card| card.stat).sum::<f64>()) * upper.score_factor,
+        )
+        .clamp(i32::MIN as f64, i32::MAX as f64) as i32;
         let total_score_upper =
             i64::from(personal_score_upper).saturating_add(upper.teammate_score_upper);
         let pt_upper = cooperative_points(
@@ -1568,14 +1625,24 @@ fn evaluate_cooperative_selection(
         }
     }
     let evaluation_start = trace.enabled.then(Timer::start);
-    let mut evaluation = evaluate_cooperative_captain_with_scratch(
+    let mut evaluation = evaluate_cooperative_layouts(
         chart,
-        selected[0].skill,
-        0,
-        stat,
+        &std::array::from_fn(|i| selected[i].skill),
+        power,
         scenario,
+        Some(0),
+        minimum_stat,
         &mut exact_scratch.cooperative,
     )?;
+    let ids = evaluation
+        .recommended_team_card_ids
+        .expect("physical cooperative layout");
+    let layout = ids.map(|id| selected.iter().position(|card| card.card_id == id).unwrap());
+    let stat = if super::displays_score_attack_parameters(scenario.event_type) {
+        power.score_attack_display_integer(layout)
+    } else {
+        power.display_unrounded(layout) as i32
+    };
     finish_exact_trace(trace, evaluation_start);
 
     let (team_card_ids, captain_index) = sorted_team_with_captain_index(
@@ -1677,8 +1744,16 @@ fn evaluate_selected_team(
     trace: &mut SingleSearchTrace,
     exact_scratch: &mut SinglePtScoreScratch,
 ) -> Result<(), PtMaximizeError> {
-    let stat = floor_team_stat(selected.iter().map(|card| card.stat));
-    if minimum_stat.is_some_and(|minimum| stat < minimum) {
+    let power = crate::scoring::TeamPower::Members(std::array::from_fn(|i| selected[i].power));
+    if minimum_stat.is_some_and(|minimum| {
+        crate::skill_shuffle::tables().layouts.iter().all(|layout| {
+            (if super::displays_score_attack_parameters(scenario.event_type()) {
+                power.score_attack_display_integer(layout.cards)
+            } else {
+                power.display_unrounded(layout.cards) as i32
+            }) < minimum
+        })
+    }) {
         trace.minimum_stat_rejects += u64::from(trace.enabled);
         return Ok(());
     }
@@ -1700,13 +1775,14 @@ fn evaluate_selected_team(
                 // score), regardless of the canonical card-id tie-break.
                 equal_can_win: true,
             });
-            match evaluate_full_team_summary_with_scratch(
+            match super::distribution::evaluate_full_team_summary_with_minimum(
                 chart,
                 &team,
-                stat,
+                power,
                 false,
                 scenario,
                 cutoff,
+                minimum_stat,
                 &mut exact_scratch.full_team,
             )? {
                 FullTeamPtSummaryOutcome::Summary(summary) => {
@@ -1717,14 +1793,6 @@ fn evaluate_selected_team(
                     }
                     materialize_full_team_summary(summary, &mut exact_scratch.full_team)
                 }
-                FullTeamPtSummaryOutcome::Queued => evaluate_full_team_with_scratch(
-                    chart,
-                    &team,
-                    stat,
-                    false,
-                    scenario,
-                    &mut exact_scratch.full_team,
-                )?,
                 FullTeamPtSummaryOutcome::PrunedByMetaUpperBound => {
                     trace.meta_upper_bound_prunes += u64::from(trace.enabled);
                     finish_exact_trace(trace, evaluation_start);
@@ -1741,7 +1809,7 @@ fn evaluate_selected_team(
             evaluate_cooperative_team_with_scratch(
                 chart,
                 &team,
-                stat,
+                power,
                 scenario,
                 &mut exact_scratch.cooperative,
             )?
@@ -1756,6 +1824,15 @@ fn evaluate_selected_team(
         evaluation.captain_card_id,
     );
     evaluation.captain_index = captain_index;
+    let display_ids = evaluation
+        .recommended_team_card_ids
+        .unwrap_or_else(|| std::array::from_fn(|i| selected[i].card_id));
+    let layout = display_ids.map(|id| selected.iter().position(|card| card.card_id == id).unwrap());
+    let stat = if super::displays_score_attack_parameters(scenario.event_type()) {
+        power.score_attack_display_integer(layout)
+    } else {
+        power.display_unrounded(layout) as i32
+    };
     let candidate = PtMaximizeTeamResult {
         captain_card_id: evaluation.captain_card_id,
         team_card_ids,
@@ -1897,6 +1974,7 @@ mod tests {
 
     fn card(card_id: u32, character_id: u32, stat: f64, score_up: f64) -> PreparedCard {
         PreparedCard {
+            native_power: None,
             card_id,
             character_id,
             band_id: 1,
@@ -2400,6 +2478,11 @@ mod tests {
             rateup: false,
         };
         let make = |card_id, stat, point_bonus_micros| SearchCard {
+            power: crate::scoring::MemberPower::from_resolved_parts(
+                [stat as f32, 0.0, 0.0],
+                [0.0; 3],
+                [0.0; 3],
+            ),
             card_id,
             character_id: 1,
             stat,
@@ -2424,6 +2507,11 @@ mod tests {
     #[test]
     fn filler_prune_ignores_skill_but_keeps_stat_bonus_tradeoffs() {
         let make = |card_id, stat, point_bonus_micros, score_up| SearchCard {
+            power: crate::scoring::MemberPower::from_resolved_parts(
+                [stat as f32, 0.0, 0.0],
+                [0.0; 3],
+                [0.0; 3],
+            ),
             card_id,
             character_id: 1,
             stat,
@@ -2452,6 +2540,11 @@ mod tests {
     #[test]
     fn cooperative_filler_dp_keeps_max_stat_for_each_point_bonus() {
         let make = |card_id, character_id, stat, point_bonus_micros| SearchCard {
+            power: crate::scoring::MemberPower::from_resolved_parts(
+                [stat as f32, 0.0, 0.0],
+                [0.0; 3],
+                [0.0; 3],
+            ),
             card_id,
             character_id,
             stat,

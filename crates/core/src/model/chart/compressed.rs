@@ -4,13 +4,14 @@ use super::*;
 pub(super) struct ScoreFactorRun {
     pub(super) start: usize,
     pub(super) end: usize,
+    pub(super) combo: f32,
     factor: f64,
 }
 
-pub(super) fn push_run(runs: &mut Vec<ScoreFactorRun>, index: usize, factor: f64) {
+pub(super) fn push_run(runs: &mut Vec<ScoreFactorRun>, index: usize, factor: f64, combo: f32) {
     if let Some(last) = runs.last_mut() {
         // Bit equality, not an epsilon: even tiny differences can cross a floor.
-        if last.factor.to_bits() == factor.to_bits() {
+        if last.factor.to_bits() == factor.to_bits() && last.combo.to_bits() == combo.to_bits() {
             last.end = index + 1;
             return;
         }
@@ -18,6 +19,7 @@ pub(super) fn push_run(runs: &mut Vec<ScoreFactorRun>, index: usize, factor: f64
     runs.push(ScoreFactorRun {
         start: index,
         end: index + 1,
+        combo,
         factor,
     });
 }
@@ -39,11 +41,12 @@ impl Chart {
     pub(super) fn compressed_independent_skill_score_matrix(
         &self,
         team: &[TeamCardSkill; 5],
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
         windows: &[[ExactSkillWindow; 6]; 5],
         scratch: &mut ExactScoreScratch,
     ) -> Option<IndependentSkillScoreMatrix> {
+        let stat: f64 = stat.into();
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         if native_kernel_enabled() && avx2_available() {
             // SAFETY: AVX2 is checked at runtime. Both paths inline the same
@@ -60,11 +63,12 @@ impl Chart {
     unsafe fn compressed_skill_matrix_avx2(
         &self,
         team: &[TeamCardSkill; 5],
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
         windows: &[[ExactSkillWindow; 6]; 5],
         scratch: &mut ExactScoreScratch,
     ) -> Option<IndependentSkillScoreMatrix> {
+        let stat: f64 = stat.into();
         self.compressed_skill_matrix_impl(team, stat, is_medley, windows, scratch)
     }
 
@@ -72,11 +76,12 @@ impl Chart {
     fn compressed_skill_matrix_impl(
         &self,
         team: &[TeamCardSkill; 5],
-        stat: i32,
+        stat: impl Into<f64>,
         is_medley: bool,
         windows: &[[ExactSkillWindow; 6]; 5],
         scratch: &mut ExactScoreScratch,
     ) -> Option<IndependentSkillScoreMatrix> {
+        let stat: f64 = stat.into();
         if !scratch.compressed || self.fever_enabled || self.score_as_medley != is_medley {
             return None;
         }
@@ -86,8 +91,11 @@ impl Chart {
         }
         scratch.base_scores.resize(runs.len(), 0);
         let mut base_score = 0;
+        // Preserve both f32 multiplications and the first truncation. Combo
+        // operands were resolved at chart initialization, not per candidate.
+        let judged = self.native_base(stat) * self.score_rule.base_multiplier as f32;
         for (run, base) in runs.iter().zip(&mut scratch.base_scores) {
-            *base = (stat as f64 * run.factor).floor() as i32;
+            *base = (judged * run.combo) as i32;
             base_score += *base * (run.end - run.start) as i32;
         }
         let mut deltas = [[0; 6]; 5];
@@ -111,6 +119,11 @@ impl Chart {
             }
             for (activation, window) in windows[card].iter().enumerate() {
                 let mut delta = 0;
+                let multiplier = if window.rateup {
+                    1.0
+                } else {
+                    native::ordinary_multiplier(window.score_up)
+                };
                 for index in window.run_start..window.run_end {
                     let run = &runs[index];
                     let start = run.start.max(window.range_start);
@@ -127,8 +140,7 @@ impl Chart {
                         )
                     } else {
                         // Both original floors stay inside the multiplication by count.
-                        ((base as f64 * (1.0 + window.score_up)).floor() as i32 - base)
-                            * count as i32
+                        (native::settle(base, multiplier, 1.0) - base) * count as i32
                     };
                 }
                 deltas[card][activation] = delta;
@@ -159,20 +171,20 @@ pub(super) fn constant_base_rateup_delta(base: i32, multipliers: &[f64]) -> i32 
     }
     multipliers
         .iter()
-        .map(|&multiplier| (base as f64 * multiplier).floor() as i32 - base)
+        .map(|&multiplier| native::settle(base, multiplier as f32, 1.0) - base)
         .sum()
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx2")]
 unsafe fn constant_base_rateup_delta_avx2(base: i32, multipliers: &[f64]) -> i32 {
-    let base_pd = _mm256_set1_pd(base as f64);
+    let base_ps = _mm_set1_ps(base as f32);
     let base_epi = _mm_set1_epi32(base);
     let mut sum = _mm_setzero_si128();
     let mut index = 0;
     while index + 4 <= multipliers.len() {
         let values = _mm256_loadu_pd(multipliers.as_ptr().add(index));
-        let scored = _mm256_cvttpd_epi32(_mm256_floor_pd(_mm256_mul_pd(base_pd, values)));
+        let scored = _mm_cvttps_epi32(_mm_floor_ps(_mm_mul_ps(base_ps, _mm256_cvtpd_ps(values))));
         sum = _mm_add_epi32(sum, _mm_sub_epi32(scored, base_epi));
         index += 4;
     }
@@ -181,7 +193,7 @@ unsafe fn constant_base_rateup_delta_avx2(base: i32, multipliers: &[f64]) -> i32
     lanes.into_iter().sum::<i32>()
         + multipliers[index..]
             .iter()
-            .map(|&multiplier| (base as f64 * multiplier).floor() as i32 - base)
+            .map(|&multiplier| native::settle(base, multiplier as f32, 1.0) - base)
             .sum::<i32>()
 }
 
@@ -213,6 +225,38 @@ impl IndependentSkillScoreMatrix {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cached_combo_operands_preserve_native_first_scores_and_plateau_checks() {
+        for combo in [0, 680, 1980] {
+            let chart = chart(false, combo, false);
+            for medley in [true, false] {
+                for value in [0.0_f32, 199_999.98, 200_000.25, 345_678.9, 1_000_000.5] {
+                    let next = f32::from_bits(value.to_bits() + 1);
+                    let low = chart.native_base(f64::from(value));
+                    let high = chart.native_base(f64::from(next));
+                    let expected = chart.score_factor_runs.iter().all(|run| {
+                        chart.native_first(low, run.start, medley)
+                            == chart.native_first(high, run.start, medley)
+                    });
+                    assert_eq!(
+                        chart.native_base_scores_equal(value.into(), next.into(), medley),
+                        expected,
+                        "combo={combo} medley={medley} value={value}"
+                    );
+                    if medley {
+                        for run in &chart.score_factor_runs {
+                            let actual =
+                                (low * chart.score_rule.base_multiplier as f32 * run.combo) as i32;
+                            for note in run.start..run.end {
+                                assert_eq!(actual, chart.native_first(low, note, medley));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     fn chart(overlap: bool, combo: i32, fever: bool) -> Chart {
         let triggers = if overlap {
@@ -452,7 +496,7 @@ mod tests {
                 for base in [0, 1, 32_767, 10_003] {
                     let expected: i32 = values
                         .iter()
-                        .map(|&value| (base as f64 * value).floor() as i32 - base)
+                        .map(|&value| native::settle(base, value as f32, 1.0) - base)
                         .sum();
                     assert_eq!(constant_base_rateup_delta(base, values), expected);
                 }

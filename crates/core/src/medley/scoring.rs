@@ -16,6 +16,7 @@ const MEDLEY_TEAM_COUNT: usize = 3;
 
 #[derive(Debug, Clone, Copy)]
 pub(in crate::medley) struct MedleyCardInput<'a> {
+    pub(in crate::medley) power: crate::scoring::MemberPower,
     pub(in crate::medley) card: &'a PreparedCard,
     pub(in crate::medley) raw_index: usize,
     pub(in crate::medley) stat: f64,
@@ -23,6 +24,7 @@ pub(in crate::medley) struct MedleyCardInput<'a> {
 
 #[derive(Debug, Clone, Copy)]
 pub(in crate::medley) struct ResolvedMedleyCardInput {
+    power: crate::scoring::MemberPower,
     raw_index: usize,
     stat: f64,
     band_id: u32,
@@ -34,6 +36,8 @@ pub(in crate::medley) struct ResolvedMedleyCardInput {
 
 #[derive(Debug, Clone)]
 pub(crate) struct RawTeamCandidate {
+    // Member powers belong to the item combination, not to each candidate.
+    // Reconstruct them from raw_indices after the millions of raw teams are filtered.
     pub(crate) raw_indices: [usize; TEAM_SIZE],
     pub(crate) ordered_raw_indices: [[usize; TEAM_SIZE]; MEDLEY_TEAM_COUNT],
     pub(crate) captain_raw_indices: [usize; MEDLEY_TEAM_COUNT],
@@ -130,6 +134,7 @@ pub(in crate::medley) fn resolve_medley_cards_for_signature(
             }
 
             Ok(ResolvedMedleyCardInput {
+                power: card.power,
                 raw_index: card.raw_index,
                 stat: card.stat,
                 band_id: card.card.band_id,
@@ -194,6 +199,8 @@ fn build_resolved_candidate_internal<const PROFILE: bool>(
     let selected_cards = selected_indices.map(|index| &cards[index]);
     let stat_floor = crate::floor_team_stat(selected_cards.iter().map(|card| card.stat));
     let team = selected_cards.map(|card| card.skill);
+    let power = crate::scoring::TeamPower::Members(selected_cards.map(|card| card.power));
+    let power_groups = power.groups_for_charts(charts, options.score_as_medley);
     if let (Some(profile), Some(start)) = (profile.as_deref_mut(), stage_start) {
         profile.stat_ms += start.elapsed_ms();
     }
@@ -219,31 +226,15 @@ fn build_resolved_candidate_internal<const PROFILE: bool>(
             profile.seed_ms += start.elapsed_ms();
         }
         let stage_start = PROFILE.then(Timer::start);
-        let order = if PROFILE {
-            let profile = profile
-                .as_deref_mut()
-                .expect("profile exists in the profiled candidate builder");
-            chart.get_max_score_order_from_exact_windows_profiled(
-                &team,
-                stat_floor,
-                options.score_as_medley,
-                seed.order_indices,
-                seed.captain_index,
-                &skill_windows,
-                scratch,
-                &mut profile.order_detail,
-            )?
-        } else {
-            chart.get_max_score_order_from_exact_windows(
-                &team,
-                stat_floor,
-                options.score_as_medley,
-                seed.order_indices,
-                seed.captain_index,
-                &skill_windows,
-                scratch,
-            )?
-        };
+        let order = crate::skill_shuffle::maximum_with_power(
+            chart,
+            &team,
+            &skill_windows,
+            (seed.order_indices, seed.captain_index),
+            &power_groups,
+            options.score_as_medley,
+            scratch,
+        )?;
         if let (Some(profile), Some(start)) = (profile.as_deref_mut(), stage_start) {
             let elapsed = start.elapsed_ms();
             profile.order_ms += elapsed;
@@ -296,6 +287,9 @@ pub(in crate::medley) fn build_candidate(
     let stat_floor =
         crate::floor_team_stat(selected_indices.iter().map(|&index| cards[index].stat));
 
+    let power =
+        crate::scoring::TeamPower::Members(selected_indices.map(|index| cards[index].power));
+    let power_groups = power.groups_for_charts(charts, options.score_as_medley);
     let mut scores = [0; MEDLEY_TEAM_COUNT];
     let mut captain_raw_indices = [0; MEDLEY_TEAM_COUNT];
     let mut ordered_raw_indices = [[0; TEAM_SIZE]; MEDLEY_TEAM_COUNT];
@@ -317,13 +311,13 @@ pub(in crate::medley) fn build_candidate(
                     chart.compile_exact_skill_window(activation, resolved_skills[card_idx])?;
             }
         }
-        let order = chart.get_max_score_order_from_exact_windows(
+        let order = crate::skill_shuffle::maximum_with_power(
+            chart,
             &resolved_skills,
-            stat_floor,
-            options.score_as_medley,
-            seed.order_indices,
-            seed.captain_index,
             &skill_windows,
+            (seed.order_indices, seed.captain_index),
+            &power_groups,
+            options.score_as_medley,
             exact_score_scratch,
         )?;
 

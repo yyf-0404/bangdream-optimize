@@ -72,6 +72,9 @@ impl SnapshotPtMaximizeInputBuilder {
                 })
                 .collect();
             return Ok(PtMaximizeResult {
+                scoring_revision: Some(
+                    bangdream_optimize_core::scoring::ARITHMETIC_REVISION.to_owned(),
+                ),
                 skill_queue_notices,
                 event_id: context.event_id,
                 event_type: context.event_type,
@@ -126,6 +129,9 @@ impl SnapshotPtMaximizeInputBuilder {
                 .fold(queue_duration, f64::max);
         }
         Ok(PtMaximizeResult {
+            scoring_revision: Some(
+                bangdream_optimize_core::scoring::ARITHMETIC_REVISION.to_owned(),
+            ),
             skill_queue_notices: bangdream_optimize_core::SkillQueueNotice::for_chart(
                 &selection,
                 &chart,

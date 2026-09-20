@@ -15,6 +15,8 @@ pub const VISUAL_KEY: &str = "visual";
 
 #[derive(Debug, Error)]
 pub enum PreparationError {
+    #[error("native scoring preparation failed: {message}")]
+    NativePower { message: String },
     #[error("player card config for card {card_id} is missing")]
     MissingPlayerCardConfig { card_id: u32 },
 
@@ -288,6 +290,8 @@ pub struct EventMemberBonus {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreparedCard {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_power: Option<crate::scoring::preparation::PreparedPowerCard>,
     pub card_id: u32,
     pub character_id: u32,
     pub band_id: u32,
@@ -306,6 +310,82 @@ pub struct PreparedCard {
 }
 
 impl PreparedCard {
+    pub fn member_power(
+        &self,
+        area: &AreaItemPercent,
+        band: &str,
+        attribute: &str,
+        magazine: &str,
+    ) -> crate::scoring::MemberPower {
+        let mut points = [0.0_f32; 3];
+        if !area.native_items.is_empty() {
+            for item in &area.native_items {
+                let selected = match item.kind {
+                    AreaItemType::Band => band,
+                    AreaItemType::Attribute => attribute,
+                    AreaItemType::Magazine => magazine,
+                };
+                if item.key == selected
+                    && match item.kind {
+                        AreaItemType::Band => band_key_matches(&item.key, self.band_id),
+                        AreaItemType::Attribute => attribute_key_matches(&item.key, self.attribute),
+                        AreaItemType::Magazine => true,
+                    }
+                {
+                    for i in 0..3 {
+                        points[i] += item.points[i];
+                    }
+                }
+            }
+        } else {
+            // Explicit legacy core input; live application master preparation
+            // populates native_items, including zero-level entries.
+            for value in [
+                band_key_matches(band, self.band_id)
+                    .then(|| area.band.get(band))
+                    .flatten(),
+                attribute_key_matches(attribute, self.attribute)
+                    .then(|| area.attribute.get(attribute))
+                    .flatten(),
+                area.magazine.get(magazine),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                for (i, rate) in [value.performance, value.technique, value.visual]
+                    .into_iter()
+                    .enumerate()
+                {
+                    points[i] += (rate * 100.0) as f32;
+                }
+            }
+        }
+        let rates = points.map(|point| point / 100.0);
+        if let Some(card) = &self.native_power {
+            crate::scoring::MemberPower::from_bonuses(
+                card.original,
+                [0.0; 3],
+                rates,
+                card.event_percent,
+                card.extra_event,
+            )
+            .expect("power operands validated during preparation")
+        } else {
+            crate::scoring::MemberPower::from_resolved_parts(
+                [
+                    self.stat.performance as f32,
+                    self.stat.technique as f32,
+                    self.stat.visual as f32,
+                ],
+                rates,
+                [
+                    self.event_add_stat.performance as f32,
+                    self.event_add_stat.technique as f32,
+                    self.event_add_stat.visual as f32,
+                ],
+            )
+        }
+    }
     pub fn add_up_stat(
         &self,
         area_item_percent: &AreaItemPercent,
@@ -313,27 +393,8 @@ impl PreparedCard {
         attribute: &str,
         magazine: &str,
     ) -> f64 {
-        let mut stat = StatValue::zero();
-
-        if band_key_matches(band_id, self.band_id) {
-            if let Some(rate) = area_item_percent.band.get(band_id) {
-                stat.add(self.stat.mul_rate(*rate));
-            }
-        }
-
-        if attribute_key_matches(attribute, self.attribute) {
-            if let Some(rate) = area_item_percent.attribute.get(attribute) {
-                stat.add(self.stat.mul_rate(*rate));
-            }
-        }
-
-        if let Some(rate) = area_item_percent.magazine.get(magazine) {
-            stat.add(self.stat.mul_rate(*rate));
-        }
-
-        stat.add(self.stat);
-        stat.add(self.event_add_stat);
-        stat.sum()
+        self.member_power(area_item_percent, band_id, attribute, magazine)
+            .linear_total()
     }
 }
 
@@ -354,6 +415,10 @@ pub struct AreaItemDefinition {
     #[serde(default)]
     pub target_attributes: Vec<Attribute>,
     pub percents: BTreeMap<u8, StatRate>,
+    /// Master percentages before /100. New scoring must not reconstruct these
+    /// from aggregated legacy rates. Empty when reading an old prepared snapshot.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub percent_points: BTreeMap<u8, [f32; 3]>,
 }
 
 impl AreaItemDefinition {
@@ -442,14 +507,26 @@ fn attribute_key_matches(key: &str, attribute: Attribute) -> bool {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AreaItemPercent {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub native_items: Vec<NativeAreaItem>,
     pub band: BTreeMap<String, StatRate>,
     pub attribute: BTreeMap<String, StatRate>,
     pub magazine: BTreeMap<String, StatRate>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeAreaItem {
+    pub item_id: u32,
+    pub kind: AreaItemType,
+    pub key: String,
+    pub points: [f32; 3],
+}
+
 impl AreaItemPercent {
     pub fn empty() -> Self {
         Self {
+            native_items: Vec::new(),
             band: BTreeMap::new(),
             attribute: BTreeMap::new(),
             magazine: BTreeMap::new(),
@@ -542,7 +619,22 @@ pub fn prepare_card(
             skill_level: player_card.skill_level,
         })?;
 
-    Ok(PreparedCard {
+    if !duration.is_finite()
+        || duration < 0.0
+        || [
+            Some(card.skill.score_up.default),
+            card.skill.score_up.unification_activate_effect_value,
+        ]
+        .into_iter()
+        .flatten()
+        .any(|rate| !rate.is_finite() || rate < 0.0 || !(rate as f32).is_finite())
+    {
+        return Err(PreparationError::NativePower {
+            message: format!("card {} has invalid skill parameters", card.card_id),
+        });
+    }
+    let mut prepared = PreparedCard {
+        native_power: None,
         card_id: card.card_id,
         character_id: card.character_id,
         band_id: card.band_id,
@@ -563,7 +655,15 @@ pub fn prepare_card(
             rateup: card.skill.rateup,
         },
         score_up: card.skill.score_up,
-    })
+    };
+    prepared.native_power = Some(
+        crate::scoring::preparation::PreparedPowerCard::new(&prepared, event).map_err(|error| {
+            PreparationError::NativePower {
+                message: error.to_string(),
+            }
+        })?,
+    );
+    Ok(prepared)
 }
 
 fn card_level(
@@ -640,9 +740,51 @@ pub fn calculate_area_item_percent(
     }
 
     apply_shell_and_coffee_adjustment(&mut result, player_area_items, area_item_definitions)?;
-    for (item_type, key) in disabled_groups {
-        *result.entry_mut(item_type, key) = StatRate::zero();
+    for (item_type, key) in &disabled_groups {
+        *result.entry_mut(*item_type, key.clone()) = StatRate::zero();
     }
+
+    let unused_alternative = player_area_items
+        .get("59")
+        .zip(player_area_items.get("72"))
+        .map(|(shell, coffee)| if shell.level < coffee.level { 59 } else { 72 });
+    for (id, config) in player_area_items {
+        let id: u32 = id.parse().expect("validated item id");
+        let definition = &area_item_definitions[&id];
+        let kind = definition.item_type();
+        let key = definition.target_key()?;
+        let inactive = config.level == 0
+            || unused_alternative == Some(id)
+            || disabled_groups.contains(&(kind, key.clone()));
+        let points = if inactive {
+            [0.0; 3]
+        } else {
+            definition
+                .percent_points
+                .get(&config.level)
+                .copied()
+                .ok_or_else(|| PreparationError::NativePower {
+                    message: format!(
+                        "area item {id} level {} lacks original percentages; reload master data",
+                        config.level
+                    ),
+                })?
+        };
+        if points.iter().any(|v| !v.is_finite() || *v < 0.0) {
+            return Err(PreparationError::NativePower {
+                message: format!("invalid area item percentages: {id}"),
+            });
+        }
+        result.native_items.push(NativeAreaItem {
+            item_id: id,
+            kind,
+            key,
+            points,
+        });
+    }
+    // Exported profiles have no placement order. Use numeric ID order in all
+    // targets, and record that deterministic policy as part of the revision.
+    result.native_items.sort_by_key(|item| item.item_id);
 
     // A fresh profile still has a valid unequipped, zero-bonus combination.
     // Keep configured groups unchanged; only fill categories with no choices.
@@ -890,6 +1032,7 @@ mod tests {
     #[test]
     fn calculates_add_up_stat_for_selected_area_items() {
         let prepared = PreparedCard {
+            native_power: None,
             card_id: 1,
             character_id: 1,
             band_id: 2,
@@ -925,6 +1068,7 @@ mod tests {
             },
         };
         let area = AreaItemPercent {
+            native_items: Vec::new(),
             band: BTreeMap::from([("2".to_owned(), StatRate::all(0.1))]),
             attribute: BTreeMap::from([("cool".to_owned(), StatRate::all(0.2))]),
             magazine: BTreeMap::from([(
@@ -954,6 +1098,19 @@ mod tests {
                 10,
                 AreaItemDefinition {
                     area_item_id: 10,
+                    percent_points: BTreeMap::from([(1, StatRate::all(0.1))])
+                        .iter()
+                        .map(|(&level, rate)| {
+                            (
+                                level,
+                                [
+                                    rate.performance as f32 * 100.0,
+                                    rate.technique as f32 * 100.0,
+                                    rate.visual as f32 * 100.0,
+                                ],
+                            )
+                        })
+                        .collect(),
                     target_band_ids: vec![2],
                     target_attributes: vec![],
                     percents: BTreeMap::from([(1, StatRate::all(0.1))]),
@@ -963,6 +1120,19 @@ mod tests {
                 20,
                 AreaItemDefinition {
                     area_item_id: 20,
+                    percent_points: BTreeMap::from([(2, StatRate::all(0.2))])
+                        .iter()
+                        .map(|(&level, rate)| {
+                            (
+                                level,
+                                [
+                                    rate.performance as f32 * 100.0,
+                                    rate.technique as f32 * 100.0,
+                                    rate.visual as f32 * 100.0,
+                                ],
+                            )
+                        })
+                        .collect(),
                     target_band_ids: vec![],
                     target_attributes: vec![Attribute::Cool],
                     percents: BTreeMap::from([(2, StatRate::all(0.2))]),
@@ -972,6 +1142,26 @@ mod tests {
                 80,
                 AreaItemDefinition {
                     area_item_id: 80,
+                    percent_points: BTreeMap::from([(
+                        1,
+                        StatRate {
+                            performance: 0.3,
+                            technique: 0.0,
+                            visual: 0.0,
+                        },
+                    )])
+                    .iter()
+                    .map(|(&level, rate)| {
+                        (
+                            level,
+                            [
+                                rate.performance as f32 * 100.0,
+                                rate.technique as f32 * 100.0,
+                                rate.visual as f32 * 100.0,
+                            ],
+                        )
+                    })
+                    .collect(),
                     target_band_ids: vec![],
                     target_attributes: vec![],
                     percents: BTreeMap::from([(
@@ -1005,6 +1195,19 @@ mod tests {
                 10,
                 AreaItemDefinition {
                     area_item_id: 10,
+                    percent_points: BTreeMap::from([(1, StatRate::all(0.1))])
+                        .iter()
+                        .map(|(&level, rate)| {
+                            (
+                                level,
+                                [
+                                    rate.performance as f32 * 100.0,
+                                    rate.technique as f32 * 100.0,
+                                    rate.visual as f32 * 100.0,
+                                ],
+                            )
+                        })
+                        .collect(),
                     target_band_ids: vec![2],
                     target_attributes: vec![],
                     percents: BTreeMap::from([(1, StatRate::all(0.1))]),
@@ -1014,6 +1217,19 @@ mod tests {
                 11,
                 AreaItemDefinition {
                     area_item_id: 11,
+                    percent_points: BTreeMap::from([(1, StatRate::all(0.2))])
+                        .iter()
+                        .map(|(&level, rate)| {
+                            (
+                                level,
+                                [
+                                    rate.performance as f32 * 100.0,
+                                    rate.technique as f32 * 100.0,
+                                    rate.visual as f32 * 100.0,
+                                ],
+                            )
+                        })
+                        .collect(),
                     target_band_ids: vec![2],
                     target_attributes: vec![],
                     percents: BTreeMap::from([(1, StatRate::all(0.2))]),
@@ -1023,6 +1239,19 @@ mod tests {
                 20,
                 AreaItemDefinition {
                     area_item_id: 20,
+                    percent_points: BTreeMap::from([(1, StatRate::all(0.3))])
+                        .iter()
+                        .map(|(&level, rate)| {
+                            (
+                                level,
+                                [
+                                    rate.performance as f32 * 100.0,
+                                    rate.technique as f32 * 100.0,
+                                    rate.visual as f32 * 100.0,
+                                ],
+                            )
+                        })
+                        .collect(),
                     target_band_ids: vec![],
                     target_attributes: vec![Attribute::Cool],
                     percents: BTreeMap::from([(1, StatRate::all(0.3))]),
@@ -1047,6 +1276,19 @@ mod tests {
                 59,
                 AreaItemDefinition {
                     area_item_id: 59,
+                    percent_points: BTreeMap::from([(1, StatRate::all(0.1))])
+                        .iter()
+                        .map(|(&level, rate)| {
+                            (
+                                level,
+                                [
+                                    rate.performance as f32 * 100.0,
+                                    rate.technique as f32 * 100.0,
+                                    rate.visual as f32 * 100.0,
+                                ],
+                            )
+                        })
+                        .collect(),
                     target_band_ids: vec![],
                     target_attributes: vec![
                         Attribute::Powerful,
@@ -1061,6 +1303,19 @@ mod tests {
                 72,
                 AreaItemDefinition {
                     area_item_id: 72,
+                    percent_points: BTreeMap::from([(2, StatRate::all(0.2))])
+                        .iter()
+                        .map(|(&level, rate)| {
+                            (
+                                level,
+                                [
+                                    rate.performance as f32 * 100.0,
+                                    rate.technique as f32 * 100.0,
+                                    rate.visual as f32 * 100.0,
+                                ],
+                            )
+                        })
+                        .collect(),
                     target_band_ids: vec![],
                     target_attributes: vec![
                         Attribute::Powerful,
@@ -1098,6 +1353,19 @@ mod tests {
                 59,
                 AreaItemDefinition {
                     area_item_id: 59,
+                    percent_points: BTreeMap::from([(1, StatRate::all(0.1))])
+                        .iter()
+                        .map(|(&level, rate)| {
+                            (
+                                level,
+                                [
+                                    rate.performance as f32 * 100.0,
+                                    rate.technique as f32 * 100.0,
+                                    rate.visual as f32 * 100.0,
+                                ],
+                            )
+                        })
+                        .collect(),
                     target_band_ids: vec![],
                     target_attributes: targets.clone(),
                     percents: BTreeMap::from([(1, StatRate::all(0.1))]),
@@ -1107,6 +1375,19 @@ mod tests {
                 72,
                 AreaItemDefinition {
                     area_item_id: 72,
+                    percent_points: BTreeMap::from([(2, StatRate::all(0.2))])
+                        .iter()
+                        .map(|(&level, rate)| {
+                            (
+                                level,
+                                [
+                                    rate.performance as f32 * 100.0,
+                                    rate.technique as f32 * 100.0,
+                                    rate.visual as f32 * 100.0,
+                                ],
+                            )
+                        })
+                        .collect(),
                     target_band_ids: vec![],
                     target_attributes: targets,
                     percents: BTreeMap::from([(2, StatRate::all(0.2))]),
@@ -1129,6 +1410,19 @@ mod tests {
             59,
             AreaItemDefinition {
                 area_item_id: 59,
+                percent_points: BTreeMap::from([(1, StatRate::all(0.1))])
+                    .iter()
+                    .map(|(&level, rate)| {
+                        (
+                            level,
+                            [
+                                rate.performance as f32 * 100.0,
+                                rate.technique as f32 * 100.0,
+                                rate.visual as f32 * 100.0,
+                            ],
+                        )
+                    })
+                    .collect(),
                 target_band_ids: vec![],
                 target_attributes: vec![
                     Attribute::Powerful,
@@ -1149,6 +1443,7 @@ mod tests {
     fn multi_target_band_area_item_uses_actual_target_set_key() {
         let definition = AreaItemDefinition {
             area_item_id: 73,
+            percent_points: BTreeMap::new(),
             target_band_ids: vec![1, 2, 3, 4, 5, 18, 21, 45],
             target_attributes: vec![
                 Attribute::Powerful,
@@ -1167,6 +1462,7 @@ mod tests {
     fn multi_target_attribute_area_item_uses_actual_target_set_key() {
         let definition = AreaItemDefinition {
             area_item_id: 56,
+            percent_points: BTreeMap::new(),
             target_band_ids: vec![],
             target_attributes: vec![Attribute::Powerful, Attribute::Pure],
             percents: BTreeMap::new(),
@@ -1179,6 +1475,7 @@ mod tests {
     #[test]
     fn add_up_stat_matches_multi_target_area_item_keys() {
         let prepared = PreparedCard {
+            native_power: None,
             card_id: 1,
             character_id: 1,
             band_id: 4,
@@ -1210,6 +1507,7 @@ mod tests {
             },
         };
         let area = AreaItemPercent {
+            native_items: Vec::new(),
             band: BTreeMap::from([("1,2,3,4,5,18,21,45".to_owned(), StatRate::all(0.1))]),
             attribute: BTreeMap::from([(
                 "cool,happy,pure,powerful".to_owned(),

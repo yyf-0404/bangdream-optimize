@@ -186,6 +186,7 @@ mod tests {
     #[test]
     fn score_range_uses_all_shared_item_combinations() {
         let area = AreaItemPercent {
+            native_items: Vec::new(),
             band: (1..=9)
                 .map(|band| (band.to_string(), StatRate::zero()))
                 .collect(),

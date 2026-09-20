@@ -14,6 +14,8 @@ use bangdream_optimize_team_prune::{
 use std::collections::BTreeMap;
 
 mod cover;
+mod teammate;
+use teammate::{TeammateChartBound, TeammateUpperBounds};
 
 #[inline]
 pub(super) fn cover_optimization_enabled() -> bool {
@@ -32,13 +34,21 @@ const MEDLEY_TEAM_COUNT: usize = 3;
 
 #[derive(Debug, Clone)]
 pub(crate) struct MedleyCardPruneProfile {
+    pub(crate) power: crate::scoring::MemberPower,
     pub(crate) stat: f64,
+    // Covers the difference of both teams' accumulation errors for this pool.
+    power_rounding_guard: f64,
     skill_meta_variants: Vec<SkillMetaVariant>,
     pub(crate) skill_meta_bounds: Vec<SkillMetaBounds>,
     pub(crate) best_skill_meta_by_chart: Vec<f64>,
 }
 
 impl MedleyCardPruneProfile {
+    fn power_dominates(&self, other: &Self) -> bool {
+        self.power.componentwise_dominates(other.power)
+            || self.stat - other.stat >= self.power_rounding_guard.max(other.power_rounding_guard)
+    }
+
     pub(crate) fn has_queued_windows(&self) -> bool {
         self.skill_meta_variants
             .first()
@@ -82,7 +92,9 @@ pub(crate) struct SkillMetaBounds {
 
 #[derive(Debug, Clone, Copy)]
 struct SignatureHardDominanceModel<'a> {
+    power: crate::scoring::MemberPower,
     stat: f64,
+    power_rounding_guard: f64,
     card_id: u32,
     meta: &'a [f64],
     skill: TeamCardSkill,
@@ -148,16 +160,7 @@ pub(crate) struct MedleyPruneUpperBounds<'a> {
     charts: &'a [Chart],
     profiles: &'a [MedleyCardPruneProfile],
     best_any_team_scores: Vec<f64>,
-    teammate_cache: Vec<TeammateUpperBoundCacheEntry>,
-}
-
-#[derive(Debug, Clone)]
-struct TeammateUpperBoundCacheEntry {
-    signature: MedleyPruneSignature,
-    excluded_character_id: u32,
-    stat: f64,
-    normal_skill_meta_by_chart: Vec<f64>,
-    captain_skill_meta_by_chart: Vec<f64>,
+    teammate_cache: Vec<TeammateUpperBounds>,
 }
 
 impl<'a> MedleyPruneUpperBounds<'a> {
@@ -266,7 +269,7 @@ impl<'a> MedleyPruneUpperBounds<'a> {
     ) -> f64 {
         let card = &self.cards[card_idx];
         let profile = &self.profiles[card_idx];
-        let teammate = self.teammate_upper_bound(signature, card.character_id);
+        let teammate = self.teammate_upper_bound(signature, card.character_id, chart_idx);
         let score_up = card
             .score_up
             .resolve(signature.team_band_id(), signature.team_attribute());
@@ -282,69 +285,30 @@ impl<'a> MedleyPruneUpperBounds<'a> {
             .unwrap_or_default();
 
         let stat = profile.stat + teammate.stat;
-        let skill_meta = card_meta
-            + teammate.normal_skill_meta_by_chart[chart_idx]
-            + card_meta.max(teammate.captain_skill_meta_by_chart[chart_idx]);
-        (stat * (self.charts[chart_idx].meta.no_skill + skill_meta)).ceil()
+        let skill_meta = card_meta + teammate.normal_skill + card_meta.max(teammate.captain_skill);
+        crate::scoring::linear_score_upper(
+            stat * (self.charts[chart_idx].meta.no_skill + skill_meta),
+        )
     }
 
     fn teammate_upper_bound(
         &mut self,
         signature: MedleyPruneSignature,
         excluded_character_id: u32,
-    ) -> TeammateUpperBoundCacheEntry {
-        if let Some(entry) = self.teammate_cache.iter().find(|entry| {
-            entry.signature == signature && entry.excluded_character_id == excluded_character_id
-        }) {
-            return entry.clone();
+        chart_idx: usize,
+    ) -> TeammateChartBound {
+        if let Some(entry) = self
+            .teammate_cache
+            .iter()
+            .find(|entry| entry.signature == signature)
+        {
+            return entry.for_chart(excluded_character_id, chart_idx);
         }
-
-        let stat = top_character_values_sum::<4, _>(self.cards, |idx, card| {
-            (card.character_id != excluded_character_id && signature.allows(card))
-                .then_some(self.profiles[idx].stat)
-        });
-        let normal_skill_meta_by_chart = (0..self.charts.len())
-            .map(|chart_idx| {
-                top_character_values_sum::<4, _>(self.cards, |idx, card| {
-                    (card.character_id != excluded_character_id && signature.allows(card)).then(
-                        || {
-                            signature_skill_meta_for_chart(
-                                card,
-                                &self.profiles[idx],
-                                signature,
-                                chart_idx,
-                            )
-                        },
-                    )
-                })
-            })
-            .collect();
-        let captain_skill_meta_by_chart = (0..self.charts.len())
-            .map(|chart_idx| {
-                top_character_values_sum::<1, _>(self.cards, |idx, card| {
-                    (card.character_id != excluded_character_id && signature.allows(card)).then(
-                        || {
-                            signature_skill_meta_for_chart(
-                                card,
-                                &self.profiles[idx],
-                                signature,
-                                chart_idx,
-                            )
-                        },
-                    )
-                })
-            })
-            .collect();
-
-        let entry = TeammateUpperBoundCacheEntry {
-            signature,
-            excluded_character_id,
-            stat,
-            normal_skill_meta_by_chart,
-            captain_skill_meta_by_chart,
-        };
-        self.teammate_cache.push(entry.clone());
-        entry
+        let entry =
+            TeammateUpperBounds::new(self.cards, self.profiles, signature, self.charts.len());
+        let result = entry.for_chart(excluded_character_id, chart_idx);
+        self.teammate_cache.push(entry);
+        result
     }
 }
 
@@ -394,7 +358,7 @@ pub(crate) fn best_any_team_score_upper_bound(
         Some(profiles[idx].best_skill_meta_by_chart[chart_idx])
     });
     let skill_meta = normal_skill_meta + captain_skill_meta;
-    (stat * (charts[chart_idx].meta.no_skill + skill_meta)).ceil()
+    crate::scoring::linear_score_upper(stat * (charts[chart_idx].meta.no_skill + skill_meta))
 }
 
 pub(crate) fn signature_skill_meta_for_chart(
@@ -450,7 +414,7 @@ where
 pub(crate) fn medley_card_prune_profiles(
     cards: &[PreparedCard],
     charts: &[Chart],
-    card_stats: &[f64],
+    card_stats: &[crate::scoring::MemberPower],
 ) -> Result<Vec<MedleyCardPruneProfile>, TeamBuildError> {
     let max_duration = cards
         .iter()
@@ -463,17 +427,33 @@ pub(crate) fn medley_card_prune_profiles(
     // Queue windows depend on skill shape, not card ID or item-adjusted stat.
     // Share their precomputation across the many cards with identical skills.
     let mut variants_by_skill = BTreeMap::new();
+    let maximum_team = 5.0
+        * card_stats
+            .iter()
+            .map(|p| p.linear_total())
+            .fold(0.0, f64::max);
+    // For the same four teammates and physical slot, the continuous difference
+    // is exactly the replacement's stat difference. Every native team lies in
+    // [linear_power_lower(sum), linear_power_upper(sum)]. Paying for both errors
+    // proves scalar dominance even when the replacement trades one axis for
+    // another. Near ties still need componentwise dominance.
+    let power_rounding_guard = crate::scoring::linear_power_upper(maximum_team)
+        - crate::scoring::linear_power_lower(maximum_team)
+        + maximum_team * 128.0 * f64::EPSILON;
     cards
         .iter()
         .zip(card_stats)
-        .map(|(card, &stat)| {
+        .map(|(card, &power)| {
+            let stat = power.linear_total();
             let skill_meta_variants =
                 medley_skill_meta_variants(card, charts, &queued_charts, &mut variants_by_skill)?;
             let skill_meta_bounds = skill_meta_bounds(&skill_meta_variants);
             let best_skill_meta_by_chart =
                 best_skill_meta_by_chart(&skill_meta_bounds, charts.len());
             Ok(MedleyCardPruneProfile {
+                power,
                 stat,
+                power_rounding_guard,
                 skill_meta_variants,
                 skill_meta_bounds,
                 best_skill_meta_by_chart,
@@ -499,19 +479,18 @@ pub(crate) fn medley_card_dominates_ignoring_unification(
     right: &PreparedCard,
     right_profile: &MedleyCardPruneProfile,
 ) -> bool {
-    if left_profile.has_queued_windows()
-        && (left.skill.duration != right.skill.duration
-            || left.skill.rateup != right.skill.rateup
-            || score_up_bounds(left.score_up)
+    if left.skill.duration != right.skill.duration
+        || left.skill.rateup != right.skill.rateup
+        || score_up_bounds(left.score_up)
+            .into_iter()
+            .fold(f64::INFINITY, f64::min)
+            < score_up_bounds(right.score_up)
                 .into_iter()
-                .fold(f64::INFINITY, f64::min)
-                < score_up_bounds(right.score_up)
-                    .into_iter()
-                    .fold(0.0, f64::max))
+                .fold(0.0, f64::max)
     {
         return false;
     }
-    if left_profile.stat < right_profile.stat {
+    if !left_profile.power_dominates(right_profile) {
         return false;
     }
     if left_profile.skill_meta_bounds.len() != right_profile.skill_meta_bounds.len() {
@@ -877,6 +856,8 @@ pub(crate) fn hard_dominance_graph_for_indices_with_closure(
             .resolve(signature.team_band_id(), signature.team_attribute());
         if let Some(meta) = profiles[idx].skill_meta_for_score_up(score_up) {
             models[idx] = Some(SignatureHardDominanceModel {
+                power: profiles[idx].power,
+                power_rounding_guard: profiles[idx].power_rounding_guard,
                 stat: profiles[idx].stat,
                 card_id: cards[idx].card_id,
                 meta,
@@ -919,6 +900,8 @@ pub(crate) fn hard_dominance_graph_for_cross_subsets(
             .resolve(signature.team_band_id(), signature.team_attribute());
         if let Some(meta) = profiles[idx].skill_meta_for_score_up(score_up) {
             models[idx] = Some(SignatureHardDominanceModel {
+                power: profiles[idx].power,
+                power_rounding_guard: profiles[idx].power_rounding_guard,
                 stat: profiles[idx].stat,
                 card_id: cards[idx].card_id,
                 meta,
@@ -952,14 +935,17 @@ fn signature_hard_model_dominates(
 ) -> bool {
     // A duration change also changes the NEXT skill's window. Independent
     // window maxima cannot establish dominance on a queued chart.
-    if left.queued
-        && (left.skill.duration != right.skill.duration
-            || left.skill.rateup != right.skill.rateup
-            || left.skill.score_up < right.skill.score_up)
+    if ((left.queued || right.queued) && left.skill.duration != right.skill.duration)
+        || left.skill.duration < right.skill.duration
+        || left.skill.rateup != right.skill.rateup
+        || left.skill.score_up < right.skill.score_up
     {
         return false;
     }
-    if left.stat < right.stat || left.meta.len() != right.meta.len() {
+    if (!left.power.componentwise_dominates(right.power)
+        && left.stat - right.stat < left.power_rounding_guard.max(right.power_rounding_guard))
+        || left.meta.len() != right.meta.len()
+    {
         return false;
     }
 
@@ -1257,6 +1243,37 @@ fn score_up_bounds(score_up: ScoreUp) -> Vec<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn scalar_power_dominance_pays_for_both_layout_rounding_errors() {
+        use crate::scoring::{MemberPower, TeamPower};
+        let rows = [
+            [40050.2, 29999.5, 30000.25],
+            [40000.5, 30000.5, 30000.0],
+            [40001.125, 29999.5, 30000.5],
+            [37000.3, 19000.7, 49999.9],
+            [33333.3, 44444.4, 22222.2],
+            [79000.7, 11000.1, 9999.9],
+            [25000.1, 35000.7, 47000.3],
+        ];
+        let powers = rows.map(|r| MemberPower::from_resolved_parts(r, [0.0; 3], [0.0; 3]));
+        let cards = (0..rows.len())
+            .map(|i| prepared_card(i as u32 + 1, i as u32 + 1, 1, Attribute::Cool))
+            .collect::<Vec<_>>();
+        let profiles = medley_card_prune_profiles(&cards, &[], &powers).unwrap();
+        assert!(!powers[0].componentwise_dominates(powers[1]));
+        assert!(profiles[0].power_dominates(&profiles[1]));
+        assert!(profiles[2].stat > profiles[1].stat);
+        assert!(
+            !profiles[2].power_dominates(&profiles[1]),
+            "near ties cannot use scalar dominance"
+        );
+        let a = TeamPower::Members([powers[0], powers[3], powers[4], powers[5], powers[6]]);
+        let b = TeamPower::Members([powers[1], powers[3], powers[4], powers[5], powers[6]]);
+        for layout in &crate::skill_shuffle::tables().layouts {
+            assert!(a.power(layout.cards) >= b.power(layout.cards));
+        }
+    }
+
     use crate::medley::team::adjusted_card_stats;
     use crate::medley::test_support::{medley_charts, prepared_card, selected_cool_items};
     use crate::model::preparation::AreaItemPercent;
@@ -1264,6 +1281,12 @@ mod tests {
     #[test]
     fn missing_score_up_variant_is_not_silently_replaced() {
         let profile = MedleyCardPruneProfile {
+            power_rounding_guard: 1e-6,
+            power: crate::scoring::MemberPower::from_resolved_parts(
+                [1.0, 0.0, 0.0],
+                [0.0; 3],
+                [0.0; 3],
+            ),
             stat: 1.0,
             skill_meta_variants: vec![SkillMetaVariant {
                 conditional: Vec::new(),
@@ -1416,7 +1439,7 @@ fn dominance_rejection_for_signature(
     right_profile: &MedleyCardPruneProfile,
     signature: MedleyPruneSignature,
 ) -> DominanceCheck {
-    if left_profile.stat < right_profile.stat {
+    if !left_profile.power_dominates(right_profile) {
         return DominanceCheck::RejectStat;
     }
     if !signature.allows(left) || !signature.allows(right) {
@@ -1429,10 +1452,9 @@ fn dominance_rejection_for_signature(
     let right_score_up = right
         .score_up
         .resolve(signature.team_band_id(), signature.team_attribute());
-    if left_profile.has_queued_windows()
-        && (left.skill.duration != right.skill.duration
-            || left.skill.rateup != right.skill.rateup
-            || left_score_up < right_score_up)
+    if left.skill.duration != right.skill.duration
+        || left.skill.rateup != right.skill.rateup
+        || left_score_up < right_score_up
     {
         return DominanceCheck::RejectMeta;
     }

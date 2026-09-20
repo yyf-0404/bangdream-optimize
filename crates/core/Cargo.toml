@@ -22,6 +22,8 @@ experimental-compressed-native = []
 experimental-maximize-optimizations = ["bangdream-optimize-medley-solver/experimental-maximize-reuse"]
 # Same-binary baseline for the single-song queue integration; always on in production.
 experimental-single-queue = []
+# Opt-in cache counters and same-binary ablation; no production telemetry.
+experimental-cache-audit = []
 
 [dependencies]
 bangdream-optimize-medley-solver.workspace = true
