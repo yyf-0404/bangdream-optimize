@@ -1,4 +1,5 @@
 import { importCnAccount } from '../data/cn-account.js';
+import { importJpUuid } from '../data/jp-uuid.js';
 import { createGameDataClient } from '../data/game-sync.js?v=3';
 import {
   clearPlayerConfigCache,
@@ -74,6 +75,7 @@ export async function createBrowserRuntime({ onProgress } = {}) {
     deletePlayerConfig,
     clearLocalCache: clearPlayerConfigCache,
     importCnAccount: (credentials, {signal} = {}) => importCnAccount({apiBaseUrl: config.apiBaseUrl, credentials, signal}),
+    importJpUuid: (request, {signal} = {}) => importJpUuid({apiBaseUrl: config.apiBaseUrl, request, signal}),
     importBestdoriPlayerProfile: ({ playerId, server, mode = 3 }) =>
       fetchBestdoriPlayerProfile([config.apiBaseUrl], { playerId, server, mode }),
     submitFeedback: (payload, attachments) =>

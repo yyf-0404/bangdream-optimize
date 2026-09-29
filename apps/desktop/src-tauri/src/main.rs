@@ -6,7 +6,8 @@ use bangdream_optimize_core::{
 };
 use bangdream_optimize_desktop::{
     CredentialImportRequest, CredentialImportResult, DesktopConfig, DesktopGameDataSource,
-    DesktopOptimizer, DesktopReferenceData, DesktopRuntimeInfo, UserConfigProfile,
+    DesktopOptimizer, DesktopReferenceData, DesktopRuntimeInfo, JpUuidImportRequest,
+    JpUuidImportResult, UserConfigProfile,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -43,6 +44,18 @@ async fn import_cn_account(
         importer.import(credentials).map_err(|err| err.to_string())
     })
     .await.map_err(|_| "账号读取未完成，请稍后重试".to_owned())?
+}
+
+#[tauri::command]
+async fn import_jp_uuid(
+    state: State<'_, AppState>,
+    request: JpUuidImportRequest,
+) -> Result<JpUuidImportResult, String> {
+    let importer = optimizer(&state)?.jp_uuid_importer();
+    tauri::async_runtime::spawn_blocking(move || {
+        importer.import(request).map_err(|err| err.to_string())
+    })
+    .await.map_err(|_| "日服资料读取未完成，请稍后重试".to_owned())?
 }
 
 #[tauri::command]
@@ -346,6 +359,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             import_cn_account,
+            import_jp_uuid,
             load_player_config,
             save_player_config,
             list_player_configs,

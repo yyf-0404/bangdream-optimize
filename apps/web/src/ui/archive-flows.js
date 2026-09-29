@@ -20,16 +20,30 @@ export function createArchiveFlow(title,caption){
 
 export function openImportSource({profile,onRead}){
  const {dialog,body}=createArchiveFlow('导入配置','先核对，再应用');
- const d={source:'account',server:profile.server,method:'credentials',channel:'',account:'',playerId:profile.playerId||'',format:'base64',text:''};
+ const d={source:'account',server:profile.server,method:profile.server==='cn'?'credentials':'public',channel:'',account:'',playerId:profile.playerId||'',format:'base64',text:''};
  const controller=new AbortController();let busy=false;
- dialog.addEventListener('close',()=>{controller.abort();const password=body.querySelector('#import-password');if(password)password.value='';},{once:true});
+ dialog.addEventListener('close',()=>{controller.abort();for(const selector of ['#import-password','#import-uuid']){const input=body.querySelector(selector);if(input)input.value='';}},{once:true});
  function paint(){
   body.innerHTML=importSourceMarkup({...flowHelpers,d,p:profile});
   const form=body.querySelector('form');
   const sync=()=>{d.playerId=body.querySelector('#import-id')?.value??d.playerId;d.text=body.querySelector('#import-text')?.value??d.text;d.account=body.querySelector('#import-account')?.value??d.account;};
   body.querySelectorAll('[data-source]').forEach(b=>b.onclick=()=>{if(busy)return;sync();d.source=b.dataset.source;paint();});
-  for(const [name,key] of [['import-server','server'],['import-method','method']]) body.querySelectorAll(`[name=${name}]`).forEach(input=>input.onchange=()=>{if(busy)return;sync();d[key]=input.value;paint();});
+  for(const [name,key] of [['import-server','server'],['import-method','method']]) body.querySelectorAll(`[name=${name}]`).forEach(input=>input.onchange=()=>{if(busy)return;sync();d[key]=input.value;if(key==='server')d.method=input.value==='cn'?'credentials':'public';paint();});
   body.querySelectorAll('[name=import-channel]').forEach(input=>input.onchange=()=>{d.channel=input.value;});
+  const uuidInput=body.querySelector('#import-uuid'),uuidToggle=body.querySelector('#toggle-import-uuid');
+  const setUuidVisible=visible=>{uuidInput.type=visible?'text':'password';uuidToggle.innerHTML=archiveIcon(visible?'eye-off':'eye');const label=visible?'隐藏 UUID':'显示 UUID';uuidToggle.setAttribute('aria-label',label);uuidToggle.title=label;};
+  if(uuidInput&&uuidToggle){
+   const startRipple=e=>{const rect=uuidToggle.getBoundingClientRect();uuidToggle.style.setProperty('--ripple-x',`${e?.clientX?e.clientX-rect.left:rect.width/2}px`);uuidToggle.style.setProperty('--ripple-y',`${e?.clientY?e.clientY-rect.top:rect.height/2}px`);uuidToggle.classList.remove('uuid-rippling','uuid-ripple-released');void uuidToggle.offsetWidth;uuidToggle.classList.add('uuid-rippling');};
+   const releaseRipple=()=>uuidToggle.classList.add('uuid-ripple-released');
+   uuidToggle.onclick=()=>setUuidVisible(uuidInput.type==='password');
+   uuidToggle.onpointerdown=startRipple;
+   uuidToggle.onpointerup=releaseRipple;
+   uuidToggle.onpointerleave=releaseRipple;
+   uuidToggle.onpointercancel=releaseRipple;
+   uuidToggle.onkeydown=e=>{if(!e.repeat&&(e.key==='Enter'||e.key===' '))startRipple();};
+   uuidToggle.onkeyup=e=>{if(e.key==='Enter'||e.key===' ')releaseRipple();};
+   uuidToggle.onblur=releaseRipple;
+  }
   const format=body.querySelector('#import-format');if(format)format.onchange=()=>{if(busy)return;sync();d.format=format.value;paint();};
   body.querySelectorAll('[data-close-flow]').forEach(b=>b.onclick=()=>dialog.close());
   form.onsubmit=async e=>{
@@ -37,11 +51,15 @@ export function openImportSource({profile,onRead}){
    const error=body.querySelector('#import-error'),progress=body.querySelector('#import-progress');error.textContent='';
    form.querySelectorAll('[aria-invalid]').forEach(el=>el.removeAttribute('aria-invalid'));
    const credentials=d.source==='account'&&d.server==='cn'&&d.method==='credentials';
+   const jpUuid=d.source==='account'&&d.server==='jp'&&d.method==='uuid';
    const invalid=(selector,message)=>{error.textContent=message;const input=body.querySelector(selector);input?.setAttribute('aria-invalid','true');input?.focus();};
    if(credentials){
     if(!d.account.trim())return invalid('#import-account','请输入 Bilibili 账号');
     if(!body.querySelector('#import-password').value)return invalid('#import-password','请输入密码');
     if(!d.channel)return invalid('[name=import-channel]','请选择游戏账号所在的 bili安卓或 iOS 渠道');
+   }else if(jpUuid){
+    if(!/^[1-9]\d*$/.test(String(d.playerId)))return invalid('#import-id','请输入有效的玩家 ID');
+    if(!/^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$/.test(body.querySelector('#import-uuid').value))return invalid('#import-uuid','请输入有效的 UUID');
    }else if(d.source==='account'?!/^[1-9]\d*$/.test(String(d.playerId)):!d.text.trim())return invalid(d.source==='account'?'#import-id':'#import-text',d.source==='account'?'请输入有效的玩家 ID':'请粘贴配置内容');
    busy=true;const button=form.querySelector('[type=submit]');
    const controls=[...form.querySelectorAll('input,textarea,select,button:not([data-close-flow])')];controls.forEach(el=>el.disabled=true);
@@ -57,12 +75,13 @@ export function openImportSource({profile,onRead}){
      if(cancelled||!dialog.open||controller.signal.aborted)return;
      source.password=body.querySelector('#import-password').value;body.querySelector('#import-password').value='';
     }
-    button.textContent='正在读取…';progress.textContent=credentials?'正在连接国服并读取资料，版本失效时会自动更新配置。':'';
+    if(jpUuid){source.uuid=uuidInput.value;setUuidVisible(false);}
+    button.textContent='正在读取…';progress.textContent=credentials?'正在连接国服并读取资料，版本失效时会自动更新配置。':jpUuid?'正在连接日服并读取资料。':'';
     const result=await onRead(source,{signal:controller.signal});
     if(!dialog.open||controller.signal.aborted)return;
     if(result){dialog.querySelector('h2').textContent='导入完成';body.innerHTML=importDoneMarkup({...flowHelpers,p:result});body.querySelectorAll('[data-close-flow],a').forEach(b=>b.addEventListener('click',()=>dialog.close()));}
    }catch(e){if(dialog.open&&!controller.signal.aborted){error.textContent=e.message||String(e);error.focus();}}
-   finally{delete source.password;busy=false;if(dialog.open){controls.forEach(el=>el.disabled=false);button.textContent='读取并预览';progress.textContent='';if(cancelled)button.focus();}}
+   finally{delete source.password;delete source.uuid;busy=false;if(dialog.open){controls.forEach(el=>el.disabled=false);button.textContent='读取并预览';progress.textContent='';if(cancelled)button.focus();}}
   };
  }
  paint();dialog.showModal();
