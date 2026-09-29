@@ -1,4 +1,4 @@
-import { mergeCnAccountImport } from '../data/cn-account.js';
+import { mergeAccountImport, mergeCnAccountImport } from '../data/cn-account.js';
 import { reviewImport } from '../ui/import-review.js?v=3';
 import {openImportSource,openExportFlow} from '../ui/archive-flows.js?v=3';
 import { requestProfileDetails } from '../ui/profile-dialog.js';
@@ -319,6 +319,15 @@ export function createProfileActions({
           finally{delete source.password;}
           signal.throwIfAborted();before=normalizedPlayer(await readTarget(target));
           imported=mergeCnAccountImport(before,data);identity={name:data.name,gameUid:data.gameUid,rank:data.rank,channel:data.channel};
+        }
+        else if(source.server==='jp'&&source.method==='uuid'){
+          const playerId=Number(source.playerId);
+          if(!Number.isSafeInteger(playerId)||playerId<=0)throw new Error('请输入有效的玩家 ID');
+          let data;
+          try{data=await state.runtime.importJpUuid({playerId,uuid:source.uuid},{signal});}
+          finally{delete source.uuid;}
+          signal.throwIfAborted();before=normalizedPlayer(await readTarget(target));
+          imported=mergeAccountImport(before,data,'jp');identity={name:data.name,gameUid:data.gameUid,rank:data.rank};
         }
         else{
           const id=parseEntityId(String(source.playerId),'玩家 ID');imported=structuredClone(before);imported.server=normalizedServer(source.server);imported.playerId=id;

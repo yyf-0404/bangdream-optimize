@@ -28,14 +28,19 @@ export async function importCnAccount({apiBaseUrl = '', credentials, signal, fet
 }
 
 export function mergeCnAccountImport(before, result) {
+  if (!['android', 'ios'].includes(result?.channel)) throw new Error('账号资料身份异常，已停止导入');
+  return mergeAccountImport(before, result, 'cn');
+}
+
+export function mergeAccountImport(before, result, server) {
   const player = result?.player;
-  if (!Number.isSafeInteger(result?.gameUid) || result.gameUid <= 0 || player?.playerId !== result.gameUid || !['android', 'ios'].includes(result.channel)) throw new Error('账号资料身份异常，已停止导入');
+  if (!Number.isSafeInteger(result?.gameUid) || result.gameUid <= 0 || player?.playerId !== result.gameUid || !['cn', 'jp'].includes(server)) throw new Error('账号资料身份异常，已停止导入');
   for (const field of ['cardList', 'areaItem', 'characterBouns']) {
     const value = player[field];
     if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(id => !/^[1-9]\d*$/.test(id))) throw new Error('账号资料不完整，已停止导入');
     if (Object.values(value).some(record => !record || typeof record !== 'object' || Array.isArray(record))) throw new Error('账号资料不完整，已停止导入');
   }
-  const merged = {...structuredClone(before), server: 'cn', playerId: result.gameUid};
+  const merged = {...structuredClone(before), server, playerId: result.gameUid};
   for (const field of ['cardList', 'areaItem', 'characterBouns']) {
     merged[field] ??= {};
     // Missing IDs mean no update; imported values (including zero) replace existing growth.

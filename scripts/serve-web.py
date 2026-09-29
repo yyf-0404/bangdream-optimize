@@ -29,9 +29,9 @@ class WebStaticHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(web_root), **kwargs)
 
     def do_POST(self):
-        # Development only: one fixed account endpoint, forwarded to the local Rust backend.
+        # Development only: fixed import endpoints, forwarded to the local Rust backend.
         # Request bodies must never be printed, cached, or written to temporary files.
-        if self.path != "/api/import/cn-account":
+        if self.path not in ("/api/import/cn-account", "/api/import/jp-uuid"):
             self.send_error(404)
             return
         try:
@@ -39,7 +39,7 @@ class WebStaticHandler(SimpleHTTPRequestHandler):
             if not 0 < size <= 8192 or self.headers.get_content_type() != "application/json":
                 raise ValueError("Invalid account request")
             data = self.rfile.read(size)
-            request = Request(f"http://127.0.0.1:{self.api_port}/api/import/cn-account", data=data,
+            request = Request(f"http://127.0.0.1:{self.api_port}{self.path}", data=data,
                               headers={"Content-Type": "application/json"}, method="POST")
             try:
                 response = build_opener(NoRedirect).open(request, timeout=240)

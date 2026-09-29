@@ -39,6 +39,12 @@ export async function createDesktopRuntime() {
       signal?.throwIfAborted();
       return result;
     },
+    importJpUuid: async (request, {signal} = {}) => {
+      signal?.throwIfAborted();
+      const result = await invokeJson(invoke, 'import_jp_uuid', {request});
+      signal?.throwIfAborted();
+      return result;
+    },
     importBestdoriPlayerProfile: async ({ playerId, server, mode = 3 }) => {
       const payload = await invokeJson(invoke, 'import_bestdori_player_profile', {
         playerId,

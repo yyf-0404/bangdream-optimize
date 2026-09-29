@@ -1,9 +1,11 @@
 mod apk;
 mod credentials;
+mod jp_uuid;
 mod version_config;
 pub use credentials::{
     AccountChannel, CredentialImportRequest, CredentialImportResult, CredentialImporter,
 };
+pub use jp_uuid::{JpUuidImportRequest, JpUuidImportResult, JpUuidImporter};
 
 use aes::{
     cipher::{generic_array::GenericArray, BlockDecrypt, BlockEncrypt, KeyInit},
@@ -23,6 +25,7 @@ use std::{
 };
 use thiserror::Error;
 
+// Default configuration values for the Bang Dream (CN) account importer.
 const API_BASE_URL: &str = "https://l3-prod-all-bd.bilibiligame.net/api";
 const LOGIN_URL: &str = "https://l3-prod-all-bd.bilibiligame.net/api/user/login";
 const DEFAULT_KEY: &[u8; 16] = b"wakakabiliwakaka";
@@ -346,16 +349,24 @@ fn request_id() -> String {
 
 fn aes_encrypt_iso10126(plain: &[u8]) -> Result<Vec<u8>, ImportError> {
     let mut data = iso10126_pad(plain);
-    aes_cbc_crypt(&mut data, false)?;
+    aes_cbc_crypt(&mut data, false, DEFAULT_KEY, DEFAULT_IV)?;
     Ok(data)
 }
 
 fn aes_decrypt_iso10126(ciphertext: &[u8]) -> Result<Vec<u8>, ImportError> {
+    aes_decrypt_iso10126_with(ciphertext, DEFAULT_KEY, DEFAULT_IV)
+}
+
+fn aes_decrypt_iso10126_with(
+    ciphertext: &[u8],
+    key: &[u8; 16],
+    iv: &[u8; 16],
+) -> Result<Vec<u8>, ImportError> {
     if ciphertext.is_empty() || ciphertext.len() % BLOCK_SIZE != 0 {
         return Err(ImportError::Crypto("invalid AES block length".to_owned()));
     }
     let mut data = ciphertext.to_vec();
-    aes_cbc_crypt(&mut data, true)?;
+    aes_cbc_crypt(&mut data, true, key, iv)?;
     iso10126_unpad(&data)
 }
 
@@ -382,14 +393,19 @@ fn iso10126_unpad(data: &[u8]) -> Result<Vec<u8>, ImportError> {
     Ok(data[..data.len() - pad_len].to_vec())
 }
 
-fn aes_cbc_crypt(data: &mut [u8], decrypt: bool) -> Result<(), ImportError> {
+fn aes_cbc_crypt(
+    data: &mut [u8],
+    decrypt: bool,
+    key: &[u8; 16],
+    iv: &[u8; 16],
+) -> Result<(), ImportError> {
     if data.len() % BLOCK_SIZE != 0 {
         return Err(ImportError::Crypto(
             "AES-CBC data is not block aligned".to_owned(),
         ));
     }
-    let cipher = Aes128::new(GenericArray::from_slice(DEFAULT_KEY));
-    let mut previous = *DEFAULT_IV;
+    let cipher = Aes128::new(GenericArray::from_slice(key));
+    let mut previous = *iv;
     for block in data.chunks_exact_mut(BLOCK_SIZE) {
         if decrypt {
             let current = block_to_array(block);

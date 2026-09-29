@@ -1,5 +1,6 @@
 mod cn_account;
 mod feedback;
+mod jp_uuid;
 
 use axum::{
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
@@ -1301,6 +1302,10 @@ fn build_app(
     app = app.route(
         "/api/import/cn-account",
         post(cn_account::import_account).layer(DefaultBodyLimit::max(8192)),
+    );
+    app = app.route(
+        "/api/import/jp-uuid",
+        post(jp_uuid::import_jp_uuid).layer(DefaultBodyLimit::max(8192)),
     );
     app = app.route(
         "/api/feedback",

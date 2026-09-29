@@ -14,7 +14,7 @@ export function reviewImport(before,after,options={}){
  const p={name:options.name||'所选档案',server:before.server};
  const r={customCount:Object.keys(after.customCards||{}).length,cards:Object.keys(after.cardList||{}).length,items:Object.keys(after.areaItem||{}).length,characters:Object.keys(after.characterBouns||{}).length,rows:[['cardList','游戏卡牌'],['customCards','自定义卡牌'],['areaItem','区域道具'],['characterBouns','角色加成']].map(([key,label])=>{const c=changes[key];return [label,`${Object.keys(before[key]||{}).length} → ${Object.keys(after[key]||{}).length}`,`新增 ${c.added} · 修改 ${c.changed}${d.source==='account'?'':` · 移除 ${c.removed}`}`];})};
  let result=false;
- function paint(){body.innerHTML=importReviewMarkup({...flowHelpers,d,p,r,identity:options.identity,isNew:d.destination==='new',importScope:()=>options.identity?`国服账号 · ${options.identity.channel==='ios'?'iOS':'bili安卓'}`:d.source==='account'?'主乐队公开资料':d.format==='base64'?'Base64 配置':'Bestdori Profile'});
+ function paint(){body.innerHTML=importReviewMarkup({...flowHelpers,d,p,r,identity:options.identity,isNew:d.destination==='new',importScope:()=>options.identity?(d.server==='jp'?'日服 UUID':`国服账号 · ${options.identity.channel==='ios'?'iOS':'bili安卓'}`):d.source==='account'?'主乐队公开资料':d.format==='base64'?'Base64 配置':'Bestdori Profile'});
   if(!options.allowNew)body.querySelector('input[value=new]').closest('label').remove();
   body.querySelectorAll('[name=destination]').forEach(radio=>radio.onchange=()=>{d.newName=body.querySelector('#import-new-name')?.value??d.newName;d.destination=radio.value;paint();});
   body.querySelector('#import-back').onclick=()=>dialog.close();
