@@ -57,6 +57,7 @@ pub(in crate::medley) struct SignatureEnumerationError {
 pub(in crate::medley) struct CandidateIncumbentFilter {
     current_best: i32,
     other_song_upper_bounds: [f64; MEDLEY_TEAM_COUNT],
+    resource_bound: Option<std::sync::Arc<crate::team_prune::priced::ResourceBound>>,
 }
 
 impl CandidateIncumbentFilter {
@@ -65,16 +66,22 @@ impl CandidateIncumbentFilter {
         charts: &[Chart],
         profiles: &[MedleyCardPruneProfile],
         current_best: i32,
+        song_score_bounds: Option<&[f64]>,
+        resource_bound: Option<std::sync::Arc<crate::team_prune::priced::ResourceBound>>,
     ) -> Option<Self> {
         if current_best <= 0 || charts.len() != MEDLEY_TEAM_COUNT {
             return None;
         }
 
         let best_any_team_scores: [f64; MEDLEY_TEAM_COUNT] = std::array::from_fn(|chart_idx| {
-            best_any_team_score_upper_bound(cards, charts, profiles, chart_idx)
+            song_score_bounds.map_or_else(
+                || best_any_team_score_upper_bound(cards, charts, profiles, chart_idx),
+                |bounds| bounds[chart_idx],
+            )
         });
         Some(Self {
             current_best,
+            resource_bound,
             other_song_upper_bounds: [
                 best_any_team_scores[1] + best_any_team_scores[2],
                 best_any_team_scores[0] + best_any_team_scores[2],
@@ -336,6 +343,15 @@ fn process_final_layer_flat_card(
         selected_indices[3],
         card_idx,
     ];
+    if candidate_filter.is_some_and(|filter| {
+        filter.resource_bound.as_ref().is_some_and(|bound| {
+            !candidate_scorer.can_beat_resource_bound(&team_indices, bound, filter.current_best)
+        })
+    }) {
+        stats.branch_upper_bound_pruned += 1;
+        stats.final_layer_upper_bound_rejects += 1;
+        return Ok(());
+    }
     let mut build_profile = stats
         .should_profile_next_candidate()
         .then(ResolvedCandidateBuildProfile::default);
@@ -386,7 +402,25 @@ fn final_layer_can_beat_mask_avx2(
         if avx2_available() {
             // SAFETY: runtime AVX2 support is checked above. The caller only
             // requests a four-lane mask when four flat positions are available.
-            return unsafe { final_layer_can_beat_mask_avx2_x86(filter, groups, flat_pos, state) };
+            let mut mask =
+                unsafe { final_layer_can_beat_mask_avx2_x86(filter, groups, flat_pos, state) };
+            if filter.resource_upper.is_some() {
+                for lane in 0..4 {
+                    if mask & (1 << lane) == 0 {
+                        continue;
+                    }
+                    let card = &filter.card_bounds[groups.card_indices[flat_pos + lane]];
+                    let loss = std::array::from_fn(|song| {
+                        (state.resource_loss_by_chart[song] + card.resource_loss_by_chart[song])
+                            .next_down()
+                            .max(0.0)
+                    });
+                    if !filter.resource_can_beat(loss) {
+                        mask &= !(1 << lane);
+                    }
+                }
+            }
+            return mask;
         }
     }
 
@@ -608,6 +642,15 @@ fn process_complete_signature_team(
         stats.final_layer_upper_bound_rejects += 1;
         return Ok(());
     }
+    if candidate_filter.is_some_and(|filter| {
+        filter.resource_bound.as_ref().is_some_and(|bound| {
+            !candidate_scorer.can_beat_resource_bound(selected_indices, bound, filter.current_best)
+        })
+    }) {
+        stats.branch_upper_bound_pruned += 1;
+        stats.final_layer_upper_bound_rejects += 1;
+        return Ok(());
+    }
     if candidates.len() >= options.max_candidates {
         return Err(TeamBuildError::TooManyCandidates {
             limit: options.max_candidates,
@@ -638,6 +681,7 @@ fn process_complete_signature_team(
 
 #[derive(Debug, Clone)]
 struct PrefixUpperBoundFilter {
+    resource_upper: Option<f64>,
     current_best: i32,
     no_skill_by_chart: [f64; MEDLEY_TEAM_COUNT],
     other_song_upper_bounds: [f64; MEDLEY_TEAM_COUNT],
@@ -651,6 +695,7 @@ struct PrefixUpperBoundFilter {
 
 #[derive(Debug, Clone)]
 struct CardUpperBound {
+    resource_loss_by_chart: [f64; MEDLEY_TEAM_COUNT],
     stat: f64,
     normal_meta_by_chart: [f64; MEDLEY_TEAM_COUNT],
     captain_meta_by_chart: [f64; MEDLEY_TEAM_COUNT],
@@ -666,6 +711,7 @@ struct SuffixUpperBound {
 
 #[derive(Debug, Clone, Copy, Default)]
 struct PrefixUpperBoundState {
+    resource_loss_by_chart: [f64; MEDLEY_TEAM_COUNT],
     stat: f64,
     normal_meta_by_chart: [f64; MEDLEY_TEAM_COUNT],
     captain_meta_by_chart: [f64; MEDLEY_TEAM_COUNT],
@@ -674,6 +720,12 @@ struct PrefixUpperBoundState {
 impl PrefixUpperBoundState {
     fn with_card(self, bound: &CardUpperBound) -> Self {
         let mut next = self;
+        for song in 0..MEDLEY_TEAM_COUNT {
+            next.resource_loss_by_chart[song] = (self.resource_loss_by_chart[song]
+                + bound.resource_loss_by_chart[song])
+                .next_down()
+                .max(0.0);
+        }
         next.stat += bound.stat;
         next.normal_meta_by_chart[0] += bound.normal_meta_by_chart[0];
         next.normal_meta_by_chart[1] += bound.normal_meta_by_chart[1];
@@ -761,10 +813,15 @@ impl PrefixUpperBoundFilter {
             return None;
         }
 
-        let card_bounds = cards
+        let mut card_bounds = cards
             .iter()
             .map(|card| card_upper_bound(card, charts, profiles, signature))
             .collect::<Option<Vec<_>>>()?;
+        if let Some(resource) = &candidate_filter.resource_bound {
+            for (bound, card) in card_bounds.iter_mut().zip(cards) {
+                bound.resource_loss_by_chart = resource.card_losses[card.raw_index];
+            }
+        }
         let suffix_bounds =
             suffix_upper_bounds(cards, charts, groups, &card_bounds).collect::<Vec<_>>();
         let card_stat_bounds = card_bounds.iter().map(|bound| bound.stat).collect();
@@ -787,6 +844,7 @@ impl PrefixUpperBoundFilter {
                 .collect()
         });
         Some(Self {
+            resource_upper: candidate_filter.resource_bound.as_ref().map(|b| b.upper),
             current_best: candidate_filter.current_best,
             no_skill_by_chart: std::array::from_fn(|idx| charts[idx].meta.no_skill),
             other_song_upper_bounds: candidate_filter.other_song_upper_bounds,
@@ -816,9 +874,18 @@ impl PrefixUpperBoundFilter {
         let stat = state.stat + suffix.stat_by_slots[remaining_slots];
 
         let current_best = self.current_best as f64;
-        self.chart_can_beat_incumbent(0, remaining_slots, stat, state, suffix, current_best)
-            || self.chart_can_beat_incumbent(1, remaining_slots, stat, state, suffix, current_best)
-            || self.chart_can_beat_incumbent(2, remaining_slots, stat, state, suffix, current_best)
+        (0..MEDLEY_TEAM_COUNT).any(|chart| {
+            self.resource_upper.is_none_or(|upper| {
+                (upper - state.resource_loss_by_chart[chart]).next_up() >= current_best
+            }) && self.chart_can_beat_incumbent(
+                chart,
+                remaining_slots,
+                stat,
+                state,
+                suffix,
+                current_best,
+            )
+        })
     }
 
     fn final_layer_card_can_beat_incumbent(
@@ -829,6 +896,15 @@ impl PrefixUpperBoundFilter {
     ) -> bool {
         let next_state = state.with_card(&self.card_bounds[card_idx]);
         self.partial_team_can_beat_incumbent(TEAM_SIZE, next_state, group_start)
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn resource_can_beat(&self, losses: [f64; MEDLEY_TEAM_COUNT]) -> bool {
+        self.resource_upper.is_none_or(|upper| {
+            losses
+                .into_iter()
+                .any(|loss| (upper - loss).next_up() >= f64::from(self.current_best))
+        })
     }
 
     fn chart_can_beat_incumbent(
@@ -875,6 +951,7 @@ fn card_upper_bound(
     }
 
     Some(CardUpperBound {
+        resource_loss_by_chart: [0.0; MEDLEY_TEAM_COUNT],
         stat: card.stat,
         normal_meta_by_chart,
         captain_meta_by_chart,

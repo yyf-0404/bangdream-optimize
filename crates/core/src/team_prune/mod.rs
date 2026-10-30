@@ -2,6 +2,7 @@ mod contribution;
 pub(super) mod global;
 pub(super) mod hard;
 pub(super) mod pool;
+pub(crate) mod priced;
 pub(super) mod signature;
 pub(super) mod stats;
 

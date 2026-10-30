@@ -1,5 +1,6 @@
 use super::candidate::TeamCandidate;
 use super::prune::{seed_signatures, MedleyPruneSignature};
+use super::scoring::score_candidate_for_chart;
 use super::scoring::{build_candidate, MedleyCardInput, RawTeamCandidate, SkillMetaCache};
 use super::team::{adjusted_card_stats, TeamBuildError, TeamGenerationOptions};
 use crate::model::chart::{Chart, ExactScoreScratch, TeamCardSkill};
@@ -7,6 +8,7 @@ use crate::model::preparation::{AreaItemPercent, PreparedCard};
 use crate::model::schema::{
     BuildResult, EventType, SelectedAreaItems, SongBuildResult, SongSelection,
 };
+use crate::timing::Timer;
 
 const TEAM_SIZE: usize = 5;
 const MEDLEY_TEAM_COUNT: usize = 3;
@@ -255,15 +257,11 @@ fn seed_candidate_from_raw_indices(
     skill_meta_cache: &mut SkillMetaCache,
     exact_score_scratch: &mut ExactScoreScratch,
 ) -> Result<TeamCandidate, TeamBuildError> {
-    let seed_cards: Vec<_> = raw_indices
-        .iter()
-        .copied()
-        .map(|raw_idx| MedleyCardInput {
-            card: &cards[raw_idx],
-            raw_index: raw_idx,
-            stat: card_stats[raw_idx],
-        })
-        .collect();
+    let seed_cards = raw_indices.map(|raw_idx| MedleyCardInput {
+        card: &cards[raw_idx],
+        raw_index: raw_idx,
+        stat: card_stats[raw_idx],
+    });
     let selected_indices = [0, 1, 2, 3, 4];
     let raw_candidate = build_candidate(
         &seed_cards,
@@ -347,6 +345,34 @@ fn improve_seed_partition(
 
                     let mut raw_indices = teams[song_idx].raw_indices;
                     raw_indices[slot] = raw_idx;
+                    if super::preparation_enabled() {
+                        let inputs = raw_indices.map(|idx| MedleyCardInput {
+                            card: &cards[idx],
+                            raw_index: idx,
+                            stat: card_stats[idx],
+                        });
+                        let minimum = best_move.as_ref().map_or(current_score, |best| best.score)
+                            - current_score
+                            + teams[song_idx].candidate.scores[song_idx];
+                        let Some(trial_score) = score_candidate_for_chart(
+                            &inputs,
+                            charts,
+                            options,
+                            &[0, 1, 2, 3, 4],
+                            skill_meta_cache,
+                            exact_score_scratch,
+                            song_idx,
+                            minimum,
+                        )?
+                        else {
+                            continue;
+                        };
+                        let score = current_score - teams[song_idx].candidate.scores[song_idx]
+                            + trial_score;
+                        if score <= best_move.as_ref().map_or(current_score, |best| best.score) {
+                            continue;
+                        }
+                    }
                     let candidate = seed_candidate_from_raw_indices(
                         cards,
                         charts,
@@ -512,7 +538,12 @@ fn seed_medley_candidates_for_items(
     }
     let card_stats = adjusted_card_stats(cards, area_item_percent, selected_items);
     let mut skill_meta_cache = SkillMetaCache::new(charts.len());
-    let mut exact_score_scratch = ExactScoreScratch::default();
+    let mut exact_score_scratch = if super::preparation_enabled() {
+        ExactScoreScratch::compressed()
+    } else {
+        ExactScoreScratch::default()
+    };
+    let start = Timer::start();
     let mut song_candidates = Vec::with_capacity(MEDLEY_TEAM_COUNT);
     for song_idx in 0..MEDLEY_TEAM_COUNT {
         let candidates = seed_team_candidates_for_song(
@@ -529,6 +560,8 @@ fn seed_medley_candidates_for_items(
         }
         song_candidates.push(candidates);
     }
+    let candidates_ms = start.elapsed_ms();
+    let start = Timer::start();
     let Some(indices) = best_seed_candidate_indices(&song_candidates) else {
         return Ok(None);
     };
@@ -537,6 +570,8 @@ fn seed_medley_candidates_for_items(
         song_candidates[1][indices[1]].clone(),
         song_candidates[2][indices[2]].clone(),
     ];
+    let select_ms = start.elapsed_ms();
+    let start = Timer::start();
     improve_seed_partition(
         &mut chosen,
         cards,
@@ -546,5 +581,8 @@ fn seed_medley_candidates_for_items(
         &mut skill_meta_cache,
         &mut exact_score_scratch,
     )?;
+    if std::env::var_os("BANGDREAM_OPTIMIZE_DP_TRACE").is_some() {
+        eprintln!("PREP_SEED candidates_ms={candidates_ms:.3} select_ms={select_ms:.3} improve_ms={:.3} score={}", start.elapsed_ms(), seed_partition_score(&chosen));
+    }
     Ok(Some(chosen))
 }

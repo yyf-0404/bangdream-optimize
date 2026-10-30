@@ -343,6 +343,65 @@ pub(in crate::medley) fn build_candidate(
     })
 }
 
+// Seed local search changes only one song. Reject a trial by its continuous
+// score upper bound before constructing the integer matrix for that song.
+pub(in crate::medley) fn score_candidate_for_chart(
+    cards: &[MedleyCardInput<'_>],
+    charts: &[Chart],
+    options: TeamGenerationOptions,
+    selected: &[usize; TEAM_SIZE],
+    cache: &mut SkillMetaCache,
+    scratch: &mut ExactScoreScratch,
+    chart_idx: usize,
+    minimum: i32,
+) -> Result<Option<i32>, TeamBuildError> {
+    let chart = &charts[chart_idx];
+    let team = resolve_team_skills(
+        cards,
+        selected,
+        unified_band_id(cards, selected),
+        unified_attribute(cards, selected),
+    );
+    let stat = crate::floor_team_stat(selected.iter().map(|&i| cards[i].stat));
+    let meta = selected_skill_meta(chart_idx, chart, cards, selected, &team, cache)?;
+    let seed = max_meta_order_for_team(&meta);
+    // The legacy unqueued rate-up summary assumes the standard initial bonus.
+    let standard_meta = !chart.warning.is_empty()
+        || team
+            .iter()
+            .all(|s| !s.rateup || s.score_up.to_bits() == 1.0f64.to_bits());
+    if options.score_as_medley && standard_meta {
+        let total = (0..TEAM_SIZE).fold(chart.meta.no_skill, |sum, slot| {
+            (sum + meta[seed.order_indices[slot]][slot]).next_up()
+        });
+        let upper =
+            ((total + meta[seed.captain_index][TEAM_SIZE]).next_up() * f64::from(stat)).next_up();
+        let error = upper.abs() * 32.0 * f64::EPSILON * (chart.count as f64 + 64.0);
+        if (upper + error).next_up().ceil() <= f64::from(minimum) {
+            return Ok(None);
+        }
+    }
+    let mut windows = [[ExactSkillWindow::default(); TEAM_SIZE + 1]; TEAM_SIZE];
+    for card in 0..TEAM_SIZE {
+        for slot in 0..=TEAM_SIZE {
+            windows[card][slot] = chart.compile_exact_skill_window(slot, team[card])?;
+        }
+    }
+    Ok(Some(
+        chart
+            .get_max_score_order_from_exact_windows(
+                &team,
+                stat,
+                options.score_as_medley,
+                seed.order_indices,
+                seed.captain_index,
+                &windows,
+                scratch,
+            )?
+            .score,
+    ))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct MedleySkillOrder {
     order_indices: [usize; TEAM_SIZE],

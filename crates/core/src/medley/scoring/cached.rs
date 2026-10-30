@@ -172,6 +172,56 @@ impl<'a> CandidateScorer<'a> {
         }
     }
 
+    pub(in crate::medley) fn can_beat_resource_bound(
+        &mut self,
+        selected: &[usize; TEAM_SIZE],
+        bound: &crate::team_prune::priced::ResourceBound,
+        floor: i32,
+    ) -> bool {
+        if !self.options.score_as_medley {
+            return true;
+        }
+        let all_cards = self.cards;
+        let cards = selected.map(|i| &all_cards[i]);
+        let stat = crate::floor_team_stat(cards.iter().map(|card| card.stat));
+        let cost = cards.iter().fold(0.0f64, |sum, card| {
+            (sum + bound.prices[card.raw_index]).next_down().max(0.0)
+        });
+        let seeds = if self.entries.is_empty() {
+            std::array::from_fn(|song| {
+                max_meta_order_for_team(&cards.map(|card| card.skill_meta_by_chart[song]))
+            })
+        } else {
+            self.seeds(selected)
+        };
+        self.charts.iter().enumerate().any(|(song, chart)| {
+            if chart.warning.is_empty()
+                && cards.iter().any(|card| {
+                    card.skill.rateup && card.skill.score_up.to_bits() != 1.0f64.to_bits()
+                })
+            {
+                return true;
+            }
+            let seed = seeds[song];
+            let normal = seed
+                .order_indices
+                .iter()
+                .enumerate()
+                .fold(chart.meta.no_skill, |sum, (slot, &card)| {
+                    (sum + cards[card].skill_meta_by_chart[song][slot]).next_up()
+                });
+            let meta =
+                (normal + cards[seed.captain_index].skill_meta_by_chart[song][TEAM_SIZE]).next_up();
+            let team_upper = (f64::from(stat) * meta).next_up();
+            let error = team_upper.abs() * f64::EPSILON * 32.0 * (chart.count as f64 + 64.0);
+            let upper = (((team_upper + error).next_up() + bound.other_upper_by_song[song])
+                .next_up()
+                - cost)
+                .next_up();
+            upper >= f64::from(floor)
+        })
+    }
+
     fn seeds(&mut self, selected: &[usize; TEAM_SIZE]) -> [MedleySkillOrder; MEDLEY_TEAM_COUNT] {
         // Five 16-bit class ids use 80 bits, so no valid key equals the empty marker.
         // Keep positions in the key to preserve the original DP's tie behavior.

@@ -26,6 +26,9 @@ const MEDLEY_TEAM_COUNT: usize = 3;
 const INCUMBENT_REFRESH_MIN_CANDIDATES: usize = 32_768;
 const INCUMBENT_REFRESH_MAX_SOLVER_CANDIDATES: usize = 4_096;
 
+mod item_bounds;
+pub(crate) use item_bounds::ItemBoundContext;
+
 #[derive(Debug, Default, Clone, Copy)]
 struct EnumerationTrace {
     branch_upper_bound_pruned: usize,
@@ -186,9 +189,22 @@ fn build_raw_team_candidates_internal(
     let profile_ms = elapsed_ms(profile_start);
     let mut current_best = current_best;
     let signature_pool_start = trace.then(Timer::start);
-    let (signature_pools, signature_stats, prune_trace) =
+    let (signature_pools, signature_stats, prune_trace, song_score_bounds) =
         signature_candidate_pools(cards, charts, &profiles, current_best);
     let signature_pool_ms = elapsed_ms(signature_pool_start);
+    let resource_bound = if super::preparation_enabled() && current_best > 0 {
+        crate::team_prune::priced::conditional_item_analysis(
+            cards,
+            &profiles,
+            charts,
+            &song_score_bounds,
+            current_best,
+        )
+        .resource_bound
+        .map(std::sync::Arc::new)
+    } else {
+        None
+    };
     let prune_ms = elapsed_ms(prune_start);
     if signature_pools.is_empty() {
         return Err(TeamBuildError::NotEnoughCards { count: 0 });
@@ -200,8 +216,14 @@ fn build_raw_team_candidates_internal(
 
     let enumerate_start = trace.then(Timer::start);
     for pool in &signature_pools {
-        let candidate_filter =
-            CandidateIncumbentFilter::new(cards, charts, &profiles, current_best);
+        let candidate_filter = CandidateIncumbentFilter::new(
+            cards,
+            charts,
+            &profiles,
+            current_best,
+            crate::team_prune::priced::enabled().then_some(song_score_bounds.as_slice()),
+            resource_bound.clone(),
+        );
         match enumerate_signature_pool(
             cards,
             &card_stats,
@@ -540,6 +562,10 @@ fn refresh_candidate_indices(candidates: &[RawTeamCandidate], current_best: i32)
 
 fn trace_prune_timing(trace: &MedleyPruneTrace) {
     eprintln!(
+        "PREP_POOL same_shape_ms={:.3} fixed_point_ms={:.3}",
+        trace.same_shape_contribution_ms, trace.fixed_point_ms
+    );
+    eprintln!(
         "medley prune timing: signatures={} contribution_graphs={} context_ms={:.3} upper_bounds_init_ms={:.3} signatures_ms={:.3} active_indices_ms={:.3} hard_graph_ms={:.3} hard_cover_ms={:.3} contribution_context_ms={:.3} contribution_graph_ms={:.3} contribution_cover_ms={:.3} upper_bound_ms={:.3} completion_ms={:.3} capacity_ms={:.3}",
         trace.signature_count,
         trace.contribution_graph_count,
@@ -591,9 +617,16 @@ pub(crate) fn medley_same_team_item_score_upper_bound(
     let mut total = 0;
 
     for (chart_idx, chart) in charts.iter().enumerate() {
-        total +=
-            medley_chart_item_score_upper_bound(cards, &profiles, chart, chart_idx, &signatures)
-                as i32;
+        // Most item configurations lose even under the cheap bound. Defer the
+        // assignment bound until an incumbent exists and this item survives.
+        total += medley_chart_item_score_upper_bound_impl(
+            cards,
+            &profiles,
+            chart,
+            chart_idx,
+            &signatures,
+            !crate::team_prune::priced::item_enabled(),
+        ) as i32;
     }
 
     Ok(total)
@@ -606,13 +639,108 @@ pub(crate) fn medley_chart_item_score_upper_bound(
     chart_idx: usize,
     signatures: &[MedleyPruneSignature],
 ) -> f64 {
+    medley_chart_item_score_upper_bound_impl(cards, profiles, chart, chart_idx, signatures, true)
+}
+
+fn medley_chart_item_score_upper_bound_impl(
+    cards: &[PreparedCard],
+    profiles: &[super::prune::MedleyCardPruneProfile],
+    chart: &Chart,
+    chart_idx: usize,
+    signatures: &[MedleyPruneSignature],
+    use_priced: bool,
+) -> f64 {
     signatures
         .iter()
         .filter_map(|&signature| {
-            same_team_chart_signature_upper_bound(cards, profiles, chart, chart_idx, signature)
+            let original = same_team_chart_signature_upper_bound(
+                cards, profiles, chart, chart_idx, signature,
+            )?;
+            Some(if crate::team_prune::priced::enabled() {
+                // Legacy unqueued rate-up metadata assumes the standard 100%
+                // initial bonus. Use the actual recurrence for other variants.
+                let legacy_rateup = chart.warning.is_empty()
+                    && cards.iter().any(|card| {
+                        signature.allows(card)
+                            && card.skill.rateup
+                            && card
+                                .score_up
+                                .resolve(signature.team_band_id(), signature.team_attribute())
+                                .to_bits()
+                                != 1.0f64.to_bits()
+                    });
+                if !use_priced && !legacy_rateup {
+                    return Some(original);
+                }
+                let priced = crate::team_prune::priced::signature_bound(
+                    cards, profiles, chart, chart_idx, signature,
+                );
+                if legacy_rateup {
+                    priced
+                } else {
+                    original.min(priced)
+                }
+            } else {
+                original
+            })
         })
         .fold(0.0_f64, f64::max)
         .ceil()
+}
+
+pub(crate) fn medley_priced_item_analysis(
+    cards: &[PreparedCard],
+    charts: &[Chart],
+    area_item_percent: &AreaItemPercent,
+    selected_items: &SelectedAreaItems,
+    floor: i32,
+) -> Result<crate::team_prune::priced::ItemAnalysis, TeamBuildError> {
+    let stats = adjusted_card_stats(cards, area_item_percent, selected_items);
+    let profiles = medley_card_prune_profiles(cards, charts, &stats)?;
+    let signatures = seed_signatures(cards);
+    Ok(priced_item_analysis_from_profiles(
+        cards,
+        charts,
+        &profiles,
+        &signatures,
+        floor,
+    ))
+}
+
+fn priced_item_analysis_from_profiles(
+    cards: &[PreparedCard],
+    charts: &[Chart],
+    profiles: &[super::prune::MedleyCardPruneProfile],
+    signatures: &[MedleyPruneSignature],
+    floor: i32,
+) -> crate::team_prune::priced::ItemAnalysis {
+    let bounds: Vec<_> = charts
+        .iter()
+        .enumerate()
+        .map(|(song, chart)| {
+            medley_chart_item_score_upper_bound(cards, &profiles, chart, song, &signatures)
+        })
+        .collect();
+    let total = bounds
+        .iter()
+        .fold(0.0f64, |sum, &bound| (sum + bound).next_up())
+        .ceil();
+    if total < f64::from(floor) {
+        let mut result = crate::team_prune::priced::ItemAnalysis::unbounded(cards.len());
+        result.upper = total;
+        return result;
+    }
+    if super::preparation_enabled() {
+        crate::team_prune::priced::conditional_item_analysis(
+            cards, &profiles, charts, &bounds, floor,
+        )
+    } else {
+        let mut result = crate::team_prune::priced::ItemAnalysis::unbounded(cards.len());
+        result.upper = crate::team_prune::priced::conditional_item_bound(
+            cards, &profiles, charts, &bounds, floor,
+        );
+        result
+    }
 }
 
 fn same_team_chart_signature_upper_bound(

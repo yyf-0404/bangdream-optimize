@@ -187,6 +187,10 @@ fn same_shape_contribution_active_indices_with_dominance(
             .push(idx);
     }
 
+    let models = (crate::medley::preparation_enabled()
+        && !dominance.has_joint_point_bonus()
+        && dominance.fixed_teammate_skills.is_none())
+    .then(|| dominance.models_for_signature(signature));
     allowed
         .iter()
         .copied()
@@ -209,7 +213,25 @@ fn same_shape_contribution_active_indices_with_dominance(
                     {
                         return false;
                     }
-                    dominance.card_can_replace_for_signature(dominator_idx, target_idx, signature)
+                    if let Some(models) = &models {
+                        medley_card_dominates_for_signature(
+                            &cards[dominator_idx],
+                            &dominance.profiles[dominator_idx],
+                            &cards[target_idx],
+                            &dominance.profiles[target_idx],
+                            signature,
+                        ) || dominance.card_can_replace_with_models(
+                            dominator_idx,
+                            target_idx,
+                            models,
+                        )
+                    } else {
+                        dominance.card_can_replace_for_signature(
+                            dominator_idx,
+                            target_idx,
+                            signature,
+                        )
+                    }
                 })
                 .take(required_cover)
                 .count()
