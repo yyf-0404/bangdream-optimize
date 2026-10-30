@@ -4,6 +4,7 @@
 //! The minimum of these relaxations still overestimates a legal three-team plan.
 
 use crate::timing::Timer;
+mod priced;
 
 const SONG_COUNT: usize = 3;
 const TEAM_SIZE: usize = 5;
@@ -149,11 +150,26 @@ pub(crate) fn candidate_indices(
         _ => compatible_flags(&candidates, floor, budget_limit),
     };
     let before = indices.len();
-    let kept = indices
+    let mut kept: Vec<_> = indices
         .into_iter()
         .zip(active)
         .filter_map(|(index, keep)| keep.then_some(index))
         .collect::<Vec<_>>();
+    if stage.starts_with("max-") && crate::team_prune::priced::enabled() && kept.len() >= 3 {
+        let remaining: Vec<_> = kept
+            .iter()
+            .map(|&index| Candidate {
+                cards: cards(index),
+                scores: scores(index),
+            })
+            .collect();
+        let roles = priced::retained_roles(&remaining, floor);
+        kept = kept
+            .into_iter()
+            .zip(roles)
+            .filter_map(|(index, roles)| (roles != 0).then_some(index))
+            .collect();
+    }
     if std::env::var_os("BANGDREAM_OPTIMIZE_PT_TRACE").is_some()
         || std::env::var_os("BANGDREAM_OPTIMIZE_DP_TRACE").is_some()
     {

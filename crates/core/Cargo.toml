@@ -6,6 +6,9 @@ license.workspace = true
 repository.workspace = true
 
 [features]
+# Same-binary baseline switches; normal builds enable both optimizations.
+experimental-fast-preparation = []
+experimental-priced-prune = []
 # Same-binary benchmark switch; production always enables the compressed scorer.
 experimental-compressed-score = []
 # Compare equivalent dominance-cover implementations in one benchmark binary.

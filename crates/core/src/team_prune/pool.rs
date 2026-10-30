@@ -43,6 +43,7 @@ pub(crate) fn signature_candidate_pools(
     Vec<SignatureCandidatePool>,
     Vec<SignaturePoolStats>,
     MedleyPruneTrace,
+    Vec<f64>,
 ) {
     let trace_start = Timer::start();
     let signatures_start = Timer::start();
@@ -121,7 +122,7 @@ pub(crate) fn signature_candidate_pools(
     });
 
     trace.context_ms = elapsed_ms(trace_start);
-    (pools, stats, trace)
+    (pools, stats, trace, best_any_team_scores)
 }
 
 fn signature_active_card_indices(

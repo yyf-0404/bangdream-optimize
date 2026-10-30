@@ -132,16 +132,30 @@ pub fn calculate_best_result_for_items(
     }
     let mut medley_search_metrics =
         (event_type == EventType::Medley).then(medley::MedleySearchMetrics::default);
+    let mut item_bound_context =
+        if event_type == EventType::Medley && crate::medley::preparation_enabled() {
+            Some(crate::medley::team::ItemBoundContext::new(
+                cards,
+                charts,
+                area_item_percent,
+            )?)
+        } else {
+            None
+        };
     let medley_item_upper_bounds = if event_type == EventType::Medley {
         let mut upper_bounds = Vec::with_capacity(item_combinations.len());
         for selected_items in &item_combinations {
             let upper_bound_start = Timer::start();
-            let upper_bound = medley::medley_item_score_upper_bound(
-                cards,
-                charts,
-                area_item_percent,
-                selected_items,
-            )?;
+            let upper_bound = if let Some(context) = item_bound_context.as_mut() {
+                context.coarse(selected_items)
+            } else {
+                medley::medley_item_score_upper_bound(
+                    cards,
+                    charts,
+                    area_item_percent,
+                    selected_items,
+                )?
+            };
             if let Some(metrics) = medley_search_metrics.as_mut() {
                 metrics.add_item_upper_bound_ms(upper_bound_start.elapsed_ms());
             }
@@ -189,6 +203,7 @@ pub fn calculate_best_result_for_items(
     }
 
     for (item_idx, selected_items) in item_combinations.into_iter().enumerate() {
+        let mut item_cards = None;
         let current_best = best_score(&best);
         if event_type == EventType::Medley {
             let upper_bound = medley_item_upper_bounds
@@ -199,6 +214,44 @@ pub fn calculate_best_result_for_items(
             if !can_beat {
                 continue;
             }
+            if crate::team_prune::priced::item_enabled() && current_best > 0 {
+                let start = Timer::start();
+                let analysis = if let Some(context) = item_bound_context.as_mut() {
+                    context.analyze(&selected_items, current_best)
+                } else {
+                    crate::medley::team::medley_priced_item_analysis(
+                        cards,
+                        charts,
+                        area_item_percent,
+                        &selected_items,
+                        current_best,
+                    )?
+                };
+                let bound = analysis.upper;
+                if let Some(metrics) = medley_search_metrics.as_mut() {
+                    metrics.add_item_upper_bound_ms(start.elapsed_ms());
+                }
+                if trace_enabled() {
+                    eprintln!("medley priced item upper bound: items={selected_items:?} upper_bound={bound} current_best={current_best} elapsed_ms={:.3}", start.elapsed_ms());
+                }
+                if bound < f64::from(current_best) {
+                    continue;
+                }
+                if crate::medley::preparation_enabled() {
+                    let allowed: Vec<_> = cards
+                        .iter()
+                        .zip(analysis.allowed_cards)
+                        .filter_map(|(card, keep)| keep.then(|| card.clone()))
+                        .collect();
+                    if trace_enabled() {
+                        eprintln!("PREP_CARDS before={} after={}", cards.len(), allowed.len());
+                    }
+                    if allowed.len() < 15 {
+                        continue;
+                    }
+                    item_cards = Some(allowed);
+                }
+            }
         }
 
         let current_best = best_score(&best);
@@ -206,7 +259,7 @@ pub fn calculate_best_result_for_items(
             medley::calculate_medley_result_for_items(
                 event_id,
                 &song_list,
-                cards,
+                item_cards.as_deref().unwrap_or(cards),
                 charts,
                 area_item_percent,
                 &selected_items,
