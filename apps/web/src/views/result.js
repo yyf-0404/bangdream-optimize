@@ -636,7 +636,7 @@ function renderScoreRangeSummary(resultElement, results, deps, diagnostic) {
   }
 
   const overview = document.createElement('section');
-  overview.className = 'result-overview score-range-overview';
+  overview.className = 'metrics result-overview score-range-overview';
   const reportedFireCost = Number(first.totalFireCost);
   const fireCost = Number.isSafeInteger(reportedFireCost) && reportedFireCost >= 0
     ? reportedFireCost
@@ -658,8 +658,9 @@ function renderScoreRangeSummary(resultElement, results, deps, diagnostic) {
 }
 
 function renderScoreRangeContent(result, deps) {
-  const content = document.createElement('div');
-  content.className = 'score-range-result-content';
+  // Keep sections at the same level as other result modes so the shared
+  // layout can decorate their headings and place equipment/character bonuses.
+  const content = document.createDocumentFragment();
 
   if (result.items) {
     content.append(renderSelectedItems(result.items, deps));
@@ -671,7 +672,7 @@ function renderScoreRangeContent(result, deps) {
   const title = document.createElement('h3');
   title.textContent = '演奏安排';
   const plays = document.createElement('div');
-  plays.className = 'score-range-play-list';
+  plays.className = 'play-plan score-range-play-list';
   for (const play of result.plays ?? []) {
     plays.append(renderScoreRangePlay(play, deps));
   }
@@ -685,12 +686,9 @@ function renderScoreRangeContent(result, deps) {
 
 function renderScoreRangeTeam(cardIds, deps) {
   const section = document.createElement('section');
-  section.className = 'result-skill-order';
-  const title = document.createElement('div');
-  title.className = 'result-item result-skill-order-title';
-  const label = document.createElement('span');
-  label.textContent = '队伍摆放顺序';
-  title.append(label);
+  section.className = 'result-section score-range-team-section';
+  const title = document.createElement('h3');
+  title.textContent = '队伍摆放顺序';
   const note = document.createElement('p');
   note.className = 'result-team-placement-note';
   note.textContent = '请按从左到右的顺序配置队伍。换位可能改变得分，影响控分结果。';
@@ -714,9 +712,9 @@ function renderScoreRangeTeam(cardIds, deps) {
 
 function renderScoreRangePlay(play, deps) {
   const row = document.createElement('article');
-  row.className = 'result-song score-range-play';
+  row.className = 'play-row score-range-play';
   const header = document.createElement('div');
-  header.className = 'result-song-header';
+  header.className = 'play-song';
   const cover = assetImage(
     deps.songCoverUrls(play.songId),
     'song-cover',
@@ -728,12 +726,11 @@ function renderScoreRangePlay(play, deps) {
   title.className = 'result-song-title';
   const name = document.createElement('strong');
   name.textContent = deps.songLabel(play.songId);
-  const meta = document.createElement('span');
+  const meta = document.createElement('small');
   meta.className = 'result-song-meta';
   meta.textContent = compactJoin([
     `ID ${play.songId}`,
     `${fireCostForMultiplier(play.fireMultiplier)} 火`,
-    `${play.count} 局`,
   ], ' · ');
   title.append(name, meta);
   const difficulties = renderDifficultyList(
@@ -742,20 +739,22 @@ function renderScoreRangePlay(play, deps) {
   );
   difficulties.classList.add('result-song-difficulty-list');
   content.append(title, difficulties);
-  const pt = document.createElement('div');
-  pt.className = 'result-song-score';
-  pt.textContent = `${formatInteger(play.pt)} PT`;
   if (cover) {
     header.append(cover);
   } else {
     header.classList.add('no-cover');
   }
-  header.append(content, pt);
-
-  const details = document.createElement('div');
-  details.className = 'result-song-details';
-  details.append(resultItem('单局得分', formatInteger(play.score)));
-  row.append(header, details);
+  header.append(content);
+  row.append(header);
+  for (const [label, value] of [
+    ['单局得分', formatInteger(play.score)],
+    ['单局 PT', `${formatInteger(play.pt)} PT`],
+    ['演奏次数', `${formatInteger(play.count)} 局`],
+  ]) {
+    const stat = resultItem(label, value);
+    stat.className = 'play-stat';
+    row.append(stat);
+  }
   return row;
 }
 

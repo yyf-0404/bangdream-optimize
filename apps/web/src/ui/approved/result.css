@@ -432,6 +432,7 @@
 #result-design .play-stat{display:grid;gap:3px;font-size:10px;color:var(--muted)}
 #result-design .play-stat strong{font:15px Consolas,monospace;color:var(--ink)}
 #result-design .play-row .text-button{font-size:11px}
+#result-design .score-range-play{grid-template-columns:minmax(0,1.5fr) repeat(3,minmax(0,1fr))}
 #result-design .plan-total{display:flex;justify-content:flex-end;gap:8px;align-items:baseline;padding:12px 0;font-size:12px}
 #result-design .plan-total strong{font:21px Consolas,monospace;color:#ad1956}
 #result-design .state-panel{padding:40px 0 46px;max-width:670px}
@@ -526,6 +527,7 @@
 #result-design .resource-options span{padding:7px 9px;min-height:36px}
 #result-design .play-row{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 #result-design .play-song{grid-column:1/-1}
+#result-design .score-range-play{grid-template-columns:repeat(3,minmax(0,1fr))}
 #result-design .play-row .text-button{grid-column:3;grid-row:3}
 #result-design .play-stat strong{font-size:14px}
 #result-design .plan-summary{gap:8px 17px}
