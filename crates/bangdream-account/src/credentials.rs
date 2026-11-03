@@ -11,7 +11,11 @@ use crate::{
 use base64::{engine::general_purpose::STANDARD, Engine};
 use md5::{Digest, Md5};
 use rand::{rngs::OsRng, RngCore};
-use reqwest::{blocking::Client, header::HeaderMap, Method};
+use reqwest::{
+    blocking::Client,
+    header::{HeaderMap, HeaderValue},
+    Method,
+};
 use rsa::{pkcs8::DecodePublicKey, Pkcs1v15Encrypt, RsaPublicKey};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -391,7 +395,7 @@ fn login_body(uid: &str, access_key: &str, version: &ClientVersion) -> Vec<u8> {
 }
 struct ApplicationVersion {
     data: String,
-    master: String,
+    master: HeaderValue,
 }
 fn application_versions(
     http: &impl Transport,
@@ -414,7 +418,8 @@ fn application_versions(
         .filter(|s| apk::dotted_version(s))
         .ok_or_else(|| fail("国服数据版本格式异常"))?;
     let master = text_field(&application, 10)
-        .filter(|s| s.len() == 16 && s.bytes().all(|b| b.is_ascii_digit()))
+        .filter(|s| !s.trim().is_empty())
+        .and_then(|s| s.parse::<HeaderValue>().ok())
         .ok_or_else(|| fail("国服主数据版本格式异常"))?;
     Ok(ApplicationVersion { data, master })
 }
@@ -476,7 +481,7 @@ fn import_preflighted(
     token.set_sensitive(true);
     headers.insert("x-token", token);
     headers.insert("x-requestid", rid.parse().unwrap());
-    headers.insert("x-masterdataversion", master.parse().unwrap());
+    headers.insert("x-masterdataversion", master);
     // Use only the UID returned by this login. Never fetch a caller-supplied player ID.
     let (_, suite) = http.game(
         Method::GET,
@@ -535,6 +540,7 @@ mod tests {
     struct Mock {
         calls: RefCell<Vec<String>>,
         channel: AccountChannel,
+        master_version: Option<String>,
         wrong_uid: bool,
         missing_token: bool,
         fail_sdk: bool,
@@ -544,6 +550,7 @@ mod tests {
             Self {
                 calls: RefCell::new(vec![]),
                 channel,
+                master_version: Some("2026091400000000".into()),
                 wrong_uid: false,
                 missing_token: false,
                 fail_sdk: false,
@@ -593,7 +600,9 @@ mod tests {
                     assert_eq!(method, Method::GET);
                     field_string(&mut result, 1, "9.4.4");
                     field_string(&mut result, 2, "9.4.4.1");
-                    field_string(&mut result, 10, "2026091400000000");
+                    if let Some(master) = &self.master_version {
+                        field_string(&mut result, 10, master);
+                    }
                 }
                 "/user/login" => {
                     assert_eq!(method, Method::POST);
@@ -617,7 +626,10 @@ mod tests {
                         headers["x-requestid"],
                         format!("{:x}", Md5::digest(format!("{REQUEST_KEY}server-nonce")))
                     );
-                    assert_eq!(headers["x-masterdataversion"], "2026091400000000");
+                    assert_eq!(
+                        headers["x-masterdataversion"],
+                        self.master_version.as_deref().unwrap()
+                    );
                     let mut registration = Vec::new();
                     integer(&mut registration, 1, if self.wrong_uid { 43 } else { 42 });
                     field_string(&mut registration, 3, "测试玩家");
@@ -670,6 +682,35 @@ mod tests {
             assert!(!json.contains("sample-password"));
             assert!(!json.contains("test-session-token"));
             assert!(!json.contains("test-access-key"));
+        }
+    }
+    #[test]
+    fn master_version_is_passed_through_without_numeric_or_length_constraints() {
+        for master in [
+            "42",
+            "20261104000000",
+            "20261104000000000000",
+            "release-2026.11.04-a1",
+        ] {
+            let mut mock = Mock::new(AccountChannel::Android);
+            mock.master_version = Some(master.into());
+            let result = import_once(&mock, request(mock.channel), &version(), |_| None).unwrap();
+            assert_eq!(result.game_uid, 42);
+        }
+    }
+    #[test]
+    fn invalid_master_version_stops_before_account_login() {
+        for master in [
+            None,
+            Some(""),
+            Some(" "),
+            Some("bad\r\nvalue"),
+            Some("bad\0value"),
+        ] {
+            let mut mock = Mock::new(AccountChannel::Android);
+            mock.master_version = master.map(String::from);
+            assert!(import_once(&mock, request(mock.channel), &version(), |_| None).is_err());
+            assert_eq!(*mock.calls.borrow(), vec!["/application"]);
         }
     }
     #[test]
@@ -807,7 +848,8 @@ mod tests {
                 Some(version.client.as_str())
             );
             assert!(text_field(&fields, 2).is_some_and(|s| apk::dotted_version(&s)));
-            assert_eq!(text_field(&fields, 10).unwrap().len(), 16);
+            assert!(text_field(&fields, 10)
+                .is_some_and(|s| !s.trim().is_empty() && s.parse::<HeaderValue>().is_ok()));
         }
     }
 }
