@@ -1,10 +1,12 @@
 mod apk;
 mod credentials;
+mod import_support;
 mod jp_uuid;
 mod version_config;
 pub use credentials::{
     AccountChannel, CredentialImportRequest, CredentialImportResult, CredentialImporter,
 };
+pub use import_support::{ImportPermit, ImportRegion};
 pub use jp_uuid::{JpUuidImportRequest, JpUuidImportResult, JpUuidImporter};
 
 use aes::{

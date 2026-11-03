@@ -1,5 +1,9 @@
 //! Only public client metadata is persisted. No account or session data belongs here.
-use crate::{apk::ClientVersion, credentials::fail, ImportError};
+use crate::{
+    apk::ClientVersion,
+    import_support::{fail, import_error_summary, import_stage},
+    ImportError,
+};
 use rand::{rngs::OsRng, RngCore};
 use std::{
     fs::{self, File, OpenOptions},
@@ -27,18 +31,35 @@ impl VersionConfig {
         let mut data = String::new();
         match File::open(&self.path) {
             Ok(file) => {
-                file.take(4097)
-                    .read_to_string(&mut data)
-                    .map_err(|_| fail("无法读取国服客户端版本配置"))?;
+                tracing::info!(
+                    config_source = "file",
+                    "CN import client version configuration source selected"
+                );
+                file.take(4097).read_to_string(&mut data).map_err(|error| {
+                    log_config_io_error("read", &error);
+                    fail("无法读取国服客户端版本配置")
+                })?;
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => data = EMBEDDED.to_owned(),
-            Err(_) => return Err(fail("无法读取国服客户端版本配置")),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                tracing::info!(
+                    config_source = "embedded",
+                    "CN import client version configuration source selected"
+                );
+                data = EMBEDDED.to_owned();
+            }
+            Err(error) => {
+                log_config_io_error("open", &error);
+                return Err(fail("无法读取国服客户端版本配置"));
+            }
         }
         if data.len() > 4096 {
             return Err(fail("国服客户端版本配置过大"));
         }
-        let version: ClientVersion =
-            serde_json::from_str(&data).map_err(|_| fail("国服客户端版本配置格式异常"))?;
+        let version: ClientVersion = serde_json::from_str(&data).map_err(|error| {
+            tracing::warn!(line = error.line(), column = error.column(), category = ?error.classify(),
+                "CN import client-version configuration JSON invalid");
+            fail("国服客户端版本配置格式异常")
+        })?;
         version.validate()?;
         Ok(version)
     }
@@ -50,8 +71,10 @@ impl VersionConfig {
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
             .unwrap_or(Path::new("."));
-        fs::create_dir_all(parent)
-            .map_err(|_| fail("无法保存国服默认版本配置，请检查配置目录的写入权限"))?;
+        fs::create_dir_all(parent).map_err(|error| {
+            log_config_io_error("create_directory", &error);
+            fail("无法保存国服默认版本配置，请检查配置目录的写入权限")
+        })?;
         let temp = parent.join(format!(".client-version-{:016x}.tmp", OsRng.next_u64()));
         let result = (|| -> std::io::Result<()> {
             let mut file = OpenOptions::new()
@@ -64,7 +87,8 @@ impl VersionConfig {
             drop(file);
             fs::rename(&temp, &self.path)
         })();
-        if result.is_err() {
+        if let Err(error) = result {
+            log_config_io_error("save", &error);
             let _ = fs::remove_file(&temp);
             return Err(fail("无法保存国服默认版本配置，请检查配置文件的写入权限"));
         }
@@ -76,18 +100,28 @@ impl VersionConfig {
         mut validate: impl FnMut(&ClientVersion) -> Result<T, ImportError>,
         discover: impl FnOnce() -> Result<ClientVersion, ImportError>,
     ) -> Result<(ClientVersion, T), ImportError> {
-        if let Ok(version) = self.load() {
-            if let Ok(application) = validate(&version) {
-                return Ok((version, application));
+        if let Ok(version) = import_stage("version_config_load", || self.load()) {
+            match validate(&version) {
+                Ok(application) => return Ok((version, application)),
+                Err(error) => tracing::warn!(error = %import_error_summary(&error),
+                    "CN import version preflight failed; refreshing public client metadata"),
             }
         }
-        let version = discover()?;
-        version.validate()?;
+        let version = import_stage("client_metadata_discovery", || {
+            let version = discover()?;
+            version.validate()?;
+            Ok(version)
+        })?;
         let application = validate(&version)?;
         // Commit only verified metadata. An unsuccessful refresh must not replace a working default.
-        self.save(&version)?;
+        import_stage("version_config_save", || self.save(&version))?;
         Ok((version, application))
     }
+}
+
+fn log_config_io_error(operation: &'static str, error: &std::io::Error) {
+    tracing::warn!(operation, error_kind = ?error.kind(), os_error = ?error.raw_os_error(),
+        "CN import client-version configuration I/O failed");
 }
 
 #[cfg(test)]

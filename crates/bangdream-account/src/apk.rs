@@ -1,6 +1,6 @@
 //! Read only the current official APK's manifest and Unity header using HTTP Range.
 use crate::{
-    credentials::{bounded_body, fail},
+    import_support::{bounded_body, fail, import_error_summary, log_transport_failure},
     ImportError,
 };
 use reqwest::{blocking::Client, Url};
@@ -68,11 +68,18 @@ pub(crate) fn discover(client: &Client) -> Result<ClientVersion, ImportError> {
     let response = download(client, CONFIG_URL)
         .header("Cache-Control", "no-cache")
         .send()
-        .map_err(|_| fail("无法读取国服官方版本信息，请稍后重试"))?;
+        .map_err(|error| {
+            log_transport_failure("official_version_config", error);
+            fail("无法读取国服官方版本信息，请稍后重试")
+        })?;
     if !response.status().is_success() {
+        tracing::warn!(
+            status = response.status().as_u16(),
+            "CN import official version configuration rejected"
+        );
         return Err(fail("国服官方版本配置暂不可用"));
     }
-    let data = bounded_body(response, 512 * 1024)?;
+    let data = bounded_body(response, 512 * 1024, "国服")?;
     let text = std::str::from_utf8(&data).map_err(|_| fail("国服官方配置格式异常"))?;
     let at = text
         .find("$mngConfig")
@@ -102,12 +109,15 @@ pub(crate) fn discover(client: &Client) -> Result<ClientVersion, ImportError> {
         }
     }
     for url in urls {
+        tracing::info!(
+            cdn_host = url.host_str().unwrap_or_default(),
+            "CN import reading official APK metadata"
+        );
         match read_remote(client, url.as_str()) {
             Ok(version) => return Ok(version),
             Err(error) => {
-                #[cfg(test)]
-                eprintln!("Public APK {}: {error}", url.host_str().unwrap_or_default());
-                let _ = error;
+                tracing::warn!(cdn_host = url.host_str().unwrap_or_default(), error = %import_error_summary(&error),
+                    "CN import official APK metadata read failed");
             }
         }
     }
@@ -129,12 +139,15 @@ impl RemoteApk {
         let response = download(client, url)
             .header("Range", "bytes=-65557")
             .send()
-            .map_err(|_| fail("官方安装包连接失败"))?;
+            .map_err(|error| {
+                log_transport_failure("official_apk", error);
+                fail("官方安装包连接失败")
+            })?;
         let (start, end, len) = range_info(&response)?;
         if len == 0 || len > 1024 * 1024 * 1024 || end + 1 != len || end - start + 1 > 65557 {
             return Err(fail("官方安装包长度异常"));
         }
-        let cache = bounded_body(response, 65557)?;
+        let cache = bounded_body(response, 65557, "国服")?;
         if cache.len() as u64 != end - start + 1 {
             return Err(fail("官方安装包分段不完整"));
         }
@@ -152,12 +165,15 @@ impl RemoteApk {
         let response = download(&self.client, &self.url)
             .header("Range", format!("bytes={}-{end}", self.pos))
             .send()
-            .map_err(|_| fail("官方安装包分段读取失败"))?;
+            .map_err(|error| {
+                log_transport_failure("official_apk_range", error);
+                fail("官方安装包分段读取失败")
+            })?;
         let (start, actual_end, len) = range_info(&response)?;
         if start != self.pos || end != actual_end || len != self.len {
             return Err(fail("官方安装包分段发生变化"));
         }
-        let cache = bounded_body(response, 65536)?;
+        let cache = bounded_body(response, 65536, "国服")?;
         if cache.len() as u64 != end - start + 1 {
             return Err(fail("官方安装包分段不完整"));
         }
@@ -198,8 +214,10 @@ impl Read for RemoteApk {
             return Ok(0);
         }
         if self.pos < self.start || self.pos >= self.start + self.cache.len() as u64 {
-            self.fill()
-                .map_err(|_| io::Error::other("APK range unavailable"))?;
+            self.fill().map_err(|error| {
+                tracing::warn!(error = %import_error_summary(&error), "CN import APK range read failed");
+                io::Error::other("APK range unavailable")
+            })?;
         }
         let offset = (self.pos - self.start) as usize;
         let count = buf.len().min(self.cache.len() - offset);

@@ -1,95 +1,121 @@
-use super::{game_data_root_for_calculation, ApiError, ApiResponse};
-use axum::{
-    extract::rejection::JsonRejection,
-    http::{header, StatusCode},
-    response::{IntoResponse, Response},
-    Json,
+use super::{account_import::ImportTrace, game_data_root_for_calculation};
+use axum::{extract::rejection::JsonRejection, response::Response, Json};
+use bangdream_optimize_bangdream_account::{
+    CredentialImportRequest, CredentialImporter, ImportRegion,
 };
-use bangdream_optimize_bangdream_account::{CredentialImportRequest, CredentialImporter};
 use bangdream_optimize_data::BestdoriFilesystemConfig;
-
-fn error(status: StatusCode, message: impl Into<String>) -> Response {
-    (
-        status,
-        [(header::CACHE_CONTROL, "no-store")],
-        Json(ApiError {
-            status: "error",
-            message: message.into(),
-        }),
-    )
-        .into_response()
-}
 
 pub async fn import_account(
     body: Result<Json<CredentialImportRequest>, JsonRejection>,
 ) -> Response {
-    let Json(request) = match body {
-        Ok(body) => body,
-        Err(_) => {
-            return error(
-                StatusCode::BAD_REQUEST,
-                "请填写账号、密码并选择 bili安卓或 iOS 渠道",
-            )
-        }
+    let trace = ImportTrace::new(ImportRegion::Cn);
+    let request = match trace.request(body, "请填写账号、密码并选择 bili安卓或 iOS 渠道")
+    {
+        Ok(request) => request,
+        Err(response) => return response,
     };
-    if let Err(err) = request.validate() {
-        return error(StatusCode::BAD_REQUEST, err.to_string());
+    trace
+        .span
+        .record("channel", tracing::field::debug(request.channel));
+    if let Err(response) = trace.validate(request.validate()) {
+        return response;
     }
     let cards = game_data_root_for_calculation()
         .and_then(|root| BestdoriFilesystemConfig::from_root(root).cards_dir);
     let versions = super::non_empty_env("BANGDREAM_OPTIMIZE_CN_VERSION_CONFIG")
         .unwrap_or_else(|| "var/bangdream-account/client-version.json".to_owned());
-    // Never trace the request, upstream body, password or session headers.
-    match tokio::task::spawn_blocking(move || {
-        CredentialImporter::new(cards)
-            .with_version_config(versions)
-            .import(request)
-    })
-    .await
-    {
-        Ok(Ok(data)) => (
-            [(header::CACHE_CONTROL, "no-store")],
-            Json(ApiResponse { status: "ok", data }),
+    trace
+        .run(
+            move |permit| {
+                CredentialImporter::new(cards)
+                    .with_version_config(versions)
+                    .import_with_permit(request, permit)
+            },
+            |data| &data.player,
         )
-            .into_response(),
-        Ok(Err(err)) => error(StatusCode::BAD_GATEWAY, err.to_string()),
-        Err(_) => error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "账号读取未完成，请稍后重试",
-        ),
-    }
+        .await
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::account_import::test_support::CapturedLogs;
     use axum::{
         body::{to_bytes, Body},
-        http::Request,
+        http::{header, Request, StatusCode},
     };
+    use std::collections::HashSet;
     use tower::ServiceExt;
+
     #[tokio::test]
     async fn account_endpoint_rejects_bad_input_without_echoing_credentials_or_using_spa_fallback()
     {
+        let captured = CapturedLogs::new(tracing::Level::WARN);
         let app = crate::build_app(crate::AppState::default(), None, None, false);
-        for body in [
-            r#"{"account":"","password":"fixture-secret","channel":"android"}"#.to_owned(),
-            r#"{"account":"a","password":"fixture-secret"}"#.to_owned(),
-            r#"{"account":"a","password":"fixture-secret","channel":"ios","user_id":123}"#
-                .to_owned(),
-            "x".repeat(9000),
+        let mut import_ids = HashSet::new();
+        captured
+            .capture(async {
+                for (content_type, body) in [
+                (
+                    true,
+                    r#"{"account":"","password":"fixture-secret","channel":"android"}"#.to_owned(),
+                ),
+                (
+                    true,
+                    r#"{"account":"a","password":"fixture-secret"}"#.to_owned(),
+                ),
+                (
+                    true,
+                    r#"{"account":"a","password":"fixture-secret","channel":"ios","user_id":123}"#
+                        .to_owned(),
+                ),
+                (
+                    true,
+                    r#"{"account":"a","password":"fixture-secret","channel":"fixture-secret"}"#
+                        .to_owned(),
+                ),
+                (true, r#"{"password":"fixture-secret""#.to_owned()),
+                (true, "x".repeat(9000)),
+                (false, r#"{"password":"fixture-secret"}"#.to_owned()),
+            ] {
+                let mut request = Request::post("/api/import/cn-account");
+                if content_type {
+                    request = request.header("content-type", "application/json");
+                }
+                let response = app
+                    .clone()
+                    .oneshot(request.body(Body::from(body)).unwrap())
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+                assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+                let import_id = response.headers()["x-import-id"]
+                    .to_str()
+                    .unwrap()
+                    .to_owned();
+                assert!(import_id.starts_with("cn-"));
+                assert!(import_ids.insert(import_id));
+                let body = to_bytes(response.into_body(), 2000).await.unwrap();
+                let text = String::from_utf8(body.to_vec()).unwrap();
+                assert!(!text.contains("fixture-secret"));
+                assert!(serde_json::from_str::<serde_json::Value>(&text).is_ok());
+            }
+            })
+            .await;
+        let logs = captured.text();
+        assert!(!logs.contains("fixture-secret"), "{logs}");
+        for import_id in import_ids {
+            assert!(logs.contains(&import_id), "{logs}");
+        }
+        for field in [
+            "request_validation",
+            "elapsed_ms=",
+            "outcome=\"failed\"",
+            "invalid_fields",
+            "invalid_json",
+            "missing_content_type",
+            "body_read_or_size_limit",
         ] {
-            let request = Request::post("/api/import/cn-account")
-                .header("content-type", "application/json")
-                .body(Body::from(body))
-                .unwrap();
-            let response = app.clone().oneshot(request).await.unwrap();
-            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
-            let bytes = to_bytes(response.into_body(), 2000).await.unwrap();
-            let text = String::from_utf8(bytes.to_vec()).unwrap();
-            assert!(!text.contains("fixture-secret"));
-            assert!(serde_json::from_str::<serde_json::Value>(&text).is_ok());
+            assert!(logs.contains(field), "{logs}");
         }
     }
 }

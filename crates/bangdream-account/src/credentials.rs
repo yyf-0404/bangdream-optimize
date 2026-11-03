@@ -6,6 +6,10 @@ use super::{
 };
 use crate::{
     apk::{self, ClientVersion},
+    import_support::{
+        admit_import, bounded_body, fail, import_error_summary, import_stage,
+        log_transport_failure, logged_endpoint, ImportPermit, ImportRegion,
+    },
     version_config::VersionConfig,
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -21,9 +25,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
-    io::Read,
     path::PathBuf,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 const SDK_HOST: &str = "https://line1-sdk-center-login-sh.biligame.net";
@@ -34,8 +37,6 @@ const DEVICE_ID: &str = "116c041772c0a98614cc0ab7f5d4c6b9";
 const BUVID: &str = "XX6AB116C041772C0A98614CC0AB7F5D4C6B9";
 const PACKAGE: &str = "com.bilibili.star.bili";
 const MAX_SUITE: usize = 32 * 1024 * 1024;
-
-static IMPORT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 type Form = BTreeMap<String, String>;
 
@@ -113,19 +114,44 @@ impl CredentialImporter {
         &self,
         request: CredentialImportRequest,
     ) -> Result<CredentialImportResult, ImportError> {
-        request.validate()?;
-        let _guard = IMPORT_LOCK
-            .try_lock()
-            .map_err(|_| fail("已有账号正在读取，请稍后再试"))?;
-        let client = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .redirect(reqwest::redirect::Policy::none())
-            .retry(reqwest::retry::never())
-            .build()
-            .map_err(|_| fail("无法初始化国服连接"))?;
+        self.import_inner(request, None)
+    }
+
+    /// Use a CN permit reserved before dispatching a blocking task.
+    pub fn import_with_permit(
+        &self,
+        request: CredentialImportRequest,
+        permit: ImportPermit,
+    ) -> Result<CredentialImportResult, ImportError> {
+        self.import_inner(request, Some(permit))
+    }
+
+    #[tracing::instrument(name = "account_import_worker", skip_all, fields(server = "cn"))]
+    fn import_inner(
+        &self,
+        request: CredentialImportRequest,
+        permit: Option<ImportPermit>,
+    ) -> Result<CredentialImportResult, ImportError> {
+        import_stage("request_validation", || request.validate())?;
+        let _permit = admit_import(ImportRegion::Cn, permit)?;
+        let client = import_stage("http_client_init", || {
+            Client::builder()
+                .timeout(Duration::from_secs(30))
+                .redirect(reqwest::redirect::Policy::none())
+                .retry(reqwest::retry::never())
+                .build()
+                .map_err(|error| {
+                    log_transport_failure("http_client_init", error);
+                    fail("无法初始化国服连接")
+                })
+        })?;
         let http = HttpTransport(client.clone());
         let (version, application) = self.versions.resolve(
-            |version| application_versions(&http, version, request.channel),
+            |version| {
+                import_stage("application_preflight", || {
+                    application_versions(&http, version, request.channel)
+                })
+            },
             || apk::discover(&client),
         )?;
         import_preflighted(&http, request, &version, application, |card_id| {
@@ -134,27 +160,6 @@ impl CredentialImporter {
                 .and_then(|dir| load_card_episode_ids(dir, card_id))
         })
     }
-}
-
-pub(crate) fn fail(message: impl Into<String>) -> ImportError {
-    ImportError::Account(message.into())
-}
-pub(crate) fn bounded_body(
-    response: reqwest::blocking::Response,
-    max: usize,
-) -> Result<Vec<u8>, ImportError> {
-    if response.content_length().is_some_and(|n| n > max as u64) {
-        return Err(fail("国服响应超过大小限制"));
-    }
-    let mut body = Vec::new();
-    response
-        .take(max as u64 + 1)
-        .read_to_end(&mut body)
-        .map_err(|_| fail("国服响应读取失败，请稍后重试"))?;
-    if body.len() > max {
-        return Err(fail("国服响应超过大小限制"));
-    }
-    Ok(body)
 }
 
 trait Transport {
@@ -178,6 +183,11 @@ impl Transport for HttpTransport {
         body: Option<Vec<u8>>,
         max: usize,
     ) -> Result<(HeaderMap, Vec<u8>), ImportError> {
+        let span = tracing::info_span!("account_import_http", api = "game",
+            endpoint = logged_endpoint(endpoint), method = %method);
+        let _entered = span.enter();
+        let started = Instant::now();
+        tracing::info!(outcome = "started", "CN import upstream request");
         let mut request = self
             .0
             .request(method, format!("{GAME_BASE}{endpoint}"))
@@ -185,21 +195,48 @@ impl Transport for HttpTransport {
         if let Some(body) = body {
             request = request.body(body);
         }
-        let response = request
-            .send()
-            .map_err(|_| fail("连接国服超时或失败，本次登录已停止，请稍后重试"))?;
+        let response = request.send().map_err(|error| {
+            log_transport_failure(endpoint, error);
+            fail("连接国服超时或失败，本次登录已停止，请稍后重试")
+        })?;
+        let status = response.status().as_u16();
         if !response.status().is_success() {
+            tracing::warn!(
+                status,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "CN import game HTTP request rejected"
+            );
             return Err(fail(format!(
                 "国服接口返回 HTTP {}，本次登录已停止",
                 response.status().as_u16()
             )));
         }
         let headers = response.headers().clone();
-        let plain = aes_decrypt_iso10126(&bounded_body(response, max)?)
-            .map_err(|_| fail("国服返回的数据无法解密，请检查游戏是否维护或更新"))?;
+        let encrypted = bounded_body(response, max, "国服")?;
+        let plain = aes_decrypt_iso10126(&encrypted).map_err(|error| {
+            tracing::warn!(error = %import_error_summary(&error), encrypted_bytes = encrypted.len(),
+                    "CN import game response decrypt failed");
+            fail("国服返回的数据无法解密，请检查游戏是否维护或更新")
+        })?;
+        tracing::info!(
+            outcome = "completed",
+            status,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            response_bytes = encrypted.len(),
+            "CN import upstream request"
+        );
         Ok((headers, plain))
     }
     fn sdk(&self, endpoint: &str, mut form: Form) -> Result<Value, ImportError> {
+        let span = tracing::info_span!(
+            "account_import_http",
+            api = "bilibili_sdk",
+            endpoint = logged_endpoint(endpoint),
+            method = "POST"
+        );
+        let _entered = span.enter();
+        let started = Instant::now();
+        tracing::info!(outcome = "started", "CN import upstream request");
         form.insert("sign".into(), sdk_sign(&form));
         let response = self
             .0
@@ -207,23 +244,46 @@ impl Transport for HttpTransport {
             .header("User-Agent", "Mozilla/5.0 BiliGSCSDK")
             .form(&form)
             .send()
-            .map_err(|_| fail("连接 Bilibili 登录服务失败，本次登录已停止"))?;
+            .map_err(|error| {
+                log_transport_failure(endpoint, error);
+                fail("连接 Bilibili 登录服务失败，本次登录已停止")
+            })?;
+        let status = response.status().as_u16();
         if !response.status().is_success() {
+            tracing::warn!(
+                status,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "CN import Bilibili SDK HTTP request rejected"
+            );
             return Err(fail(format!(
                 "Bilibili 登录服务返回 HTTP {}",
                 response.status().as_u16()
             )));
         }
-        let value: Value = serde_json::from_slice(&bounded_body(response, 1024 * 1024)?)
-            .map_err(|_| fail("Bilibili 登录响应格式异常"))?;
+        let body = bounded_body(response, 1024 * 1024, "国服")?;
+        let value: Value = serde_json::from_slice(&body).map_err(|error| {
+            tracing::warn!(line = error.line(), column = error.column(),
+                    category = ?error.classify(), "CN import SDK response JSON invalid");
+            fail("Bilibili 登录响应格式异常")
+        })?;
         let code = value
             .get("code")
             .and_then(|v| v.as_i64().or_else(|| v.as_str()?.parse().ok()));
         if code != Some(0) {
+            tracing::warn!(sdk_code = ?code, status,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "CN import Bilibili SDK request rejected");
             // Never relay an upstream response/body: it may contain account or session data.
             return Err(fail(format!("Bilibili 登录未成功（代码 {}）。请核对账号密码；如账号要求验证码或安全验证，请先在官方客户端完成后重试。",
                 code.map(|n| n.to_string()).unwrap_or_else(|| "未知".into()))));
         }
+        tracing::info!(
+            outcome = "completed",
+            status,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            response_bytes = body.len(),
+            "CN import upstream request"
+        );
         Ok(value)
     }
 }
@@ -412,6 +472,9 @@ fn application_versions(
     )?;
     let application = parse_fields(&application)?;
     if text_field(&application, 1).as_deref() != Some(version.client.as_str()) {
+        tracing::warn!(expected_client_version = %version.client,
+            returned_client_version = ?text_field(&application, 1).filter(|s| apk::dotted_version(s)),
+            "CN import application client version mismatch");
         return Err(fail("游戏客户端版本已更新"));
     }
     let data = text_field(&application, 2)
@@ -421,6 +484,8 @@ fn application_versions(
         .filter(|s| !s.trim().is_empty())
         .and_then(|s| s.parse::<HeaderValue>().ok())
         .ok_or_else(|| fail("国服主数据版本格式异常"))?;
+    tracing::info!(client_version = %version.client, data_version = %data,
+        master_version_bytes = master.as_bytes().len(), "CN import application versions accepted");
     Ok(ApplicationVersion { data, master })
 }
 #[cfg(test)]
@@ -431,7 +496,9 @@ fn import_once(
     episodes: impl FnMut(u64) -> Option<[u64; 2]>,
 ) -> Result<CredentialImportResult, ImportError> {
     request.validate()?;
-    let application = application_versions(http, version, request.channel)?;
+    let application = import_stage("application_preflight", || {
+        application_versions(http, version, request.channel)
+    })?;
     import_preflighted(http, request, version, application, episodes)
 }
 fn import_preflighted(
@@ -448,64 +515,83 @@ fn import_preflighted(
         "x-dataversion",
         data.parse().map_err(|_| fail("国服数据版本格式异常"))?,
     );
-    let (sdk_uid, access_key) = sdk_login(http, request, version)?;
+    let (sdk_uid, access_key) = import_stage("sdk_login", || sdk_login(http, request, version))?;
     let mut random = [0u8; 16];
     OsRng.fill_bytes(&mut random);
     let rid: String = random.iter().map(|b| format!("{b:02x}")).collect();
     headers.insert("x-requestid", rid.parse().unwrap());
-    let (response, login) = http.game(
-        Method::POST,
-        "/user/login",
-        headers.clone(),
-        Some(aes_encrypt_iso10126(&login_body(
-            &sdk_uid,
-            &access_key,
-            version,
-        ))?),
-        1024 * 1024,
-    )?;
-    let uid = field_u64(&parse_fields(&login)?, 1)
-        .filter(|n| *n > 0 && *n <= i64::MAX as u64)
-        .ok_or_else(|| fail("游戏登录没有返回有效玩家 ID"))?;
-    let mut token = response
-        .get("x-token")
-        .filter(|v| !v.is_empty())
-        .cloned()
-        .ok_or_else(|| fail("游戏登录没有返回会话凭证"))?;
-    let nonce = response
-        .get("x-requestid")
-        .and_then(|v| v.to_str().ok())
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| fail("游戏登录没有返回请求序号"))?;
-    let rid = format!("{:x}", Md5::digest(format!("{REQUEST_KEY}{nonce}")));
+    let (uid, mut token, rid) = import_stage("game_login", || {
+        let (response, login) = http.game(
+            Method::POST,
+            "/user/login",
+            headers.clone(),
+            Some(aes_encrypt_iso10126(&login_body(
+                &sdk_uid,
+                &access_key,
+                version,
+            ))?),
+            1024 * 1024,
+        )?;
+        let uid = field_u64(&parse_fields(&login)?, 1)
+            .filter(|n| *n > 0 && *n <= i64::MAX as u64)
+            .ok_or_else(|| fail("游戏登录没有返回有效玩家 ID"))?;
+        let token = response
+            .get("x-token")
+            .filter(|v| !v.is_empty())
+            .cloned()
+            .ok_or_else(|| fail("游戏登录没有返回会话凭证"))?;
+        let nonce = response
+            .get("x-requestid")
+            .and_then(|v| v.to_str().ok())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| fail("游戏登录没有返回请求序号"))?;
+        let rid = format!("{:x}", Md5::digest(format!("{REQUEST_KEY}{nonce}")));
+        Ok((uid, token, rid))
+    })?;
     token.set_sensitive(true);
     headers.insert("x-token", token);
     headers.insert("x-requestid", rid.parse().unwrap());
     headers.insert("x-masterdataversion", master);
     // Use only the UID returned by this login. Never fetch a caller-supplied player ID.
-    let (_, suite) = http.game(
-        Method::GET,
-        &format!("/suite/user/{uid}"),
-        headers,
-        None,
-        MAX_SUITE,
-    )?;
-    let root = parse_fields(&suite)?;
-    let user =
-        parse_fields(field_bytes_value(&root, 1).ok_or_else(|| fail("国服没有返回用户资料"))?)?;
-    let registration =
-        parse_fields(field_bytes_value(&user, 1).ok_or_else(|| fail("国服没有返回用户身份"))?)?;
-    let data =
-        parse_fields(field_bytes_value(&user, 2).ok_or_else(|| fail("国服没有返回用户等级"))?)?;
-    if field_u64(&registration, 1) != Some(uid) || field_u64(&data, 1) != Some(uid) {
-        return Err(fail("登录账号与返回资料不一致，已停止导入"));
-    }
-    let player = suite_user_to_player_config(uid, &suite, episodes)?;
+    let (_, suite) = import_stage("suite_fetch", || {
+        http.game(
+            Method::GET,
+            &format!("/suite/user/{uid}"),
+            headers,
+            None,
+            MAX_SUITE,
+        )
+    })?;
+    let (name, rank) = import_stage("suite_identity", || {
+        let root = parse_fields(&suite)?;
+        let user =
+            parse_fields(field_bytes_value(&root, 1).ok_or_else(|| fail("国服没有返回用户资料"))?)?;
+        let registration =
+            parse_fields(field_bytes_value(&user, 1).ok_or_else(|| fail("国服没有返回用户身份"))?)?;
+        let data =
+            parse_fields(field_bytes_value(&user, 2).ok_or_else(|| fail("国服没有返回用户等级"))?)?;
+        if field_u64(&registration, 1) != Some(uid) || field_u64(&data, 1) != Some(uid) {
+            return Err(fail("登录账号与返回资料不一致，已停止导入"));
+        }
+        Ok((
+            text_field(&registration, 3).unwrap_or_default(),
+            field_u64(&data, 2).unwrap_or_default(),
+        ))
+    })?;
+    let player = import_stage("profile_parse", || {
+        suite_user_to_player_config(uid, &suite, episodes)
+    })?;
+    tracing::info!(
+        cards = player.card_list.len(),
+        area_items = player.area_item.len(),
+        characters = player.character_bouns.len(),
+        "CN account profile parsed"
+    );
     Ok(CredentialImportResult {
         player,
         game_uid: uid,
-        name: text_field(&registration, 3).unwrap_or_default(),
-        rank: field_u64(&data, 2).unwrap_or_default(),
+        name,
+        rank,
         channel,
     })
 }
@@ -513,6 +599,7 @@ fn import_preflighted(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::import_support::{log_body_failure, test_support::capture_logs};
     use rsa::{pkcs8::EncodePublicKey, RsaPrivateKey};
     use std::{cell::RefCell, sync::OnceLock};
     fn version() -> ClientVersion {
@@ -644,6 +731,98 @@ mod tests {
                 _ => panic!("unexpected endpoint"),
             }
             Ok((response, result))
+        }
+    }
+    #[test]
+    fn import_failure_logs_identify_the_stage_without_credentials() {
+        for stage in [
+            "application_preflight",
+            "sdk_login",
+            "game_login",
+            "suite_identity",
+        ] {
+            let mut mock = Mock::new(AccountChannel::Android);
+            match stage {
+                "application_preflight" => mock.master_version = None,
+                "sdk_login" => mock.fail_sdk = true,
+                "game_login" => mock.missing_token = true,
+                "suite_identity" => mock.wrong_uid = true,
+                _ => unreachable!(),
+            }
+            let (result, logs) =
+                capture_logs(|| import_once(&mock, request(mock.channel), &version(), |_| None));
+            assert!(result.is_err());
+            assert!(logs.contains(stage), "{logs}");
+            assert!(logs.contains("outcome=\"failed\""), "{logs}");
+            assert!(logs.contains("elapsed_ms="), "{logs}");
+            assert!(logs.contains("import_id=\"test-import\""), "{logs}");
+            assert_no_credentials(&logs);
+        }
+    }
+    #[test]
+    fn successful_import_logs_record_stages_and_counts_without_profile_data() {
+        let mock = Mock::new(AccountChannel::Ios);
+        let (result, logs) =
+            capture_logs(|| import_once(&mock, request(mock.channel), &version(), |_| None));
+        assert!(result.is_ok());
+        for stage in [
+            "application_preflight",
+            "sdk_login",
+            "game_login",
+            "suite_fetch",
+            "suite_identity",
+            "profile_parse",
+        ] {
+            assert!(logs.contains(stage), "{logs}");
+        }
+        assert!(logs.contains("cards=0"), "{logs}");
+        assert!(logs.contains("area_items=0"), "{logs}");
+        assert_no_credentials(&logs);
+    }
+    #[test]
+    fn transport_failure_logs_remove_urls_and_player_ids() {
+        for body_read in [false, true] {
+            let error = Client::new().get("http://[").build().unwrap_err().with_url(
+                "https://example.invalid/private-player?token=transport-fixture-secret"
+                    .parse()
+                    .unwrap(),
+            );
+            let (_, logs) = capture_logs(|| {
+                if body_read {
+                    log_body_failure(std::io::Error::other(error));
+                } else {
+                    log_transport_failure("/suite/user/private-player", error);
+                }
+            });
+            let operation = if body_read {
+                "response_body"
+            } else {
+                "/suite/user/{self}"
+            };
+            assert!(logs.contains(operation), "{logs}");
+            assert!(
+                logs.contains("Account import upstream transport failed"),
+                "{logs}"
+            );
+            for secret in [
+                "private-player",
+                "transport-fixture-secret",
+                "example.invalid",
+            ] {
+                assert!(!logs.contains(secret), "{logs}");
+            }
+        }
+    }
+    fn assert_no_credentials(logs: &str) {
+        for secret in [
+            "test@example.invalid",
+            "sample-password",
+            "test-access-key",
+            "test-session-token",
+            "server-nonce",
+            "测试玩家",
+        ] {
+            assert!(!logs.contains(secret), "secret {secret} in logs: {logs}");
         }
     }
     #[test]
@@ -833,23 +1012,7 @@ mod tests {
         let version = apk::discover(&client).unwrap();
         eprintln!("Public client metadata: {:?}", version);
         for channel in [AccountChannel::Android, AccountChannel::Ios] {
-            let (_, body) = HttpTransport(client.clone())
-                .game(
-                    Method::GET,
-                    "/application",
-                    game_headers(&version, channel).unwrap(),
-                    None,
-                    1024 * 1024,
-                )
-                .unwrap();
-            let fields = parse_fields(&body).unwrap();
-            assert_eq!(
-                text_field(&fields, 1).as_deref(),
-                Some(version.client.as_str())
-            );
-            assert!(text_field(&fields, 2).is_some_and(|s| apk::dotted_version(&s)));
-            assert!(text_field(&fields, 10)
-                .is_some_and(|s| !s.trim().is_empty() && s.parse::<HeaderValue>().is_ok()));
+            application_versions(&HttpTransport(client.clone()), &version, channel).unwrap();
         }
     }
 }

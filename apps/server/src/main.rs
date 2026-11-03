@@ -1,3 +1,4 @@
+mod account_import;
 mod cn_account;
 mod feedback;
 mod jp_uuid;
