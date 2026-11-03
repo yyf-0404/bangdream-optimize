@@ -125,7 +125,7 @@ dependencies = [
 
 [[package]]
 name = "bangdream-optimize-bangdream-account"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "aes",
  "bangdream-optimize-core",
@@ -144,7 +144,7 @@ dependencies = [
 
 [[package]]
 name = "bangdream-optimize-core"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "bangdream-optimize-medley-solver",
  "bangdream-optimize-team-prune",
@@ -156,7 +156,7 @@ dependencies = [
 
 [[package]]
 name = "bangdream-optimize-data"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "async-trait",
  "bangdream-optimize-core",
@@ -168,7 +168,7 @@ dependencies = [
 
 [[package]]
 name = "bangdream-optimize-desktop"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "async-trait",
  "bangdream-optimize-bangdream-account",
@@ -183,7 +183,7 @@ dependencies = [
 
 [[package]]
 name = "bangdream-optimize-medley-solver"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "serde",
  "thiserror",
@@ -191,7 +191,7 @@ dependencies = [
 
 [[package]]
 name = "bangdream-optimize-server"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "async-trait",
  "axum",
@@ -213,7 +213,7 @@ dependencies = [
 
 [[package]]
 name = "bangdream-optimize-service"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "async-trait",
  "bangdream-optimize-core",
@@ -223,7 +223,7 @@ dependencies = [
 
 [[package]]
 name = "bangdream-optimize-storage-local"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "async-trait",
  "bangdream-optimize-core",
@@ -234,7 +234,7 @@ dependencies = [
 
 [[package]]
 name = "bangdream-optimize-storage-mongodb"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "async-trait",
  "bangdream-optimize-core",
@@ -245,7 +245,7 @@ dependencies = [
 
 [[package]]
 name = "bangdream-optimize-sync-bestdori"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "bangdream-optimize-core",
  "bangdream-optimize-data",
@@ -258,11 +258,11 @@ dependencies = [
 
 [[package]]
 name = "bangdream-optimize-team-prune"
-version = "0.4.6"
+version = "0.4.7"
 
 [[package]]
 name = "bangdream-optimize-web-wasm"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "bangdream-optimize-core",
  "bangdream-optimize-data",
