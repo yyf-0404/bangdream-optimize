@@ -210,3 +210,12 @@ body{overflow-x:clip}
 :is(#archive-design,#archive-dialog-host) .import-summary:has(.cn-account-identity){flex-wrap:wrap;gap:8px 10px}
 :is(#archive-design,#archive-dialog-host) .cn-account-identity{flex-basis:100%;font-size:12px;line-height:1.6;font-weight:400;color:#756b7c;overflow-wrap:anywhere}
 #result-design .result-team-placement-note{margin:6px 0 10px;color:var(--muted);font-size:12px;line-height:1.6}
+
+/* The shared card renderer uses empty buttons instead of the template's slots. */
+#aurora-soft-study .specified-team-grid{gap:14px;align-items:start}
+#aurora-soft-study .specified-team-grid>.team-slot-empty{appearance:none;display:grid;place-items:center;justify-self:center;width:100%;max-width:100px;min-height:64px;aspect-ratio:1;margin:0;padding:6px 0;border:1px dashed var(--detail-line,#ded9e5);border-radius:4px;background:transparent;color:var(--muted,#7d7185);font-size:12px;line-height:1.5}
+#aurora-soft-study .specified-team-grid>.team-slot-empty:nth-child(3){border-color:var(--detail-accent,#8a639d);color:var(--detail-accent,#8a639d);background:#f8f3fa}
+#aurora-soft-study .specified-team-grid>.team-slot-empty:hover:not(:disabled){border-color:var(--detail-accent,#8a639d);color:var(--detail-accent,#8a639d);background:#f4edf8}
+#aurora-soft-study .specified-team-grid>.team-slot-empty:disabled{cursor:default;opacity:.45}
+@media(max-width:700px){#aurora-soft-study .specified-team-grid{gap:8px}}
+@media(max-width:360px){#aurora-soft-study .specified-team-grid{gap:6px}}
