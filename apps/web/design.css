@@ -1,39 +1,36 @@
-@layer runtime, bindings, approved, plumbing;
-@import url('./src/ui/runtime-base.css') layer(runtime);
-@import url('./src/ui/fidelity.css') layer(bindings);
-@import url('./src/ui/approved/activity.css?v=2') layer(approved);
-@import url('./src/ui/approved/cards.css') layer(approved);
-@import url('./src/ui/approved/player.css') layer(approved);
-@import url('./src/ui/approved/result.css') layer(approved);
-@import url('./src/ui/approved/archive.css') layer(approved);
-@import url('./src/ui/approved/sidebar.css') layer(approved);
-@import url('./src/ui/plumbing.css?v=2') layer(plumbing);
-@import url('./src/ui/select.css') layer(plumbing);
-@import url('./src/ui/feedback.css') layer(plumbing);
-@import url('./src/ui/custom-cards/custom-cards.css') layer(plumbing);
+/* Cascade layers, lowest priority first:
+   tokens     design variables (src/design/tokens.css) - use these in all new CSS
+   runtime    base resets
+   bindings   fidelity layer adapting real controls to the approved anatomy
+   approved   page styles from the approved designs
+   plumbing   page-specific fixes
+   components base components and motion for new UI; last so page rules cannot override them */
+@layer tokens, runtime, bindings, approved, plumbing, components;
+@import url('./src/design/tokens.css') layer(tokens);
+@import url('./src/design/runtime-base.css') layer(runtime);
+@import url('./src/design/fidelity.css') layer(bindings);
+@import url('./src/design/approved/activity.css') layer(approved);
+@import url('./src/design/approved/cards.css') layer(approved);
+@import url('./src/design/approved/player.css') layer(approved);
+@import url('./src/design/approved/result.css') layer(approved);
+@import url('./src/design/approved/archive.css') layer(approved);
+@import url('./src/design/approved/sidebar.css') layer(approved);
+@import url('./src/design/plumbing.css') layer(plumbing);
+@import url('./src/shared/ui/select.css') layer(plumbing);
+@import url('./src/pages/shell/feedback.css') layer(plumbing);
+@import url('./src/components/custom-cards/custom-cards.css') layer(plumbing);
+@import url('./src/design/components.css') layer(components);
+@import url('./src/design/motion.css') layer(components);
+@import url('./src/pages/shell/shell.css') layer(components);
+@import url('./src/pages/result/result.css') layer(components);
 
-/* Validation follows the visible section, including controls on another page. */
-.validation-focus{outline:2px solid #b83c61!important;outline-offset:5px;scroll-margin-block:100px}
-.validation-callout,.event-type-warning{font-size:13px;line-height:1.6;color:#982c4e;background:#fff3f6;border-left:3px solid #ba4566;padding:9px 12px;margin:12px 0 4px}
+/* Validation follows the visible section, including controls on another page.
+   Colours follow the approved error notice (.mb-error) via tokens. */
+.validation-focus{outline:var(--focus-ring-width) solid var(--color-danger-border)!important;outline-offset:var(--focus-ring-offset);scroll-margin-block:100px}
+.validation-callout,.event-type-warning{font-size:var(--text-sm);line-height:1.7;color:var(--color-danger-strong);background:var(--color-danger-surface);border-left:2px solid var(--color-danger-border);padding:var(--space-8) var(--space-12);margin:var(--space-12) 0 var(--space-4)}
 .validation-callout{flex-basis:100%;grid-column:1/-1}
-#archive-design .archive-use-profile{padding:10px 18px;min-height:42px;font-weight:600;flex-shrink:0}
+#archive-design .archive-use-profile{padding:10px 18px;min-height:42px;font-weight:var(--weight-semibold);flex-shrink:0}
 
-#result-design #save-result-image{padding:10px 18px;min-height:42px;font-size:14px;font-weight:600;white-space:nowrap}
-#result-design .result-action-status{color:#47756a;font-size:13px;margin:0;padding:0 28px}
-#result-design .result-action-status:empty{display:none}
-.result-image-dialog{max-width:1000px;width:calc(100vw - 32px)}
-.result-image-dialog .dialog-content img{width:100%;height:auto;display:block;border:1px solid #e7e8ed}
+#result-design #save-result-image{padding:10px 18px;min-height:42px;font-size:var(--text-base);font-weight:var(--weight-semibold);white-space:nowrap}
 #result-design.result-image-snapshot .heading-actions{display:none}
 @media(max-width:700px){#result-design .page-hero{flex-wrap:wrap}#result-design .heading-actions{flex-wrap:wrap;justify-content:flex-end}#archive-design .detail-heading{flex-wrap:wrap;gap:16px}}
-
-.result-image-dialog{padding:0;max-height:calc(100dvh - 28px);border:1px solid #e7e8ed;border-radius:7px;background:#fff;color:#292a32;font:14px/1.5 Inter,"Noto Sans SC","Microsoft YaHei",sans-serif}
-.result-image-dialog[open]{display:flex;flex-direction:column}
-.result-image-dialog::backdrop{background:rgb(37 30 48 / .3)}
-.result-image-dialog .dialog-top{display:flex;align-items:center;justify-content:space-between;flex:none;padding:14px 20px;border-bottom:1px solid #e7e8ed}
-.result-image-dialog h2{font-size:17px;margin:0}
-.result-image-dialog .icon-button{border:0;background:none;font-size:22px;padding:6px;cursor:pointer;color:#797380}
-.result-image-dialog .dialog-content{overflow:auto;min-height:0;padding:0 20px 20px}
-.result-image-dialog .dialog-bottom{display:flex;align-items:center;justify-content:flex-end;gap:20px;flex:none;padding:12px 20px;border-top:1px solid #e7e8ed}
-.result-image-dialog .text-button{color:#725882;text-decoration:none}
-.result-image-dialog .primary{border:0;border-radius:4px;padding:10px 18px;color:#fff;background:linear-gradient(105deg,#c21670,#9564b6);font:inherit;cursor:pointer}
-.result-image-dialog button:focus-visible,.result-image-dialog a:focus-visible{outline:2px solid #9264ad;outline-offset:3px}

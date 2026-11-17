@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {searchOptions,moveOption,placeSelectPopup} from '../src/ui/select-model.js';
+import {searchOptions,moveOption,placeSelectPopup} from '../src/shared/ui/select-model.js';
 
 test('activity search prioritizes exact IDs and combines name tokens without changing release order',()=>{
  const rows=[{value:'341',label:'#341 · 夏日 Live'},{value:'34',label:'#34 · 夏日 Live'},{value:'134',label:'#134 · 秋日 Live'},{value:'9',label:'#9 · 夏日 Live',hidden:true}];

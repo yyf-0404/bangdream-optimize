@@ -1,0 +1,53 @@
+/*
+ * Result page additions on top of the approved result design.
+ * The history drawer, stale-result notice and image dialog use the approved
+ * anatomy (.history-*, .result-warning, .dialog-*); this file only adds the
+ * layout those approved rules leave open. Tokens only.
+ */
+
+/* History drawer: approved .history-dialog / .history-entry, list resets here. */
+#result-design .history-dialog .result-cache-panel { padding: 0; }
+#result-design .history-dialog .result-cache-list { margin: 0; padding: 0; list-style: none; }
+#result-design .history-dialog .history-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+}
+#result-design .history-dialog .history-note .text-button { min-height: auto; }
+#result-design .history-dialog .dialog-top .icon-button { color: var(--color-text-subtle); }
+#result-design .history-dialog .dialog-top .icon-button svg { width: var(--icon-size-md); height: var(--icon-size-md); }
+
+/* Stale result notice: approved .result-warning with the recalculate action on the right. */
+#result-design .result-warning > span svg { width: var(--icon-size-md); height: var(--icon-size-md); }
+#result-design .result-warning > p { flex: 1; min-width: 0; margin: 0; }
+#result-design .result-warning > .text-button {
+  min-height: auto;
+  padding: 0;
+  color: inherit;
+  font-weight: var(--weight-medium);
+}
+
+/* The hero is an isolated stacking context, so the ··· menu's own z-index stays inside it.
+   Approved .metrics / .song-result are isolated too and come later in the page, so while
+   the menu is open the whole hero is lifted above them (still below the sticky section nav). */
+#result-design .page-hero:has(.result-more[open]) { z-index: 4; }
+
+/* Result actions status (copy / export / failure) uses .ui-callout tones. */
+#result-design .result-action-status { margin: var(--space-10) 0 0; }
+#result-design .result-action-status:empty { display: none; }
+#result-design .result-action-status .text-button { min-height: auto; padding: 0 var(--space-4); color: inherit; font-weight: var(--weight-medium); }
+
+/* Result image dialog: approved #result-design dialog anatomy, sized for the picture. */
+#result-design .result-image-dialog { width: min(1000px, calc(100vw - 32px)); max-width: none; }
+#result-design .result-image-dialog[open] { display: flex; flex-direction: column; }
+#result-design .result-image-dialog .dialog-content { flex: 1 1 auto; min-height: 0; overflow: auto; }
+#result-design .result-image-dialog .dialog-content img {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: var(--space-12);
+  border: 1px solid var(--color-border);
+}
+#result-design .result-image-dialog .dialog-bottom { justify-content: flex-end; }  /* as approved .result-dialog */
+#result-design .result-image-dialog .dialog-top .icon-button svg { width: var(--icon-size-md); height: var(--icon-size-md); }

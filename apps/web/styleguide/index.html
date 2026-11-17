@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>样式参照</title>
+    <link rel="icon" type="image/svg+xml" href="../assets/brand.svg" />
+    <!-- Load the real application cascade so components are shown exactly as they render in the app. -->
+    <link rel="stylesheet" href="../design.css" />
+    <link rel="stylesheet" href="./styleguide.css" />
+    <script type="module" src="./styleguide.js"></script>
+  </head>
+  <body class="sg">
+    <nav class="sg-nav" aria-label="目录">
+      <strong>样式参照</strong>
+      <a href="#tokens">设计变量</a>
+      <a href="#components">基础组件</a>
+      <a href="#motion">动效</a>
+      <a href="#rules">新增组件规范</a>
+    </nav>
+
+    <main class="sg-main">
+      <header class="sg-intro">
+        <p class="sg-eyebrow">src/design</p>
+        <h1>样式参照</h1>
+        <p>
+          新界面只使用这里列出的设计变量、基础组件和动效。数值取自确认稿页面的实际渲染结果；
+          本页直接加载应用的 <code>design.css</code>，看到的就是组件在应用里的样子。
+        </p>
+      </header>
+
+      <!-- ===================================================== Tokens -->
+      <section id="tokens" class="sg-chapter">
+        <h2 class="sg-chapter-title">设计变量 <small>src/design/tokens.css</small></h2>
+        <p class="sg-lede">以下内容由 tokens.css 自动生成，修改变量后刷新即可。</p>
+        <div id="token-groups" class="sg-token-groups" aria-live="polite"></div>
+      </section>
+
+      <!-- ================================================= Components -->
+      <section id="components" class="sg-chapter">
+        <h2 class="sg-chapter-title">基础组件 <small>src/design/components.css</small></h2>
+        <p class="sg-lede">每个示例下方是可直接复制的 HTML。状态使用原生属性：<code>disabled</code>、<code>aria-pressed</code>、<code>aria-selected</code>、<code>aria-invalid</code>、<code>aria-busy</code>。</p>
+
+        <article class="sg-component" data-component="ui-button">
+          <h3>按钮 <code>.ui-button</code></h3>
+          <p><code>--cta</code> 只用于"计算"这一个主要行动；页面和弹窗里的主操作用 <code>--primary</code>，每个区域最多一个；默认按钮用于次要操作。<code>--text</code> 用于行内操作，可加 <code>--brand</code> / <code>--danger</code>。</p>
+          <div class="sg-demo">
+            <button class="ui-button ui-button--cta" type="button">计算</button>
+            <button class="ui-button ui-button--primary" type="button">保存修改</button>
+            <button class="ui-button" type="button">＋ 新建档案</button>
+            <button class="ui-button ui-button--ghost" type="button">取消</button>
+            <button class="ui-button ui-button--text ui-button--brand" type="button">全部满级</button>
+            <button class="ui-button ui-button--text" type="button">展开全部</button>
+            <button class="ui-button ui-button--text ui-button--danger" type="button">全部清零</button>
+            <button class="ui-button ui-button--icon" type="button" aria-label="更多"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg></button>
+          </div>
+          <div class="sg-demo">
+            <button class="ui-button ui-button--primary ui-button--sm" type="button">小号</button>
+            <button class="ui-button ui-button--primary ui-button--lg" type="button">大号</button>
+            <button class="ui-button" type="button" disabled>不可用</button>
+            <button class="ui-button ui-button--primary" type="button" aria-busy="true">计算中</button>
+          </div>
+        </article>
+
+        <article class="sg-component" data-component="ui-text">
+          <h3>文字 <code>.ui-text</code></h3>
+          <p>旧页面的样式会作用到页面里裸的 <code>p</code>、<code>h3</code> 等标签上，新组件里的文字都加上 <code>.ui-text</code>，在任何页面看起来都一样。</p>
+          <div class="sg-demo sg-demo--stack">
+            <p class="ui-text">正文文字 · 12px</p>
+            <p class="ui-text ui-text--secondary">次要说明文字</p>
+            <p class="ui-text ui-text--subtle ui-text--xs">提示与计数 · 11px</p>
+            <p class="ui-text ui-text--md ui-text--strong">强调 · 13px</p>
+            <p class="ui-text ui-text--lg ui-text--strong ui-text--number">5,306,863</p>
+            <p class="ui-text ui-text--brand">品牌色文字</p>
+          </div>
+        </article>
+
+        <article class="sg-component" data-component="ui-field">
+          <h3>表单字段 <code>.ui-field</code> <code>.ui-input</code> <code>.ui-select</code> <code>.ui-textarea</code></h3>
+          <div class="sg-demo sg-demo--grid">
+            <label class="ui-field">
+              <span class="ui-field__label">档案名称</span>
+              <input class="ui-input" type="text" placeholder="例如：国服主号" />
+              <span class="ui-field__hint">最多 24 个字符</span>
+            </label>
+            <label class="ui-field">
+              <span class="ui-field__label">服务器</span>
+              <select class="ui-select"><option>国服</option><option>日服</option><option>国际服</option></select>
+            </label>
+            <label class="ui-field">
+              <span class="ui-field__label">目标 PT</span>
+              <input class="ui-input" type="number" value="-1" aria-invalid="true" aria-describedby="sg-pt-error" />
+              <span class="ui-field__error" id="sg-pt-error">请输入大于 0 的整数</span>
+            </label>
+            <label class="ui-field sg-span-all">
+              <span class="ui-field__label">问题描述</span>
+              <textarea class="ui-textarea" placeholder="遇到问题，或有更好的想法，都可以写在这里"></textarea>
+            </label>
+          </div>
+        </article>
+
+        <article class="sg-component" data-component="ui-segmented">
+          <h3>分段选择 <code>.ui-segmented</code></h3>
+          <p>二到五个互斥选项。内部用原生单选框，键盘和表单行为不变。</p>
+          <div class="sg-demo sg-demo--block">
+            <div class="ui-segmented" role="radiogroup" aria-label="计算目标">
+              <label><input type="radio" name="sg-target" value="score" />最高得分</label>
+              <label><input type="radio" name="sg-target" value="pt" checked />最大平均 PT</label>
+              <label><input type="radio" name="sg-target" value="team" />指定队伍</label>
+              <label><input type="radio" name="sg-target" value="control" />控分</label>
+            </div>
+          </div>
+        </article>
+
+        <article class="sg-component" data-component="ui-chip">
+          <h3>筛选标签 <code>.ui-chip</code></h3>
+          <p>可切换的筛选项，用 <code>aria-pressed</code> 表示选中。</p>
+          <div class="sg-demo" data-chip-demo>
+            <button class="ui-chip" type="button" aria-pressed="true">Powerful</button>
+            <button class="ui-chip" type="button" aria-pressed="false">Cool</button>
+            <button class="ui-chip" type="button" aria-pressed="false">Happy</button>
+            <button class="ui-chip" type="button" aria-pressed="false">Pure</button>
+          </div>
+        </article>
+
+        <article class="sg-component" data-component="ui-tag">
+          <h3>标签 <code>.ui-tag</code></h3>
+          <p>不可点击的状态或分类说明。</p>
+          <div class="sg-demo">
+            <span class="ui-tag">国服</span>
+            <span class="ui-tag ui-tag--accent">协力</span>
+            <span class="ui-tag ui-tag--brand">当前档案</span>
+            <span class="ui-tag ui-tag--success">已同步</span>
+            <span class="ui-tag ui-tag--warning">未发布</span>
+            <span class="ui-tag ui-tag--danger">缺少数据</span>
+          </div>
+        </article>
+
+        <article class="sg-component" data-component="ui-switch">
+          <h3>开关 <code>.ui-switch</code></h3>
+          <div class="sg-demo">
+            <label class="ui-switch"><input type="checkbox" role="switch" /><span class="ui-switch__track"></span>仅使用当前服务器可用的卡牌</label>
+            <label class="ui-switch"><input type="checkbox" role="switch" checked /><span class="ui-switch__track"></span>已开启</label>
+          </div>
+        </article>
+
+        <article class="sg-component" data-component="ui-section">
+          <h3>区块标题 <code>.ui-section</code> <code>.ui-subtitle</code></h3>
+          <div class="sg-demo sg-demo--block">
+            <section class="ui-section">
+              <header class="ui-section__header">
+                <h2 class="ui-section__title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 7h8m5 0h5M3 17h4m5 0h9M16 7a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0m-4 10a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0"/></svg>活动与目标</h2>
+                <span class="ui-section__meta">自定义活动 · 挑战 Live · CP</span>
+              </header>
+              <h3 class="ui-subtitle">计算目标</h3>
+            </section>
+          </div>
+        </article>
+
+        <article class="sg-component" data-component="ui-panel">
+          <h3>面板 <code>.ui-panel</code></h3>
+          <div class="sg-demo sg-demo--grid">
+            <div class="ui-panel"><h3 class="ui-subtitle">默认面板</h3><p class="ui-text ui-text--secondary">白底、细边框、8px 圆角。</p></div>
+            <div class="ui-panel ui-panel--subtle"><h3 class="ui-subtitle">浅底面板</h3><p class="ui-text ui-text--secondary">用于次要信息分组。</p></div>
+            <div class="ui-panel ui-panel--interactive" tabindex="0"><h3 class="ui-subtitle">可点击面板</h3><p class="ui-text ui-text--secondary">悬停时轻微浮起。</p></div>
+          </div>
+        </article>
+
+        <article class="sg-component" data-component="ui-list">
+          <h3>列表 <code>.ui-list</code> <code>.ui-list-row</code></h3>
+          <div class="sg-demo sg-demo--block">
+            <ul class="ui-list sg-bordered">
+              <li><button class="ui-list-row" type="button" aria-selected="true"><span class="ui-list-row__main">默认配置</span><span class="ui-tag ui-tag--brand">使用中</span></button></li>
+              <li><button class="ui-list-row" type="button"><span class="ui-list-row__main">日服小号</span><span class="ui-list-row__meta">更新于 11-06</span></button></li>
+              <li><button class="ui-list-row" type="button"><span class="ui-list-row__main">验收样例</span><span class="ui-list-row__meta">更新于 09-14</span></button></li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="sg-component" data-component="ui-dialog">
+          <h3>弹窗 <code>.ui-dialog</code></h3>
+          <p>原生 <code>&lt;dialog&gt;</code>：<code>showModal()</code> 打开、<code>close()</code> 关闭，进出动效由 CSS 完成，无需额外脚本。</p>
+          <div class="sg-demo">
+            <button class="ui-button" type="button" data-open-dialog="sg-dialog">打开弹窗</button>
+            <dialog class="ui-dialog" id="sg-dialog" aria-labelledby="sg-dialog-title">
+              <header class="ui-dialog__header">
+                <div>
+                  <p class="ui-dialog__eyebrow">应用与支持</p>
+                  <h2 class="ui-dialog__title" id="sg-dialog-title">问题反馈</h2>
+                  <p class="ui-dialog__subtitle">遇到问题，或有更好的想法，都可以告诉我们。</p>
+                </div>
+                <button class="ui-button ui-button--icon" type="button" aria-label="关闭" data-close-dialog><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+              </header>
+              <div class="ui-dialog__body">
+                <label class="ui-field"><span class="ui-field__label">问题描述</span><textarea class="ui-textarea"></textarea></label>
+              </div>
+              <footer class="ui-dialog__footer">
+                <button class="ui-button ui-button--ghost ui-button--lg" type="button" data-close-dialog>取消</button>
+                <button class="ui-button ui-button--primary ui-button--lg" type="button" data-close-dialog>发送反馈</button>
+              </footer>
+            </dialog>
+          </div>
+        </article>
+
+        <article class="sg-component" data-component="ui-callout">
+          <h3>提示条 <code>.ui-callout</code></h3>
+          <div class="sg-demo sg-demo--stack">
+            <p class="ui-callout">结果基于当前档案；修改配置后需要重新计算。</p>
+            <p class="ui-callout ui-callout--danger">指定队伍中有已停用的自定义卡，请先启用或替换。</p>
+            <p class="ui-callout ui-callout--success">已导入 1,717 张卡牌。</p>
+            <p class="ui-callout ui-callout--warning">该活动在国服尚未开始，部分卡牌可能不可用。</p>
+          </div>
+        </article>
+
+        <article class="sg-component" data-component="ui-spinner">
+          <h3>加载 <code>.ui-spinner</code> <code>.ui-skeleton</code></h3>
+          <div class="sg-demo sg-demo--stack">
+            <span class="ui-spinner" role="status" aria-label="加载中"></span>
+            <span class="ui-skeleton" style="width: 60%"></span>
+            <span class="ui-skeleton" style="width: 40%"></span>
+          </div>
+        </article>
+      </section>
+
+      <!-- ===================================================== Motion -->
+      <section id="motion" class="sg-chapter">
+        <h2 class="sg-chapter-title">动效 <small>src/design/motion.css · motion.js</small></h2>
+        <p class="sg-lede">
+          时长和缓动全部来自 <code>--motion-*</code> 变量。系统开启"减少动态效果"时这些变量归零，组件只切换状态、不再移动。
+          悬停、按下和焦点反馈已内置在基础组件里；下面是需要主动调用的模式。
+        </p>
+        <p class="sg-lede" id="motion-status"></p>
+
+        <article class="sg-component" data-component="motion-list">
+          <h3>列表增删与排序 <code>enter()</code> <code>removeWithMotion()</code> <code>flip()</code></h3>
+          <div class="sg-demo">
+            <button class="ui-button" type="button" data-motion="add">添加一行</button>
+            <button class="ui-button" type="button" data-motion="remove">删除第一行</button>
+            <button class="ui-button" type="button" data-motion="shuffle">打乱顺序</button>
+          </div>
+          <ul class="ui-list sg-bordered" id="motion-list"></ul>
+        </article>
+
+        <article class="sg-component" data-component="motion-collapse">
+          <h3>展开收起 <code>.ui-collapse</code> <code>setOpen()</code></h3>
+          <div class="sg-demo sg-demo--stack">
+            <button class="ui-button ui-button--text ui-button--brand" type="button" aria-controls="motion-collapse" aria-expanded="false" data-motion="collapse">显示突破加成说明</button>
+            <div class="ui-collapse" id="motion-collapse" data-open="false">
+              <div><p class="ui-callout">突破加成按每张卡单独计算，与特训和剧情加成叠加。展开后内容可被键盘访问，收起后不可聚焦。</p></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="sg-component" data-component="motion-flash">
+          <h3>数值变化提示 <code>flash()</code></h3>
+          <div class="sg-demo">
+            <span class="sg-metric">平均 PT <strong id="motion-value">4,849,931</strong></span>
+            <button class="ui-button" type="button" data-motion="flash">重新计算</button>
+          </div>
+        </article>
+
+        <article class="sg-component" data-component="motion-page">
+          <h3>区域进入 <code>.ui-motion-page</code> <code>.ui-motion-enter</code></h3>
+          <p>新显示的页面或大块区域用 <code>.ui-motion-page</code>；单个新元素用 <code>.ui-motion-enter</code>，同时进入的多个元素用 <code>enterAll()</code> 依次错开。</p>
+          <div class="sg-demo sg-demo--stack">
+            <button class="ui-button" type="button" data-motion="page">重新播放</button>
+            <div class="ui-panel ui-motion-page" id="motion-page"><h3 class="ui-subtitle">计算结果</h3><p class="ui-text ui-text--secondary">页面切换后整体淡入并上移 8px。</p></div>
+          </div>
+        </article>
+      </section>
+
+      <!-- ====================================================== Rules -->
+      <section id="rules" class="sg-chapter">
+        <h2 class="sg-chapter-title">新增组件规范</h2>
+        <ol class="sg-rules">
+          <li>先找现成的：能用上面的基础组件组合出来，就不写新样式。</li>
+          <li>需要新样式时，颜色、字号、间距、圆角、阴影、时长只用 <code>var(--…)</code> 设计变量；<code>test/design-system.test.js</code> 会拦下新 CSS 里的固定色值和时长。</li>
+          <li>真正通用的新组件放进 <code>src/design/components.css</code>，类名用 <code>.ui-</code> 前缀，并在本页加一个示例（测试会检查）。只属于某个页面的样式放在该页面目录下，例如 <code>src/pages/result/</code>。</li>
+          <li>组件里的文字加 <code>.ui-text</code> 类，不要依赖裸的 <code>p</code>、<code>h3</code> 标签：旧页面样式会按页面给它们不同的颜色和间距。</li>
+          <li>状态用原生属性表达（<code>disabled</code>、<code>aria-pressed</code>、<code>aria-selected</code>…），不要新增 <code>.is-active</code> 一类的类名。</li>
+          <li>动效只用 <code>motion.css</code> 的模式或 <code>--motion-*</code> 变量，不单独写时长；减少动态效果的处理随变量自动生效。</li>
+          <li>改完在本页和对应页面各看一遍；改动旧页面样式时，用 <code>scripts/design/ui-snapshot.mjs</code> 比较修改前后的截图和计算样式。</li>
+        </ol>
+      </section>
+    </main>
+  </body>
+</html>

@@ -1,6 +1,6 @@
 import { importCnAccount } from '../data/cn-account.js';
 import { importJpUuid } from '../data/jp-uuid.js';
-import { createGameDataClient } from '../data/game-sync.js?v=3';
+import { createGameDataClient } from '../data/game-sync.js';
 import {
   clearPlayerConfigCache,
   createPlayerConfig,
@@ -12,8 +12,8 @@ import {
   samplePlayerConfig,
   savePlayerConfig,
   selectPlayerConfig,
-} from '../storage/user.js?v=3';
-import { submitFeedbackRequest } from '../data/feedback.js?v=2';
+} from '../data/user-storage.js';
+import { submitFeedbackRequest } from '../data/feedback.js';
 
 const ASSET_VERSION = 'native-f32-6';
 

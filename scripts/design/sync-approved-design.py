@@ -12,9 +12,16 @@ from bs4 import BeautifulSoup
 
 parser = argparse.ArgumentParser()
 parser.add_argument('source', type=Path)
+parser.add_argument('--overwrite-maintained', action='store_true',
+                    help='replace the hand-maintained styles in src/design/approved')
 args = parser.parse_args()
+# The approved files are maintained directly in code since 2026-11 and are
+# being migrated onto src/design/tokens.css. Regenerating them from the design
+# workspace would discard those edits, so it now has to be requested explicitly.
+if not args.overwrite_maintained:
+    parser.error('src/design/approved is maintained in code; pass --overwrite-maintained to regenerate it')
 source = args.source.resolve()
-destination = Path(__file__).resolve().parents[2] / 'apps/web/src/ui/approved'
+destination = Path(__file__).resolve().parents[2] / 'apps/web/src/design/approved'
 destination.mkdir(parents=True, exist_ok=True)
 
 pages = {

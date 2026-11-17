@@ -14,8 +14,8 @@ import {
   ptMaximizeLiveVariant,
   withPtEvaluateLiveVariant,
   withPtMaximizeLiveVariant,
-} from '../src/models/player-settings.js';
-import { samplePlayerConfig } from '../src/storage/user.js';
+} from '../src/domain/player-settings.js';
+import { samplePlayerConfig } from '../src/data/user-storage.js';
 
 test('sample config and persisted setting defaults share one source', () => {
   const sample = samplePlayerConfig();

@@ -1,0 +1,93 @@
+/*
+ * Motion patterns — transitions and micro-interactions built on the
+ * --motion-* tokens. Reduced motion is handled in tokens.css (durations and
+ * distances drop to zero), so nothing here needs its own media query.
+ *
+ * Built into components: hover / press / focus on .ui-button, .ui-chip,
+ * .ui-segmented, .ui-switch, .ui-list-row and .ui-panel--interactive.
+ * Opt-in classes below; src/design/motion.js drives the ones that need JS.
+ */
+
+@keyframes ui-spin { to { transform: rotate(1turn); } }
+@keyframes ui-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@keyframes ui-enter {
+  from { opacity: 0; transform: translateY(var(--motion-distance-md)); }
+}
+@keyframes ui-exit {
+  to { opacity: 0; transform: translateY(var(--motion-distance-sm)); }
+}
+@keyframes ui-flash {
+  from { background-color: var(--color-surface-brand); box-shadow: 0 0 0 var(--space-4) var(--color-surface-brand); }
+}
+
+/* Enter: an element that just appeared (list item added, result revealed).
+   Items entering together can stagger via --ui-motion-index (0, 1, 2 …). */
+.ui-motion-enter {
+  animation: ui-enter var(--motion-duration-normal) var(--motion-ease-enter) both;
+  animation-delay: calc(min(var(--ui-motion-index, 0), 10) * var(--motion-stagger));
+}
+
+/* Exit: play before removing an element; motion.js removes it afterwards. */
+.ui-motion-exit {
+  animation: ui-exit var(--motion-duration-fast) var(--motion-ease-exit) both;
+  pointer-events: none;
+}
+
+/* Page / large-area entrance, e.g. a freshly shown page panel. */
+.ui-motion-page { animation: ui-enter var(--motion-duration-slow) var(--motion-ease-enter) both; }
+
+/* Flash: briefly highlight a value that changed (e.g. a recalculated total). */
+.ui-motion-flash {
+  border-radius: var(--radius-xs);
+  animation: ui-flash calc(var(--motion-duration-slow) * 2) var(--motion-ease-standard);
+}
+
+/* Press feedback for custom clickable elements that are not .ui-button. */
+.ui-pressable { transition: transform var(--motion-duration-instant) var(--motion-ease-standard); }
+.ui-pressable:active { transform: scale(var(--motion-press-scale)); }
+
+/* Expand / collapse with a real height animation.
+   <div class="ui-collapse" data-open="false"><div>…content…</div></div> */
+.ui-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--motion-duration-normal) var(--motion-ease-standard);
+}
+.ui-collapse > * {
+  min-height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  transition: visibility 0s linear var(--motion-duration-normal);
+}
+.ui-collapse[data-open="true"] { grid-template-rows: 1fr; }
+.ui-collapse[data-open="true"] > * { visibility: visible; transition-delay: 0s; }
+
+/* Dialog enter / exit for <dialog class="ui-dialog">: showModal() and close()
+   animate without extra JS. Browsers without @starting-style simply skip it. */
+.ui-dialog {
+  transition:
+    opacity var(--motion-duration-normal) var(--motion-ease-enter),
+    transform var(--motion-duration-normal) var(--motion-ease-enter);
+  transition:
+    opacity var(--motion-duration-normal) var(--motion-ease-enter),
+    transform var(--motion-duration-normal) var(--motion-ease-enter),
+    overlay var(--motion-duration-normal) allow-discrete,
+    display var(--motion-duration-normal) allow-discrete;
+}
+.ui-dialog:not([open]) {
+  opacity: 0;
+  transform: translateY(var(--motion-distance-md)) scale(var(--motion-press-scale));
+  transition-timing-function: var(--motion-ease-exit);
+}
+.ui-dialog::backdrop {
+  transition: background-color var(--motion-duration-normal) var(--motion-ease-standard);
+  transition:
+    background-color var(--motion-duration-normal) var(--motion-ease-standard),
+    overlay var(--motion-duration-normal) allow-discrete,
+    display var(--motion-duration-normal) allow-discrete;
+}
+.ui-dialog:not([open])::backdrop { background-color: transparent; }
+@starting-style {
+  .ui-dialog[open] { opacity: 0; transform: translateY(var(--motion-distance-md)) scale(var(--motion-press-scale)); }
+  .ui-dialog[open]::backdrop { background-color: transparent; }
+}

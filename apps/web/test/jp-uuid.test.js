@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {importJpUuid} from '../src/data/jp-uuid.js';
 import {mergeAccountImport} from '../src/data/cn-account.js';
-import {importSourceMarkup} from '../src/ui/approved/archive-flows.js';
-import {flowHelpers} from '../src/ui/archive-flows.js';
+import {importSourceMarkup} from '../src/design/approved/archive-flows.js';
+import {flowHelpers} from '../src/pages/archive/archive-flows.js';
 
 const request={playerId:42,uuid:'00000000-0000-4000-8000-000000000001'};
 const result={gameUid:42,name:'Test',rank:1,player:{playerId:42,cardList:{3:{level:40}},areaItem:{1:{level:2}},characterBouns:{1:{}}}};

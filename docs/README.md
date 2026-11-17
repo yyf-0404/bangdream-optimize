@@ -3,7 +3,7 @@
 ## 开发与测试
 
 - [环境准备](guides/environment.md) · [本地运行与内部测试](guides/internal-testing.md) · [脚本入口](../scripts/README.md)
-- [前端开发说明](../apps/web/README.md)
+- [前端目录结构](../apps/web/README.md#目录结构) · [界面开发规范](../apps/web/README.md#界面开发规范)
 
 ## 部署与发布
 

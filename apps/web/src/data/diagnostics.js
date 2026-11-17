@@ -1,4 +1,4 @@
-import { explainCalculationError } from './calculation-errors.js?v=1';
+import { explainCalculationError } from './calculation-errors.js';
 
 export function createDiagnostics({
   getRuntime,

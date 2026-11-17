@@ -1,6 +1,6 @@
-import { parseEntityId } from '../utils.js';
+import { parseEntityId } from '../shared/utils.js';
 
-import { installCyclingSelect } from '../ui/cycle-select.js?v=2';
+import { installCyclingSelect } from '../shared/ui/cycle-select.js';
 
 const DATALIST_INPUT_KEYS = [
   'eventSearch',

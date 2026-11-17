@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createFeedbackActions } from '../src/actions/feedback.js';
+import { createFeedbackActions } from '../src/pages/shell/feedback-actions.js';
 
 function createHarness() {
   const submissions = [];

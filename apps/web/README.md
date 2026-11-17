@@ -40,6 +40,42 @@ JSON 编辑器仅用于直接编辑当前 schema。
 `txt/log/json/zip/pdf`，最多 3 个，单个不超过 5 MiB、总计不超过 10 MiB。
 SMTP 账户和密码只存在于后端环境变量。
 
+## 目录结构
+
+```
+apps/web/
+  index.html  design.css  config.js     入口页面、样式入口（定义层级）、运行配置
+  styleguide/                           样式参照页（开发用，不进入生产构建）
+  test/                                 node --test 测试
+  src/
+    main.js       组合入口：创建状态、各页面视图和动作并接线
+    app/          跨页面的状态、生命周期、页面控制器、档案存储，以及计算、配置这类跨页动作
+    domain/       业务规则与数据模型（活动、玩家、自定义卡、加成…），不依赖 DOM
+    data/         数据读写与格式：游戏数据同步、Bestdori、结果缓存、用户存储、诊断
+    runtime/      浏览器（IndexedDB + WASM Worker）与桌面（Tauri）适配
+    shared/       通用工具（utils、资源 URL、偏好设置）和 shared/ui 通用控件
+    design/       设计系统：tokens、components、motion，以及确认稿 approved/ 与绑定层 fidelity
+    components/   多个页面共用的组件：cards/（卡牌展示、筛选、选择）、custom-cards/
+    pages/        每个页面一个目录：shell（侧栏、顶栏、头图、反馈）、activity、cards、player、result、archive
+    vendor/       第三方代码
+```
+
+依赖方向：`pages` 可以用 `components`、`shared`、`design`、`domain`、`data`；`components` 不依赖 `pages`；`domain` 和 `data` 不依赖界面。
+页面目录内的文件按作用命名：`*-view.js` 渲染，`*-actions.js` 处理用户操作，`*-layout.js` 把确认稿模板挂到真实控件上。
+
+## 界面开发规范
+
+新界面要和确认稿风格一致，按以下顺序处理。所有例子、变量和动效都在样式参照页里：本地启动后打开 `http://127.0.0.1:8080/styleguide/`。
+
+1. **优先组合基础组件**：`src/design/components.css` 提供按钮、表单字段、分段选择、筛选标签、标签、开关、区块标题、面板、列表、弹窗、提示条、加载和文字，类名前缀 `.ui-`。参照页里每个组件都有可复制的 HTML。按钮主色分两种：`--cta` 只用于"计算"这类启动计算的入口（与侧栏按钮相同），页面内的保存、确认用 `--primary`。如果确认稿已经画过同样的结构（例如结果页的 `.history-*`、`.result-warning`、`.dialog-*`），挂在对应页面容器内并沿用确认稿的类名，不另写一套。
+2. **新样式只用设计变量**：颜色、字号、间距、圆角、阴影、时长都写成 `var(--…)`，变量在 `src/design/tokens.css`，取值来自确认稿的实际渲染。`test/design-system.test.js` 会拦下新 CSS 中的固定色值和时长。
+3. **放对位置**：通用组件加到 `components.css`，并在参照页加示例（测试会检查）；只属于某个页面的样式放进该页面目录，在 `design.css` 中以 `layer(components)` 引入。
+4. **文字加类名**：旧页面的样式会作用到页面里裸的 `p`、`h3` 等标签，组件内文字使用 `.ui-text` 系列。状态用原生属性表达（`disabled`、`aria-pressed`、`aria-selected`、`aria-invalid`、`aria-busy`）。
+5. **动效用现成模式**：悬停、按下、焦点反馈已内置在组件里；进入、退出、展开收起、列表增删与重排、数值变化提示、弹窗进出见 `src/design/motion.css` 与 `motion.js`。系统开启"减少动态效果"时，时长变量自动归零。
+6. **改旧页面样式先拍快照**：`node scripts/design/ui-snapshot.mjs capture <地址> <目录>` 记录五个页面和参照页的截图与计算样式，改完再拍一次并用 `compare` 对比（需要 Playwright：`npm install --no-save playwright && npx playwright install chromium`）。
+
+`design.css` 的层级从低到高为 tokens → runtime → bindings → approved → plumbing → components。基础组件在最后一层，页面里的旧样式不会改动它们。
+
 ## 构建 WASM
 
 安装 `wasm-bindgen-cli`：

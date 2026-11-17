@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { teamOrderPresentation, formatOrderProbability, renderActivationOrder } from '../src/ui/team-order.js';
+import { teamOrderPresentation, formatOrderProbability, renderActivationOrder } from '../src/pages/result/team-order.js';
 
 const base = {teamCardIds: [10,20,30,40,50], captainCardId:30};
 test('max-score display uses recommended slots, keeping activations separate', () => {

@@ -1,0 +1,71 @@
+/* Layout for the styleguide page itself. Uses tokens only, like any new CSS. */
+body.sg {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: var(--weight-regular) var(--text-base) / var(--leading-normal) var(--font-sans);
+}
+.sg code { padding: 0 var(--space-4); border-radius: var(--radius-xs); background: var(--color-surface-muted); font: var(--text-sm) var(--font-mono); }
+
+.sg-nav {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  height: 100dvh;
+  padding: var(--space-28) var(--space-16);
+  border-right: 1px solid var(--color-border);
+  background: var(--color-surface-subtle);
+  font-size: var(--text-md);
+}
+.sg-nav strong { margin-bottom: var(--space-12); color: var(--color-heading-strong); font-size: var(--text-lg); }
+.sg-nav a { padding: var(--space-6) var(--space-10); border-radius: var(--radius-sm); color: var(--color-text-secondary); text-decoration: none; transition: background-color var(--motion-duration-fast) var(--motion-ease-standard); }
+.sg-nav a:hover { background: var(--color-surface-accent); color: var(--color-accent); }
+
+.sg-main { max-width: 1040px; padding: var(--space-32) var(--space-32) 96px; }
+.sg-intro h1 { margin: 0 0 var(--space-8); color: var(--color-text); font-size: var(--text-3xl); letter-spacing: var(--tracking-title); }
+.sg-intro p { max-width: 720px; margin: 0; color: var(--color-text-secondary); }
+.sg-eyebrow { color: var(--color-accent); font: var(--weight-medium) var(--text-xs) var(--font-mono); letter-spacing: var(--tracking-eyebrow); }
+
+.sg-chapter { margin-top: 56px; scroll-margin-top: var(--space-24); }
+.sg-chapter-title { margin: 0 0 var(--space-8); padding-bottom: var(--space-10); border-bottom: 1px solid var(--color-border); color: var(--color-heading-strong); font-size: var(--text-2xl); }
+.sg-chapter-title small { margin-left: var(--space-8); color: var(--color-text-subtle); font: var(--text-xs) var(--font-mono); }
+.sg-lede { max-width: 760px; margin: 0 0 var(--space-16); color: var(--color-text-secondary); font-size: var(--text-md); }
+
+.sg-component { padding: var(--space-24) 0; border-bottom: 1px solid var(--color-border); }
+.sg-component > h3 { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); margin: 0 0 var(--space-6); font-size: var(--text-lg); }
+.sg-component > p { margin: 0 0 var(--space-12); color: var(--color-text-secondary); font-size: var(--text-md); }
+.sg-demo { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-12); padding: var(--space-20); border: 1px dashed var(--color-border-control); border-radius: var(--radius-md); }
+.sg-demo + .sg-demo { margin-top: var(--space-8); }
+.sg-demo--block { display: block; }
+.sg-demo--stack { flex-direction: column; align-items: stretch; }
+.sg-demo--grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); align-items: start; }
+.sg-span-all { grid-column: 1 / -1; }
+.sg-bordered { border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; }
+.sg-metric { display: inline-flex; align-items: baseline; gap: var(--space-8); color: var(--color-text-secondary); font-size: var(--text-sm); }
+.sg-metric strong { padding: 0 var(--space-4); color: var(--color-text); font-size: var(--text-xl); }
+#motion-list { margin-top: var(--space-12); }
+
+.sg-code { margin: var(--space-8) 0 0; }
+.sg-code summary { color: var(--color-accent); font-size: var(--text-sm); cursor: pointer; }
+.sg-code pre { max-height: 320px; margin: var(--space-8) 0 0; padding: var(--space-12) var(--space-16); overflow: auto; border-radius: var(--radius-md); background: var(--color-surface-muted); color: var(--color-text); font: var(--text-sm) / var(--leading-normal) var(--font-mono); white-space: pre-wrap; }
+
+.sg-token-groups { display: grid; gap: var(--space-24); }
+.sg-token-group h3 { margin: 0 0 var(--space-8); color: var(--color-heading); font-size: var(--text-lg); }
+.sg-token-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--space-8); margin: 0; padding: 0; list-style: none; }
+.sg-token { display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: center; gap: var(--space-10); padding: var(--space-8); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.sg-token-sample { display: grid; place-items: center; width: 44px; height: 44px; overflow: hidden; border-radius: var(--radius-sm); background: var(--color-surface-muted); font-size: var(--text-xs); }
+.sg-token-name { overflow-wrap: anywhere; font: var(--weight-medium) var(--text-xs) / var(--leading-tight) var(--font-mono); }
+.sg-token-value { overflow-wrap: anywhere; color: var(--color-text-secondary); font: var(--text-2xs) / var(--leading-tight) var(--font-mono); }
+.sg-token-note { color: var(--color-text-subtle); font-size: var(--text-2xs); }
+.sg-rules { display: grid; gap: var(--space-10); max-width: 780px; padding-left: var(--space-20); color: var(--color-text-secondary); font-size: var(--text-md); }
+
+@media (max-width: 760px) {
+  body.sg { grid-template-columns: 1fr; }
+  .sg-nav { position: static; flex-direction: row; flex-wrap: wrap; height: auto; padding: var(--space-12) var(--space-16); border-right: 0; border-bottom: 1px solid var(--color-border); }
+  .sg-nav strong { width: 100%; margin: 0; }
+  .sg-main { padding: var(--space-20) var(--space-16) 64px; }
+}

@@ -1,0 +1,428 @@
+/*
+ * Base components — reusable anywhere, styled to match the approved pages.
+ *
+ * Rules of the road
+ * - Class prefix `.ui-`; modifiers use `--` (e.g. .ui-button--primary).
+ * - State comes from native attributes: [disabled], :checked, [aria-pressed],
+ *   [aria-selected], [aria-invalid], [aria-busy], [open].
+ * - Only token variables from tokens.css — no literal colours or durations.
+ * - Loaded in the `components` layer after the page layers, so page-scoped
+ *   approved rules (e.g. `#result-design button`) cannot restyle these.
+ * Examples and copyable markup: /styleguide/.
+ */
+
+/* ---------------------------------------------------------------- Button */
+.ui-button {
+  --_bg: var(--color-surface);
+  --_fg: var(--color-text);
+  --_border: var(--color-border-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-6);
+  min-height: var(--control-height-md);
+  padding: 0 var(--space-12);
+  border: 1px solid var(--_border);
+  border-radius: var(--radius-md);
+  background: var(--_bg);
+  background-origin: border-box;  /* gradients run under the transparent border, no seam */
+  color: var(--_fg);
+  font: var(--weight-regular) var(--text-sm) / var(--leading-normal) var(--font-sans);
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-ease-standard),
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-instant) var(--motion-ease-standard),
+    filter var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.ui-button:hover {
+  --_bg: var(--color-surface-subtle);
+  --_border: var(--color-accent);
+}
+.ui-button:active { transform: scale(var(--motion-press-scale)); }
+.ui-button:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+.ui-button:disabled,
+.ui-button[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+.ui-button svg { width: var(--icon-size-md); height: var(--icon-size-md); flex: none; }
+
+/* Matches the approved page .primary: gradient, no shadow, darkens on hover.
+   --cta is reserved for the one main call to action (计算), as in the sidebar. */
+.ui-button--primary {
+  --_bg: var(--gradient-primary);
+  --_fg: var(--color-text-inverse);
+  --_border: transparent;
+}
+.ui-button--primary:hover { --_bg: var(--gradient-primary); --_border: transparent; filter: brightness(0.95); }
+
+.ui-button--cta {
+  --_bg: var(--gradient-brand-action);
+  --_fg: var(--color-text-inverse);
+  --_border: transparent;
+  box-shadow: var(--shadow-brand-action);
+}
+.ui-button--cta:hover { --_bg: var(--gradient-brand-action); --_border: transparent; filter: brightness(0.95); }
+
+.ui-button--ghost { --_bg: transparent; --_border: transparent; --_fg: var(--color-text-subtle); }
+.ui-button--ghost:hover { --_bg: var(--color-surface-muted); --_border: transparent; --_fg: var(--color-text); }
+
+/* Text buttons: inline actions such as “全部满级 / 展开全部 / 全部清零”. */
+.ui-button--text {
+  --_bg: transparent;
+  --_border: transparent;
+  --_fg: var(--color-text-secondary);
+  min-height: auto;
+  padding: var(--space-4) var(--space-2);
+}
+.ui-button--text:hover { --_bg: transparent; --_border: transparent; --_fg: var(--color-text); }
+.ui-button--text.ui-button--brand { --_fg: var(--color-primary); }
+.ui-button--text.ui-button--danger { --_fg: var(--color-danger); }
+.ui-button--text.ui-button--brand:hover,
+.ui-button--text.ui-button--danger:hover { filter: brightness(0.85); }
+
+.ui-button--icon { width: var(--control-height-md); padding: 0; --_border: transparent; --_bg: transparent; --_fg: var(--color-text-subtle); }
+.ui-button--icon:hover { --_border: transparent; --_bg: var(--color-surface-muted); --_fg: var(--color-text); }
+
+.ui-button--sm { min-height: var(--control-height-sm); padding: 0 var(--space-10); font-size: var(--text-xs); }
+.ui-button--sm.ui-button--icon { width: var(--control-height-sm); padding: 0; }
+.ui-button--lg { min-height: var(--control-height-lg); padding: 0 var(--space-16); }
+.ui-button--lg.ui-button--icon { width: var(--control-height-lg); padding: 0; }
+.ui-button--block { display: flex; width: 100%; }
+
+/* Busy: keeps the width, swaps the label for a spinner. */
+.ui-button[aria-busy="true"] { position: relative; color: transparent; pointer-events: none; }
+.ui-button[aria-busy="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+  border: 2px solid var(--_fg);
+  border-right-color: transparent;
+  border-radius: var(--radius-round);
+  animation: ui-spin var(--motion-loop-spin) linear infinite;
+}
+
+/* ------------------------------------------------------------------ Text */
+/* Old page styles also target bare tags (p, h3, small …) inside each page, so
+   text in new UI carries a class to look the same everywhere. */
+.ui-text { margin: 0; color: var(--color-text); font: var(--weight-regular) var(--text-sm) / var(--leading-normal) var(--font-sans); }
+.ui-text--secondary { color: var(--color-text-secondary); }
+.ui-text--subtle { color: var(--color-text-subtle); }
+.ui-text--brand { color: var(--color-primary); }
+.ui-text--xs { font-size: var(--text-xs); }
+.ui-text--md { font-size: var(--text-md); }
+.ui-text--lg { font-size: var(--text-xl); }
+.ui-text--strong { font-weight: var(--weight-semibold); }
+.ui-text--number { font-variant-numeric: tabular-nums; }
+
+/* ----------------------------------------------------------------- Field */
+.ui-field { display: grid; gap: var(--space-6); min-width: 0; }
+.ui-field__label {
+  color: var(--color-text-secondary);
+  font: var(--weight-medium) var(--text-sm) / var(--leading-normal) var(--font-sans);
+}
+.ui-field__hint { margin: 0; color: var(--color-text-subtle); font-size: var(--text-xs); line-height: var(--leading-normal); }
+.ui-field__error { margin: 0; color: var(--color-danger-strong); font-size: var(--text-xs); line-height: var(--leading-normal); }
+
+.ui-input,
+.ui-select,
+.ui-textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--control-height-md);
+  padding: 0 var(--space-10);
+  border: 1px solid var(--color-border-accent);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: var(--weight-regular) var(--text-sm) / var(--leading-normal) var(--font-sans);
+  transition:
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.ui-textarea { min-height: 7.5em; padding: var(--space-10) var(--space-12); font-size: var(--text-md); line-height: var(--leading-relaxed); resize: vertical; }
+.ui-select { appearance: none; padding-right: var(--space-32); background-image: linear-gradient(45deg, transparent 50%, var(--color-text-subtle) 50%), linear-gradient(135deg, var(--color-text-subtle) 50%, transparent 50%); background-position: calc(100% - 16px) 50%, calc(100% - 12px) 50%; background-size: 4px 4px; background-repeat: no-repeat; }
+.ui-input::placeholder,
+.ui-textarea::placeholder { color: var(--color-text-subtle); opacity: 0.8; }
+.ui-input:hover,
+.ui-select:hover,
+.ui-textarea:hover { border-color: var(--color-border-strong); }
+.ui-input:focus-visible,
+.ui-select:focus-visible,
+.ui-textarea:focus-visible {
+  outline: none;
+  border-color: var(--color-focus);
+  box-shadow: 0 0 0 var(--focus-ring-width) var(--color-surface-accent);
+}
+.ui-input[aria-invalid="true"],
+.ui-select[aria-invalid="true"],
+.ui-textarea[aria-invalid="true"] { border-color: var(--color-danger-border); }
+.ui-input:disabled,
+.ui-select:disabled,
+.ui-textarea:disabled { background: var(--color-surface-muted); color: var(--color-text-subtle); cursor: not-allowed; }
+
+/* ------------------------------------------------------------ Segmented */
+/* <div class="ui-segmented" role="radiogroup"><label><input type="radio" name="…">最高得分</label>…</div> */
+.ui-segmented {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-sunken);
+}
+.ui-segmented > label,
+.ui-segmented > button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-6);
+  min-height: var(--control-height-md);
+  padding: 0 var(--space-8);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: var(--weight-regular) var(--text-sm) / var(--leading-normal) var(--font-sans);
+  cursor: pointer;
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.ui-segmented > label > input { position: absolute; opacity: 0; pointer-events: none; }
+.ui-segmented > :is(label, button):hover { color: var(--color-text); }
+.ui-segmented > label:has(input:checked),
+.ui-segmented > button[aria-pressed="true"] {
+  background: var(--color-surface);
+  color: var(--color-primary-selected);
+  font-weight: var(--weight-semibold);
+  box-shadow: var(--shadow-xs), inset 0 0 0 1px var(--color-border-selected);
+}
+.ui-segmented > label:has(input:focus-visible),
+.ui-segmented > button:focus-visible { outline: var(--focus-ring-width) solid var(--color-focus); outline-offset: 1px; }
+
+/* ----------------------------------------------------------------- Chip */
+/* Toggleable filter option: <button class="ui-chip" aria-pressed="false">Powerful</button> */
+.ui-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: var(--control-height-sm);
+  padding: 0 var(--space-10);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+  font: var(--weight-regular) var(--text-sm) / var(--leading-normal) var(--font-sans);
+  cursor: pointer;
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-ease-standard),
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.ui-chip:hover { border-color: var(--color-border-control); }
+.ui-chip[aria-pressed="true"] { background: var(--color-surface-brand); border-color: var(--color-border-brand); }
+.ui-chip:focus-visible { outline: var(--focus-ring-width) solid var(--color-focus); outline-offset: 2px; }
+
+/* ------------------------------------------------------------------ Tag */
+/* Static label: server, status, type. */
+.ui-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-6);
+  border-radius: var(--radius-xs);
+  background: var(--color-surface-muted);
+  color: var(--color-text-secondary);
+  font: var(--weight-medium) var(--text-xs) / 1.6 var(--font-sans);
+  white-space: nowrap;
+}
+.ui-tag--accent { background: var(--color-surface-accent); color: var(--color-accent); }
+.ui-tag--brand { background: var(--color-surface-brand); color: var(--color-primary); }
+.ui-tag--success { background: var(--color-success-surface); color: var(--color-success); }
+.ui-tag--warning { background: var(--color-warning-surface); color: var(--color-warning); }
+.ui-tag--danger { background: var(--color-danger-surface); color: var(--color-danger-strong); }
+
+/* --------------------------------------------------------------- Switch */
+/* <label class="ui-switch"><input type="checkbox" role="switch"><span class="ui-switch__track"></span>文字</label> */
+.ui-switch { display: inline-flex; align-items: center; gap: var(--space-10); color: var(--color-text); font-size: var(--text-md); cursor: pointer; }
+.ui-switch > input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.ui-switch__track {
+  display: block;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 18px;
+  box-sizing: border-box;
+  border: 1px solid var(--color-border-switch);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-accent);
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-ease-standard),
+    border-color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.ui-switch__track::after {
+  content: "";
+  display: block;
+  width: 12px;
+  height: 12px;
+  margin: 2px;
+  border-radius: var(--radius-round);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-thumb);
+  transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.ui-switch > input:checked + .ui-switch__track { background: var(--color-accent-solid); border-color: var(--color-accent-solid); }
+.ui-switch > input:checked + .ui-switch__track::after { transform: translateX(12px); }
+.ui-switch > input:focus-visible + .ui-switch__track { outline: var(--focus-ring-width) solid var(--color-focus); outline-offset: var(--focus-ring-offset); }
+.ui-switch > input:disabled + .ui-switch__track { opacity: 0.5; }
+
+/* -------------------------------------------------------------- Section */
+/* Containers set their own text baseline so content looks the same on every page. */
+.ui-section { display: grid; gap: var(--space-16); padding-top: var(--space-24); color: var(--color-text); font: var(--weight-regular) var(--text-sm) / var(--leading-normal) var(--font-sans); }
+.ui-section + .ui-section { border-top: 1px solid var(--color-border); }
+.ui-section__header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-10); min-width: 0; }
+.ui-section__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  margin: 0;
+  color: var(--color-heading);
+  font: var(--weight-semibold) var(--text-lg) / var(--leading-normal) var(--font-sans);
+}
+.ui-section__title svg { width: var(--icon-size-md); height: var(--icon-size-md); }
+.ui-section__meta { color: var(--color-text-subtle); font-size: var(--text-xs); }
+.ui-subtitle { margin: 0; color: var(--color-heading); font: var(--weight-semibold) var(--text-md) / var(--leading-normal) var(--font-sans); }
+
+/* ---------------------------------------------------------------- Panel */
+.ui-panel {
+  padding: var(--space-20);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: var(--weight-regular) var(--text-sm) / var(--leading-normal) var(--font-sans);
+}
+.ui-panel--subtle { background: var(--color-surface-subtle); }
+.ui-panel--interactive { cursor: pointer; transition: box-shadow var(--motion-duration-fast) var(--motion-ease-standard), border-color var(--motion-duration-fast) var(--motion-ease-standard), transform var(--motion-duration-fast) var(--motion-ease-standard); }
+.ui-panel--interactive:hover { border-color: var(--color-border-accent); box-shadow: var(--shadow-md); transform: translateY(calc(var(--motion-distance-sm) * -0.5)); }
+
+/* ----------------------------------------------------------------- List */
+.ui-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.ui-list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  min-height: var(--control-height-lg);
+  padding: var(--space-8) var(--space-12);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
+  font: var(--weight-regular) var(--text-sm) / var(--leading-normal) var(--font-sans);
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-standard), color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.ui-list-row:last-child { border-bottom: 0; }
+.ui-list-row:is(button, a, [tabindex]) { width: 100%; border-inline: 0; border-top: 0; background: transparent; font: inherit; text-align: left; text-decoration: none; cursor: pointer; }
+.ui-list-row:is(button, a, [tabindex]):hover { background: var(--color-surface-subtle); }
+.ui-list-row[aria-selected="true"],
+.ui-list-row[aria-current="true"] { background: var(--gradient-selected); color: var(--color-accent); }
+.ui-list-row:focus-visible { outline: var(--focus-ring-width) solid var(--color-focus); outline-offset: -2px; }
+.ui-list-row__main { flex: 1; min-width: 0; }
+.ui-list-row__meta { color: var(--color-text-subtle); font-size: var(--text-xs); }
+
+/* --------------------------------------------------------------- Dialog */
+/* Native <dialog class="ui-dialog">; open with showModal(), close with close().
+   Enter/exit motion lives in motion.css. */
+.ui-dialog {
+  box-sizing: border-box;
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  border: 1px solid var(--color-border-accent);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-lg);
+  font: var(--weight-regular) var(--text-md) / var(--leading-relaxed) var(--font-sans);
+}
+.ui-dialog[open] { display: flex; flex-direction: column; }
+.ui-dialog::backdrop { background: var(--color-backdrop); }
+.ui-dialog--wide { width: min(880px, calc(100vw - 32px)); }
+.ui-dialog__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-16);
+  flex: none;
+  padding: var(--space-24) var(--space-28) var(--space-20);
+  background: var(--color-surface) var(--gradient-dialog-header);
+}
+.ui-dialog__eyebrow { margin: 0 0 var(--space-4); color: var(--color-text-subtle); font-size: var(--text-xs); letter-spacing: var(--tracking-eyebrow); }
+.ui-dialog__title { margin: 0; color: var(--color-heading-strong); font: var(--weight-semibold) var(--text-2xl) / var(--leading-normal) var(--font-sans); }
+.ui-dialog__subtitle { margin: var(--space-4) 0 0; color: var(--color-text-secondary); font-size: var(--text-sm); }
+.ui-dialog__body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 var(--space-28) var(--space-20); }
+.ui-dialog__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-12);
+  flex: none;
+  padding: var(--space-16) var(--space-28) var(--space-24);
+  border-top: 1px solid var(--color-border);
+}
+
+/* -------------------------------------------------------------- Callout */
+/* Approved notice anatomy: a 2px rule on the left, tinted surface, compact text. */
+.ui-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-10);
+  margin: 0;
+  padding: var(--space-8) var(--space-12);
+  border-left: 2px solid var(--color-hint-border);
+  background: var(--color-hint-surface);
+  color: var(--color-hint);
+  font: var(--weight-regular) var(--text-sm) / 1.7 var(--font-sans);
+}
+.ui-callout > :is(p, span):first-child { flex: 1; min-width: 0; margin: 0; }
+.ui-callout > .ui-button { flex: none; margin: calc(var(--space-4) * -1) 0; }
+.ui-callout--danger { border-color: var(--color-danger-border); background: var(--color-danger-surface); color: var(--color-danger-strong); }
+.ui-callout--success { border-color: var(--color-success-border); background: var(--color-success-surface); color: var(--color-success); }
+.ui-callout--warning { border-color: var(--color-warning-border); background: var(--color-warning-surface); color: var(--color-warning); }
+
+/* ------------------------------------------------------ Loading states */
+.ui-spinner {
+  display: inline-block;
+  width: var(--icon-size-md);
+  height: var(--icon-size-md);
+  box-sizing: border-box;
+  border: 2px solid var(--color-border-accent);
+  border-top-color: var(--color-accent);
+  border-radius: var(--radius-round);
+  animation: ui-spin var(--motion-loop-spin) linear infinite;
+}
+.ui-skeleton {
+  display: block;
+  min-height: 1em;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--color-surface-muted) 25%, var(--color-surface-accent) 50%, var(--color-surface-muted) 75%) 0 0 / 300% 100%;
+  animation: ui-shimmer var(--motion-loop-shimmer) ease-in-out infinite;
+}
+
+/* ------------------------------------------------------------ Utilities */
+.ui-visually-hidden { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.ui-mono { font-family: var(--font-mono); }

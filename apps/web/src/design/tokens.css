@@ -1,0 +1,218 @@
+/*
+ * Design tokens — the single source of visual values for new UI.
+ *
+ * Values were measured from the rendered approved pages (2026-11), using the
+ * most frequent value for each role, so components built on these tokens match
+ * the existing UI. The few marked "derived" fill roles the pages don't cover yet.
+ * The design system tests check that stylesheets use tokens for colours and durations.
+ *
+ * Naming: --color-… roles; --text-…, --weight-… and --leading-… for type;
+ * --space-N where N is the size in px; --radius-…, --shadow-…, --motion-….
+ * Preview everything at /styleguide/.
+ */
+:root {
+  /* ---- Text ---- */
+  --color-text: #292a32;               /* body and control text */
+  --color-text-secondary: #686c78;     /* most common supporting text */
+  --color-text-subtle: #746a7c;        /* hints, captions, counts */
+  --color-text-inverse: #ffffff;       /* on gradients and solid fills */
+  --color-heading: #795087;            /* section and sub-section titles */
+  --color-heading-strong: #594269;     /* dialog titles */
+
+  /* ---- Brand and accents ---- */
+  --color-primary: #c20a56;            /* brand pink: emphasised text actions */
+  --color-primary-selected: #b82968;   /* selected segment / tab text */
+  --color-accent: #81608f;             /* purple links and quiet actions */
+  --color-accent-solid: #866596;       /* filled states such as an on switch */
+  --color-focus: #98488c;              /* keyboard focus ring */
+
+  /* ---- Status (approved notice styles: .inline-hint, .result-warning, .mb-error) ---- */
+  --color-hint: #806d79;
+  --color-hint-surface: #fffafb;
+  --color-hint-border: #ca9aad;
+  --color-danger: #9a5262;             /* destructive text actions */
+  --color-danger-strong: #a5476c;      /* error messages */
+  --color-danger-surface: #fff7fa;
+  --color-danger-border: #d29ab4;
+  --color-warning: #8a6939;
+  --color-warning-surface: #fffcf4;
+  --color-warning-border: #bc914c;
+  --color-success: #47756a;
+  --color-success-surface: #f2f7f5;   /* derived */
+  --color-success-border: #8fb3a8;    /* derived */
+  --color-info: #45667e;
+  --color-info-surface: #edf4fa;
+
+  /* ---- Surfaces ---- */
+  --color-bg: #ffffff;                 /* page background */
+  --color-surface: #ffffff;            /* panels, dialogs, inputs */
+  --color-surface-subtle: #fafafd;     /* quiet raised areas, list hover */
+  --color-surface-muted: #f7f7f9;      /* chips, neutral fills */
+  --color-surface-sunken: #f4f3f7;     /* segmented-control track */
+  --color-surface-accent: #f3edf8;     /* lavender tint */
+  --color-surface-brand: #fff7fa;      /* selected chip */
+  --color-backdrop: rgb(39 34 53 / 0.32);
+
+  /* ---- Borders ---- */
+  --color-border: #e7e8ed;             /* dividers and panel outlines */
+  --color-border-control: #d4d5df;     /* neutral control outline */
+  --color-border-accent: #dcd5e3;      /* inputs, selects, dialogs */
+  --color-border-strong: #bdbac9;      /* secondary buttons */
+  --color-border-brand: #e9c0d3;       /* selected chip */
+  --color-border-switch: #b9b5c3;
+  --color-border-selected: #eee3f4;    /* inner outline of a selected segment */
+
+  /* ---- Gradients ---- */
+  --gradient-primary: linear-gradient(110deg, #cf216a, #9160c9);        /* page primary actions (approved .primary) */
+  --gradient-brand-action: linear-gradient(110deg, #a44983, #755599);   /* the sidebar 计算 call to action */
+  --gradient-selected: linear-gradient(110deg, #f0e7f8, #faf7fd);
+  --color-aurora-primary: #a855f7;     /* page-heading glows (violet), mixed at a low --aurora alpha */
+  --color-aurora-secondary: #22d3ee;   /* page-heading glow (cyan) */
+  /* Cover washes behind the artwork keep the tint of each page's illustration. */
+  --color-cover-cards: #dfd4e7;
+  --color-cover-player: #e5d7c2;
+  --color-cover-result: #c7d2e4;
+  --color-cover-archive: #dce0cf;
+  --gradient-dialog-header:
+    radial-gradient(360px 150px at 0 0, rgb(185 156 210 / 0.17), transparent 80%),
+    radial-gradient(260px 150px at 100% 0, rgb(158 190 226 / 0.14), transparent 80%);
+
+  /* ---- Navigation ---- */
+  /* The app sidebar (approved sidebar "B v3"). */
+  --gradient-sidebar:
+    radial-gradient(ellipse 210px 200px at -25% 0%, rgb(215 174 219 / 0.32), transparent 80%),
+    radial-gradient(ellipse 210px 230px at 100% 5%, rgb(182 203 235 / 0.25), transparent 75%),
+    radial-gradient(ellipse 240px 220px at 15% 105%, rgb(165 219 206 / 0.3), transparent 77%),
+    #ffffff;   /* lavender, blue and teal glows over white */
+  --gradient-sidebar-compact:
+    radial-gradient(ellipse 260px 160px at 0 0, rgb(215 174 219 / 0.18), transparent 80%),
+    radial-gradient(ellipse 240px 150px at 100% 0, rgb(165 219 206 / 0.16), transparent 80%),
+    #ffffff;   /* the same glows for the narrow top bar */
+  --gradient-nav-active-icon: linear-gradient(165deg, #9978b1, #785993);   /* current page's icon tile */
+  --color-nav-active-edge: #67477f;                                       /* its pressed bottom edge */
+
+  /* ---- Game semantics (match the existing band / attribute / difficulty colours) ---- */
+  --color-attr-powerful: #b43e63;
+  --color-attr-cool: #4c69b4;
+  --color-attr-happy: #906323;
+  --color-attr-pure: #357258;
+  --color-band-1: #b03d77;
+  --color-band-2: #ae4056;
+  --color-band-3: #8b651e;
+  --color-band-4: #277764;
+  --color-band-5: #53578e;
+  --color-band-18: #23757a;
+  --color-band-21: #24758e;
+  --color-band-45: #397693;
+  --color-band-1-surface: #fae1ed;     /* band tints behind band rows and filters */
+  --color-band-2-surface: #f9e4e7;
+  --color-band-3-surface: #faf0d6;
+  --color-band-4-surface: #e0f4ec;
+  --color-band-5-surface: #e6e3f6;
+  --color-band-18-surface: #dcf2f1;
+  --color-band-21-surface: #e1f0fa;
+  --color-band-45-surface: #e0ebf1;
+  --color-difficulty-easy: #456dae;
+  --color-difficulty-normal: #39753b;
+  --color-difficulty-hard: #876411;
+  --color-difficulty-expert: #b03e50;
+  --color-difficulty-special: #a33c7d;
+  --color-difficulty-easy-marker: #8eb4fd;
+  --color-difficulty-normal-marker: #72c960;
+  --color-difficulty-hard-marker: #d6a921;
+  --color-difficulty-expert-marker: #ff6d70;
+  --color-difficulty-special-marker: #e35fb0;
+
+  /* ---- Typography ---- */
+  --font-sans: Inter, "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --font-mono: Consolas, monospace;
+  --text-2xs: 10px;
+  --text-xs: 11px;     /* captions, meta */
+  --text-sm: 12px;     /* controls and dense body: the most used size */
+  --text-md: 13px;     /* sub-section titles, form text */
+  --text-base: 14px;   /* document body */
+  --text-lg: 15px;     /* section titles */
+  --text-control-touch: 16px; /* keeps mobile text inputs from zooming on focus */
+  --text-xl: 18px;     /* card / profile names */
+  --text-2xl: 21px;    /* dialog titles */
+  --text-3xl: 26px;    /* page titles */
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --leading-tight: 1.3;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+  --tracking-title: -0.5px;
+  --tracking-eyebrow: 0.2px;
+
+  /* ---- Spacing (N = px) ---- */
+  --space-2: 2px;
+  --space-4: 4px;
+  --space-6: 6px;
+  --space-8: 8px;
+  --space-10: 10px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-20: 20px;
+  --space-24: 24px;
+  --space-28: 28px;
+  --space-32: 32px;
+
+  /* ---- Sizing ---- */
+  --control-height-sm: 30px;
+  --control-height-md: 36px;
+  --control-height-lg: 40px;
+  --icon-size-sm: 14px;
+  --icon-size-md: 16px;
+
+  /* ---- Radius ---- */
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
+  --radius-pill: 999px;
+  --radius-round: 50%;
+
+  /* ---- Elevation ---- */
+  --shadow-xs: 0 1px 5px rgb(156 106 189 / 0.094);
+  --shadow-sm: inset 0 1px 0 rgb(255 255 255 / 0.85), 0 1px 2px rgb(81 57 105 / 0.055), 0 5px 12px -3px rgb(81 57 105 / 0.13);
+  --shadow-md: 0 8px 24px -8px rgb(48 40 66 / 0.18);   /* derived: popovers, hover lift */
+  --shadow-lg: 0 20px 70px rgb(48 40 66 / 0.2);
+  --shadow-brand-action: inset 0 1px 0 rgb(255 255 255 / 0.22), inset 0 -1px 0 rgb(48 25 54 / 0.12), 0 3px 7px -3px rgb(104 62 121 / 0.24);
+  --shadow-thumb: 0 1px 2px rgb(81 67 99 / 0.19);
+
+  /* ---- Focus ---- */
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 3px;
+
+  /* ---- Motion ---- */
+  --motion-duration-instant: 80ms;   /* press feedback (derived) */
+  --motion-duration-fast: 150ms;     /* hover, colour and state changes (the existing UI uses .15s) */
+  --motion-duration-normal: 220ms;   /* dialogs, expand / collapse, list changes (derived) */
+  --motion-duration-slow: 320ms;     /* page or large-area entrances (derived) */
+  --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --motion-ease-enter: cubic-bezier(0, 0, 0.2, 1);
+  --motion-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --motion-distance-sm: 4px;
+  --motion-distance-md: 8px;
+  --motion-stagger: 30ms;            /* delay step between items entering together */
+  --motion-press-scale: 0.98;
+  --motion-loop-spin: 800ms;         /* one turn of a spinner */
+  --motion-loop-shimmer: 1400ms;     /* one sweep of a skeleton placeholder */
+}
+
+/* Reduced motion keeps state changes but removes movement and timing. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration-instant: 0ms;
+    --motion-duration-fast: 0ms;
+    --motion-duration-normal: 0ms;
+    --motion-duration-slow: 0ms;
+    --motion-distance-sm: 0px;
+    --motion-distance-md: 0px;
+    --motion-stagger: 0ms;
+    --motion-press-scale: 1;
+    --motion-loop-spin: 0ms;
+    --motion-loop-shimmer: 0ms;
+  }
+}

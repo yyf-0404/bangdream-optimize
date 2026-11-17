@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {SCORING_REVISION} from '../src/data/result-cache.js';
-import {createCalculationActions} from '../src/actions/calculation.js';
+import {createCalculationActions} from '../src/app/calculation-actions.js';
 
 function gate(){let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};}
 function harness({ensureCore=async()=>({}),calculate=async()=>({scoringRevision:SCORING_REVISION,totalScore:42}),getActivePage=()=>undefined,hasOpenDialog=()=>false,calculateButtons=[],initialPlayer={},eventRecord={eventType:'versus'}}={}){

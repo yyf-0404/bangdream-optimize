@@ -17,7 +17,7 @@ BanG Dream 编队与分数计算工具，包含静态网页端 `apps/web`、Taur
 
 ## 开发与发布
 
-- [前端开发说明](apps/web/README.md)
+- [前端开发规范](apps/web/README.md#界面开发规范)
 - [Web 构建与部署](docs/deployment/web-static.md)
 - [桌面打包与发布](docs/deployment/release.md)
 - [文档索引](docs/README.md)

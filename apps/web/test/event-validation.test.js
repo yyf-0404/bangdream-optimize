@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createEventContext} from '../src/app/event.js';
-import {isSupportedEventType, isHiddenEventId} from '../src/models/event.js';
-import {validateAt, validationError} from '../src/models/validation-error.js';
-import {copyImageToClipboard} from '../src/ui/clipboard.js';
+import {createEventContext} from '../src/app/event-context.js';
+import {isSupportedEventType, isHiddenEventId} from '../src/domain/event.js';
+import {validateAt, validationError} from '../src/domain/validation-error.js';
+import {copyImageToClipboard} from '../src/shared/ui/clipboard.js';
 
 test('highest-score candidates and selected event validation share the same restrictions', () => {
   let mode='maximize';

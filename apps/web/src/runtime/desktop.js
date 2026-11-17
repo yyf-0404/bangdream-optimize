@@ -1,5 +1,5 @@
-import { samplePlayerConfig } from '../storage/user.js?v=3';
-import { submitFeedbackRequest } from '../data/feedback.js?v=2';
+import { samplePlayerConfig } from '../data/user-storage.js';
+import { submitFeedbackRequest } from '../data/feedback.js';
 
 export function isDesktopRuntimeAvailable() {
   return getInvoke() != null;
@@ -107,7 +107,7 @@ function readRuntimeConfig() {
 
 async function loadOptionalDesktopConfig() {
   try {
-    await import('../../config.desktop.js?v=4');
+    await import('../../config.desktop.js');
   } catch (error) {
     console.warn(`desktop-config-load-error: ${error?.message ?? String(error)}`);
   }

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {equipmentAvailable} from '../src/ui/equipment.js';
-import {allowedLiveVariants} from '../src/models/player-settings.js';
-import {bonusApplication} from '../src/ui/activity.js';
+import {equipmentAvailable} from '../src/pages/activity/equipment.js';
+import {allowedLiveVariants} from '../src/domain/player-settings.js';
+import {bonusApplication} from '../src/pages/activity/activity.js';
 
 test('equipment rejects missing required levels while keeping the two optional common items',()=>{
   const player={areaItem:{1:{level:1},59:{level:0},72:{level:0}}};

@@ -32,7 +32,7 @@
 ### 默认值和规范化
 
 所有 `scoreRange`、`ptMaximize` 默认值与旧数据补全规则集中在
-`apps/web/src/models/player-settings.js`。存储层的示例配置、读取后的规范化和表单恢复不得各自复制默认值。
+`apps/web/src/domain/player-settings.js`。存储层的示例配置、读取后的规范化和表单恢复不得各自复制默认值。
 
 首次创建配置时固定使用国服和“最大 PT”计算目标。`currentEvent` 不写死活动 ID；核心活动数据加载后，
 优先选择当前正在进行且尚未结束的国服活动，存在重叠时取开始时间最晚的一场；没有进行中活动时选择

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {cardStatValues} from '../src/ui/cards/stats.js';
+import {cardStatValues} from '../src/components/cards/stats.js';
 
 const card={level:60,rarity:4,capabilities:[[false,true],[1,1]],record:{stat:{
   1:{performance:100,technique:200,visual:300},60:{performance:1000,technique:2000,visual:3000},

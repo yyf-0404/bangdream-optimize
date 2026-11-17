@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createPlayerModel} from '../src/models/player.js';
-import {defaultEventTypeForMode, supportedEventTypeOrDefault} from '../src/models/event.js';
-import {eventCardPoolInfo, restrictEventCardPool} from '../src/models/event-card-pool.js';
+import {createPlayerModel} from '../src/domain/player.js';
+import {defaultEventTypeForMode, supportedEventTypeOrDefault} from '../src/domain/event.js';
+import {eventCardPoolInfo, restrictEventCardPool} from '../src/domain/event-card-pool.js';
 
 const model = createPlayerModel({
   eventWithParameterBonusFix: event => event,

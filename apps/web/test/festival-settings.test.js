@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {normalizePtMaximizeConfig} from '../src/models/player-settings.js';
-import {calculationMarkup} from '../src/ui/approved/calculation-template.js';
+import {normalizePtMaximizeConfig} from '../src/domain/player-settings.js';
+import {calculationMarkup} from '../src/design/approved/calculation-template.js';
 import {createResultCacheStorage, resultCacheInvalidationReason, SCORING_REVISION} from '../src/data/result-cache.js';
 
 test('imported festival settings retain rank and victory while dropping obsolete score inputs',()=>{

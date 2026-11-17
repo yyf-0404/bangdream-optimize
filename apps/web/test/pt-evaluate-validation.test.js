@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { validatePtEvaluateTeamSelection } from '../src/models/pt-evaluate-validation.js';
+import { validatePtEvaluateTeamSelection } from '../src/domain/pt-evaluate-validation.js';
 
 const characters = new Map([
   [1, 101],

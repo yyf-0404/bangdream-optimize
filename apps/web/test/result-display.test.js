@@ -3,15 +3,11 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const resultViewSource = await readFile(
-  new URL('../src/views/result.js', import.meta.url),
+  new URL('../src/pages/result/result-view.js', import.meta.url),
   'utf8',
 );
 const indexSource = await readFile(
   new URL('../index.html', import.meta.url),
-  'utf8',
-);
-const stylesSource = await readFile(
-  new URL('../styles.css', import.meta.url),
   'utf8',
 );
 
@@ -33,29 +29,6 @@ test('specified-team songs show cover, team and an open score range', () => {
   assert.match(resultViewSource, /song.scoreDistribution.minScore/);
   assert.match(resultViewSource, /song.scoreDistribution.maxScore/);
   assert.match(resultViewSource, /formatScoreDistributionAverage/);
-});
-
-test('grid separators never draw on the first visual column', () => {
-  assert.match(
-    stylesSource,
-    /\.result-overview\s*>\s*\.result-stat:not\(:nth-child\(3n \+ 1\)\)/,
-  );
-  assert.match(
-    stylesSource,
-    /\.result-overview\s*>\s*\.result-stat:nth-child\(even\),[\s\S]*?\.result-items\s*>\s*\.result-item:nth-child\(odd\)\s*\{[\s\S]*?border-left:\s*0/,
-  );
-  assert.doesNotMatch(
-    stylesSource,
-    /\.activity-bonus-card \.config-content\s*\{[^}]*border-(?:left|right):/,
-  );
-  assert.doesNotMatch(
-    stylesSource,
-    /\.activity-song-card \.config-content\s*\{[^}]*border-(?:left|right):/,
-  );
-  assert.match(
-    stylesSource,
-    /@container \(max-width:\s*929px\)[\s\S]*?\.activity-song-item:nth-child\(odd\)\s*\{[\s\S]*?border-left:\s*0/,
-  );
 });
 
 test('PT maximize songs reuse score result cards while labeling cards as a team', () => {
@@ -130,32 +103,6 @@ test('teammate parameters follow the leader selection at the same section level'
   assert.ok(leader > cooperative);
   assert.ok(teammates > leader);
   assert.ok(teammateMode > teammates);
-});
-
-test('segmented controls use context-specific fixed widths and stay left aligned', () => {
-  const segmentedBlock = stylesSource.match(/\.segmented-control\s*\{([^}]*)\}/)?.[1] ?? '';
-  assert.match(segmentedBlock, /display: flex;/);
-  assert.match(segmentedBlock, /justify-self: start;/);
-  assert.match(segmentedBlock, /border: 0;/);
-  assert.match(segmentedBlock, /box-shadow: inset 0 0 0 1px var\(--line\);/);
-  assert.doesNotMatch(segmentedBlock, /grid-auto-columns/);
-  assert.match(stylesSource, /flex: 0 0 var\(--segment-width\)/);
-  assert.match(stylesSource, /\.segmented-control > label[\s\S]*min-height: 38px;/);
-  assert.match(stylesSource, /\.calculation-mode-control\s*\{\s*--segment-width: 132px;/);
-  assert.match(stylesSource, /#pt-maximize-versus-rank,[\s\S]*--segment-width: 44px;/);
-  assert.match(stylesSource, /\.result-multiplier-control\s*\{\s*--segment-width: 132px;/);
-  assert.match(
-    stylesSource,
-    /\.result-multiplier-control-medley\s*\{[\s\S]*grid-template-columns: repeat\(4, minmax\(0, 1fr\)\);[\s\S]*width: min\(100%, 696px\);[\s\S]*overflow: hidden;/,
-  );
-  assert.match(
-    stylesSource,
-    /\.result-multiplier-control-medley > label > span\s*\{[\s\S]*white-space: nowrap;/,
-  );
-  assert.match(
-    stylesSource,
-    /@container \(max-width: 580px\)\s*\{[\s\S]*\.result-multiplier-control-medley\s*\{[\s\S]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/,
-  );
 });
 
 test('result feedback uses the inverse action style', () => {

@@ -3,15 +3,15 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const calculationSource = await readFile(
-  new URL('../src/actions/calculation.js', import.meta.url),
+  new URL('../src/app/calculation-actions.js', import.meta.url),
   'utf8',
 );
 const activitySource = await readFile(
-  new URL('../src/actions/activity.js', import.meta.url),
+  new URL('../src/pages/activity/activity-actions.js', import.meta.url),
   'utf8',
 );
 const pageSource = await readFile(
-  new URL('../src/app/page.js', import.meta.url),
+  new URL('../src/app/page-controller.js', import.meta.url),
   'utf8',
 );
 const indexSource = await readFile(

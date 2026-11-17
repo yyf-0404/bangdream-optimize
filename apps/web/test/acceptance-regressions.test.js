@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {teamChoiceReason,placeTeamCard} from '../src/ui/team-rules.js';
-import {compareSongRelease,compareEventSongOrder} from '../src/ui/song-rules.js';
-import {createEventModel} from '../src/models/event.js';
-import {songCoverUrls} from '../src/assets/index.js';
-import {createResourceActions} from '../src/actions/resource.js';
-import {allowedLiveVariants} from '../src/models/player-settings.js';
+import {teamChoiceReason,placeTeamCard} from '../src/pages/activity/team-rules.js';
+import {compareSongRelease,compareEventSongOrder} from '../src/pages/activity/song-rules.js';
+import {createEventModel} from '../src/domain/event.js';
+import {songCoverUrls} from '../src/shared/assets.js';
+import {createResourceActions} from '../src/pages/archive/resource-actions.js';
+import {allowedLiveVariants} from '../src/domain/player-settings.js';
 
 test('fixed calculation modes never offer live variants ignored by their solver',()=>{
  assert.deepEqual(allowedLiveVariants('challenge','scoreRange'),['solo']);

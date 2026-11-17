@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createPlayerStore } from '../src/app/player.js';
-import { cardModel, cardConfig } from '../src/ui/cards/model.js';
-import { cardSkillInfo } from '../src/ui/cards/skill.js';
+import { createPlayerStore } from '../src/app/player-store.js';
+import { cardModel, cardConfig } from '../src/components/cards/model.js';
+import { cardSkillInfo } from '../src/components/cards/skill.js';
 
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
 function setup(savePlayerConfig){

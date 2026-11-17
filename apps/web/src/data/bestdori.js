@@ -4,7 +4,7 @@ import {
   numericStringSort,
   positiveIntegerOrDefault,
   positiveIntegerOrUndefined,
-} from '../utils.js?v=3';
+} from '../shared/utils.js';
 
 const SERVER_BY_BESTDORI_INDEX = ['jp', 'en', 'tw', 'cn', 'kr'];
 const BESTDORI_SERVER_INDEX_BY_SERVER = {

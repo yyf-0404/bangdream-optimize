@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {importCnAccount, mergeCnAccountImport} from '../src/data/cn-account.js';
-import {importSourceMarkup,importReviewMarkup} from '../src/ui/approved/archive-flows.js';
-import {flowHelpers} from '../src/ui/archive-flows.js';
+import {importSourceMarkup,importReviewMarkup} from '../src/design/approved/archive-flows.js';
+import {flowHelpers} from '../src/pages/archive/archive-flows.js';
 const result={gameUid:42,name:'Test',rank:268,channel:'android',player:{playerId:42,cardList:{3:{skillLevel:5}},areaItem:{1:{level:6}},characterBouns:{1:{}}}};
 const credentials={account:'test@example.invalid',password:'test-secret',channel:'android'};
 test('credential transport uses a single no-store JSON POST and never a query string',async()=>{

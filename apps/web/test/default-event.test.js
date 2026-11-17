@@ -4,8 +4,8 @@ import test from 'node:test';
 import {
   normalizedCalculationMode,
   recentUnfinishedEvent,
-} from '../src/models/event.js';
-import { createPlayerStore } from '../src/app/player.js';
+} from '../src/domain/event.js';
+import { createPlayerStore } from '../src/app/player-store.js';
 
 const CN = 3;
 const scoped = (value) => [null, null, null, value, null];

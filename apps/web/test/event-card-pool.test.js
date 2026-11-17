@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {eventCardPoolInfo, restrictEventCardPool} from '../src/models/event-card-pool.js';
+import {eventCardPoolInfo, restrictEventCardPool} from '../src/domain/event-card-pool.js';
 
 const date=(cn,jp=null)=>[jp,null,null,cn,null];
 const event={startAt:date(200),endAt:date(400)};

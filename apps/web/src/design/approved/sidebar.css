@@ -1,0 +1,118 @@
+.design-sidebar,.design-sidebar *{box-sizing:border-box}.design-sidebar{font-family:var(--font-sans);line-height:1.5}.design-sidebar a{color:inherit;text-decoration:none;touch-action:manipulation}.design-sidebar p{margin-top:0}.design-sidebar svg{display:block;width:18px;height:18px;flex:none}.design-sidebar [hidden]{display:none!important}.design-sidebar a:focus-visible{outline:2px solid var(--color-focus);outline-offset:3px}
+.design-sidebar{width:100%;height:660px}
+
+/* The two variants share anatomy, dimensions, icons, current-page semantics and controls. */
+.design-sidebar{--side-accent:var(--color-heading);--side-muted:var(--color-text-subtle);display:flex;flex-direction:column;background:var(--color-surface-sunken);color:var(--color-text);min-width:0;height:100%;border-right:1px solid var(--color-border-accent);isolation:isolate;font-size:var(--text-md)}
+.side-brand{position:relative;isolation:isolate;display:flex;gap:10px;align-items:center;min-height:99px;padding:22px 20px 21px;overflow:hidden;flex-shrink:0}
+.side-brand::before{content:"";position:absolute;inset:0;z-index:-1;background:radial-gradient(ellipse at 18% -15%,color-mix(in srgb,var(--color-surface-accent) 33.7%,transparent),transparent 68%),radial-gradient(ellipse at 100% 0,color-mix(in srgb,var(--color-success-surface) 32.2%,transparent),transparent 67%);pointer-events:none}
+.side-brand-mark{display:grid;place-items:center;width:33px;height:37px;border-radius:var(--radius-lg);background:var(--gradient-primary);color:var(--color-text-inverse);box-shadow:0 3px 8px color-mix(in srgb,var(--color-surface-accent) 11%,transparent);flex:none}
+.side-brand-mark svg{width:24px;height:24px}.side-brand-name{min-width:0}.side-brand-name b{display:block;font-size:var(--text-base);font-weight:var(--weight-semibold);letter-spacing:-.3px;white-space:nowrap;color:var(--color-text)}.side-brand-name small{display:block;color:var(--color-text-subtle);font-size:8px;letter-spacing:.65px;margin-top:4px;white-space:nowrap}
+.side-navigation{padding:0 12px;flex-shrink:0}.side-caption{font-size:var(--text-2xs);color:var(--color-text-subtle);margin:13px 11px 12px;letter-spacing:.8px}
+.side-navigation nav{display:grid;gap:7px}.side-link{position:relative;display:flex;gap:10px;align-items:center;min-height:58px;padding:9px 11px;color:var(--color-text-subtle);border-radius:var(--radius-sm);transition:background-color var(--motion-duration-fast) ease,color var(--motion-duration-fast) ease;min-width:0}
+.side-icon{display:grid;place-items:center;flex:none;width:25px;height:30px;color:var(--color-text-subtle)}.side-icon svg{width:19px;height:19px}
+.side-label{min-width:0}.side-label b{display:block;font-size:var(--text-md);line-height:1.6;font-weight:var(--weight-medium);white-space:nowrap}.side-label small{display:block;font-size:var(--text-2xs);line-height:1.6;color:var(--color-text-subtle);margin-top:2px;white-space:nowrap}
+.side-link:hover{background:var(--color-surface-accent)}.side-link[aria-current=page]{background:var(--color-surface);box-shadow:0 2px 7px color-mix(in srgb,var(--color-heading-strong) 4.3%,transparent);color:var(--side-accent)}
+.side-link[aria-current=page]::before{content:"";position:absolute;left:-1px;top:14px;bottom:14px;width:2px;background:var(--color-accent-solid);border-radius:1px}
+.side-link[aria-current=page] .side-label b{font-weight:var(--weight-semibold)}.side-link[aria-current=page] .side-icon{color:var(--side-accent)}.side-link[aria-current=page] .side-label small{color:var(--color-text-subtle)}
+.side-bottom{margin-top:auto;padding:25px 22px 16px;flex-shrink:0}.side-state{padding:0 0 16px}.side-state-caption{display:block;color:var(--color-text-subtle);font-size:var(--text-2xs);margin-bottom:7px}.side-state-value{display:flex;gap:7px;align-items:center;color:var(--color-text-subtle);font-size:var(--text-xs);line-height:1.8}.side-state-value svg{width:13px;height:13px;color:var(--color-text-subtle)}.side-state[data-state=running] .side-state-value{color:var(--color-accent)}.side-state[data-state=running] svg{color:var(--color-accent);animation:spin var(--motion-loop-spin) linear infinite}.side-state[data-state=done] .side-state-value,.side-state[data-state=done] svg{color:var(--color-success)}.side-state[data-state=error] .side-state-value,.side-state[data-state=error] svg{color:var(--color-danger-strong)}
+.side-help{display:flex;align-items:center;gap:9px;min-height:43px;border-top:1px solid var(--color-border-accent);padding-top:10px;color:var(--color-text-subtle);font-size:var(--text-xs)}.side-help>svg{width:16px;height:16px}.side-help:hover{color:var(--side-accent)}.help-arrow{margin-left:auto;color:var(--color-text-subtle)}.help-arrow svg{width:11px;height:11px}.location-mark{display:none}
+.side-calculate{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:40px;margin-top:9px;padding:9px 12px;border-radius:var(--radius-sm);font-size:var(--text-xs);color:var(--color-text-inverse);background:var(--gradient-brand-action)}.side-calculate svg{width:13px;height:13px}.side-calculate:hover{filter:brightness(.95)}
+
+/* B: the filled icon, white center and two tinted ends establish the hierarchy. */
+.design-sidebar:is([data-style=b],[data-style=b-flat],[data-style=b-color]){background:var(--color-surface);border-right-color:var(--color-border);--side-accent:var(--color-heading)}
+.design-sidebar:is([data-style=b],[data-style=b-flat],[data-style=b-color]) .side-brand{background:var(--color-surface-sunken)}.design-sidebar:is([data-style=b],[data-style=b-flat],[data-style=b-color]) .side-brand::before{background:radial-gradient(ellipse at 10% 0,color-mix(in srgb,var(--color-surface-accent) 37.6%,transparent),transparent 72%)}
+.design-sidebar:is([data-style=b],[data-style=b-flat],[data-style=b-color]) .side-navigation{padding:0 16px}.design-sidebar:is([data-style=b],[data-style=b-flat],[data-style=b-color]) .side-caption{margin:27px 5px 13px}
+.design-sidebar:is([data-style=b],[data-style=b-flat],[data-style=b-color]) .side-navigation nav{gap:9px}.design-sidebar:is([data-style=b],[data-style=b-flat],[data-style=b-color]) .side-link{min-height:47px;padding:6px 4px;gap:11px;border-radius:0}
+.design-sidebar:is([data-style=b],[data-style=b-flat],[data-style=b-color]) .side-icon{width:31px;height:31px;border-radius:var(--radius-md);color:var(--color-text-subtle);transition:background-color var(--motion-duration-fast) ease,color var(--motion-duration-fast) ease}
+.design-sidebar:is([data-style=b],[data-style=b-flat],[data-style=b-color]) .side-label b{font-size:var(--text-md)}.design-sidebar:is([data-style=b],[data-style=b-flat],[data-style=b-color]) .side-label small{display:none}
+.design-sidebar:is([data-style=b],[data-style=b-flat],[data-style=b-color]) .side-link:hover{background:var(--color-surface-subtle)}.design-sidebar:is([data-style=b],[data-style=b-flat],[data-style=b-color]) .side-link[aria-current=page]{box-shadow:none;background:transparent}
+.design-sidebar:is([data-style=b],[data-style=b-flat],[data-style=b-color]) .side-link[aria-current=page]::before{display:none}.design-sidebar:is([data-style=b],[data-style=b-flat],[data-style=b-color]) .side-link[aria-current=page] .side-icon{background:var(--color-accent-solid);color:var(--color-text-inverse);box-shadow:0 2px 5px color-mix(in srgb,var(--color-accent) 11%,transparent)}
+.design-sidebar:is([data-style=b],[data-style=b-flat],[data-style=b-color]) .side-link[aria-current=page] .location-mark{display:block;width:4px;height:4px;flex:none;margin-left:auto;margin-right:4px;border-radius:var(--radius-round);background:var(--color-accent-solid)}
+.design-sidebar:is([data-style=b],[data-style=b-flat],[data-style=b-color]) .side-bottom{background:var(--color-surface-sunken);padding-top:20px}.design-sidebar:is([data-style=b],[data-style=b-flat],[data-style=b-color]) .side-help{border:0;padding-top:2px}.design-sidebar:is([data-style=b],[data-style=b-flat],[data-style=b-color]) .side-state{padding-bottom:10px}
+
+@media(max-width:680px){
+
+ #unified-sidebar{overflow:visible}#unified-sidebar .design-sidebar{min-height:0;height:auto;border-right:0;border-bottom:1px solid var(--color-border-accent)}
+ #unified-sidebar .side-brand{min-height:61px;padding:13px 16px;gap:9px}
+ #unified-sidebar .side-brand-mark{width:26px;height:29px;border-radius:var(--radius-md);box-shadow:none}#unified-sidebar .side-brand-mark svg{width:19px;height:19px}
+ #unified-sidebar .side-brand-name b{font-size:var(--text-md)}#unified-sidebar .side-brand-name small{display:none}
+ #unified-sidebar .side-caption,#unified-sidebar .side-bottom{display:none}
+ #unified-sidebar .side-navigation{padding:0 8px 5px}
+ #unified-sidebar .side-navigation nav{grid-template-columns:repeat(5,minmax(0,1fr));gap:2px}
+ #unified-sidebar .side-link{display:flex;flex-direction:column;gap:3px;align-items:center;padding:6px 0 7px;min-height:58px;border-radius:var(--radius-xs)}
+ #unified-sidebar .side-link .side-label b{font-size:var(--text-2xs);letter-spacing:-.15px;font-weight:var(--weight-medium)}
+ #unified-sidebar .side-label small,#unified-sidebar .location-mark{display:none!important}
+ #unified-sidebar .side-icon{width:25px;height:25px;border-radius:var(--radius-sm)}#unified-sidebar .side-icon svg{width:17px;height:17px}
+ #unified-sidebar .side-link[aria-current=page]{background:var(--color-surface);box-shadow:none}
+ #unified-sidebar .side-link[aria-current=page]::before{display:block;left:12px;right:12px;top:auto;bottom:0;height:2px;width:auto}
+ #unified-sidebar .design-sidebar:is([data-style=b],[data-style=b-flat],[data-style=b-color]) .side-navigation{padding-top:4px}
+ #unified-sidebar .design-sidebar:is([data-style=b],[data-style=b-flat],[data-style=b-color]) .side-link[aria-current=page]::before{display:none}
+}
+/* Selected B, v2: continuous white surface; depth is reserved for the active item. */
+.design-sidebar:is([data-style=b],[data-style=b-color]){background:var(--color-surface);border-right-color:transparent;box-shadow:1px 0 0 color-mix(in srgb,var(--color-text) 3.5%,transparent),4px 0 13px -7px color-mix(in srgb,var(--color-text) 16%,transparent)}
+.design-sidebar:is([data-style=b],[data-style=b-color]) .side-brand,.design-sidebar:is([data-style=b],[data-style=b-color]) .side-bottom{background:var(--color-surface)}
+.design-sidebar:is([data-style=b],[data-style=b-color]) .side-brand::before{background:none}
+.design-sidebar:is([data-style=b],[data-style=b-color]) .side-brand-mark{box-shadow:inset 0 1px 0 color-mix(in srgb,var(--color-surface) 50%,transparent),inset 0 -1px 0 color-mix(in srgb,var(--color-heading-strong) 20%,transparent),0 2px 2px color-mix(in srgb,var(--color-text) 8%,transparent),0 5px 9px -4px color-mix(in srgb,var(--color-text) 20%,transparent)}
+.design-sidebar:is([data-style=b],[data-style=b-color]) .side-link{border-radius:var(--radius-sm)}
+.design-sidebar:is([data-style=b],[data-style=b-color]) .side-link:hover{background:var(--color-surface-muted)}
+.design-sidebar:is([data-style=b],[data-style=b-color]) .side-link[aria-current=page]{background:var(--color-surface);box-shadow:inset 0 1px 0 var(--color-surface),0 1px 2px color-mix(in srgb,var(--color-text) 5.5%,transparent),0 5px 12px -3px color-mix(in srgb,var(--color-text) 10%,transparent)}
+.design-sidebar:is([data-style=b],[data-style=b-color]) .side-link[aria-current=page] .side-icon{background:linear-gradient(180deg,var(--color-accent-solid),var(--color-accent));box-shadow:inset 0 1px 0 color-mix(in srgb,var(--color-surface) 36%,transparent),inset 0 -1px 0 color-mix(in srgb,var(--color-heading-strong) 24%,transparent),0 2px 0 var(--color-nav-active-edge),0 5px 7px -2px color-mix(in srgb,var(--color-text) 20%,transparent)}
+.design-sidebar:is([data-style=b],[data-style=b-color]) .side-link[aria-current=page] .side-icon svg{filter:drop-shadow(0 1px 0 color-mix(in srgb,var(--color-text) 14%,transparent))}
+.design-sidebar:is([data-style=b],[data-style=b-color]) .side-link[aria-current=page]:active{box-shadow:inset 0 1px 4px color-mix(in srgb,var(--color-text) 9%,transparent)}
+.design-sidebar:is([data-style=b],[data-style=b-color]) .side-link[aria-current=page]:active .side-icon{box-shadow:inset 0 1px 3px color-mix(in srgb,var(--color-heading-strong) 23%,transparent),0 1px 0 var(--color-nav-active-edge)}
+.design-sidebar:is([data-style=b],[data-style=b-color]) .side-calculate{box-shadow:inset 0 1px 0 color-mix(in srgb,var(--color-surface) 20%,transparent),inset 0 -1px 0 color-mix(in srgb,var(--color-text) 12%,transparent),0 3px 7px -3px color-mix(in srgb,var(--color-text) 18%,transparent)}
+#unified-sidebar{position:relative;z-index:1}
+#unified-sidebar:has(.design-sidebar:is([data-style=b],[data-style=b-color])){box-shadow:1px 0 0 color-mix(in srgb,var(--color-text) 3.5%,transparent),5px 0 13px -5px color-mix(in srgb,var(--color-text) 12%,transparent)}
+@media(max-width:680px){
+ #unified-sidebar:has(.design-sidebar:is([data-style=b],[data-style=b-color])){box-shadow:0 2px 9px -5px color-mix(in srgb,var(--color-text) 15%,transparent)}
+ #unified-sidebar .design-sidebar:is([data-style=b],[data-style=b-color]){box-shadow:none;background:var(--color-surface)}
+ #unified-sidebar .design-sidebar:is([data-style=b],[data-style=b-color]) .side-link[aria-current=page]{box-shadow:none}
+ #unified-sidebar .design-sidebar:is([data-style=b],[data-style=b-color]) .side-link[aria-current=page] .side-icon{box-shadow:inset 0 1px 0 color-mix(in srgb,var(--color-surface) 36%,transparent),inset 0 -1px 0 color-mix(in srgb,var(--color-heading-strong) 20%,transparent),0 1px 0 var(--color-nav-active-edge),0 3px 5px -2px color-mix(in srgb,var(--color-text) 20%,transparent)}
+}
+@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+/* B v3: color roles over the shared B geometry and elevation. */
+.design-sidebar[data-style=b-color]{
+ --side-accent:var(--color-heading);
+ --nav-icon:var(--color-text-subtle);
+ --nav-hover:var(--color-surface-accent);
+ --active-dot:var(--color-accent-solid);
+ --help-accent:var(--color-success);
+ background:var(--gradient-sidebar);
+}
+.design-sidebar[data-style=b-color] .side-brand,
+.design-sidebar[data-style=b-color] .side-bottom{background:transparent}
+.design-sidebar[data-style=b-color] .side-caption,
+.design-sidebar[data-style=b-color] .side-state-caption,
+.design-sidebar[data-style=b-color] .side-brand-name small{color:var(--color-text-subtle)}
+.design-sidebar[data-style=b-color] .side-icon{color:var(--nav-icon)}
+.design-sidebar[data-style=b-color] .side-link:hover{background:var(--nav-hover)}
+.design-sidebar[data-style=b-color] .side-link[aria-current=page]{
+ background:var(--gradient-selected);
+ box-shadow:var(--shadow-sm);
+}
+.design-sidebar[data-style=b-color] .side-link[aria-current=page] .side-icon{
+ color:var(--color-text-inverse);
+ background:var(--gradient-nav-active-icon);
+ box-shadow:inset 0 1px 0 color-mix(in srgb,var(--color-surface) 36%,transparent),inset 0 -1px 0 color-mix(in srgb,var(--color-heading-strong) 24%,transparent),0 2px 0 var(--color-nav-active-edge),0 5px 7px -2px color-mix(in srgb,var(--color-heading-strong) 22%,transparent);
+}
+.design-sidebar[data-style=b-color] .side-link[aria-current=page] .location-mark{background:var(--active-dot)}
+.design-sidebar[data-style=b-color] .side-link[aria-current=page]:active{
+ background:var(--gradient-selected);
+ box-shadow:inset 0 1px 4px color-mix(in srgb,var(--color-heading-strong) 9%,transparent);
+}
+.design-sidebar[data-style=b-color] .side-link[aria-current=page]:active .side-icon{box-shadow:inset 0 1px 3px color-mix(in srgb,var(--color-heading-strong) 23%,transparent),0 1px 0 var(--color-nav-active-edge)}
+.design-sidebar[data-style=b-color] .side-help>svg{color:var(--help-accent)}
+.design-sidebar[data-style=b-color] .side-help:hover{color:var(--help-accent)}
+.design-sidebar[data-style=b-color] .side-calculate{
+ background:var(--gradient-brand-action);
+ box-shadow:var(--shadow-brand-action);
+}
+@media(max-width:680px){
+ #unified-sidebar .design-sidebar[data-style=b-color]{
+  background:var(--gradient-sidebar-compact);
+ }
+ #unified-sidebar .design-sidebar[data-style=b-color] .side-link[aria-current=page]{background:var(--gradient-selected);box-shadow:none}
+ #unified-sidebar .design-sidebar[data-style=b-color] .side-link[aria-current=page] .side-icon{box-shadow:inset 0 1px 0 color-mix(in srgb,var(--color-surface) 36%,transparent),inset 0 -1px 0 color-mix(in srgb,var(--color-heading-strong) 20%,transparent),0 1px 0 var(--color-nav-active-edge),0 3px 5px -2px color-mix(in srgb,var(--color-heading-strong) 20%,transparent)}
+}
+
+.design-sidebar a.side-calculate{color:var(--color-text-inverse)}

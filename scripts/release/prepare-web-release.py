@@ -54,7 +54,7 @@ def prepare(source, output):
         if not (source / required).is_file():
             raise ValueError(f"Missing build input: {required}")
     files = sorted(path for path in source.rglob("*") if path.is_file()
-                   and not set(path.relative_to(source).parts) & {"test", "__pycache__"}
+                   and not set(path.relative_to(source).parts) & {"test", "styleguide", "__pycache__"}
                    and path.name not in {"config.desktop.js", MARKER})
     digest = hashlib.sha256()
     # Include the transformation itself, so a packaging fix also invalidates caches.

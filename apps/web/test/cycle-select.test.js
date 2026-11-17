@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { nextCyclicValue } from '../src/ui/cycle-select.js';
+import { nextCyclicValue } from '../src/shared/ui/cycle-select.js';
 
 test('cyclic selections share one wraparound primitive', () => {
   assert.equal(nextCyclicValue(['a', 'b', 'c'], 'a'), 'b');

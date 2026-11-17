@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {equipmentBonusText,resultCharacterBonuses} from '../src/models/result-bonuses.js';
+import {equipmentBonusText,resultCharacterBonuses} from '../src/domain/result-bonuses.js';
 import {createAreaItemHelpers} from '../src/domain/area.js';
 import {createGameMeta} from '../src/domain/meta.js';
 

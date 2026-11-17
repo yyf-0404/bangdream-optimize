@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createResourceActions} from '../src/actions/resource.js';
-import {createCalculationActions} from '../src/actions/calculation.js';
+import {createResourceActions} from '../src/pages/archive/resource-actions.js';
+import {createCalculationActions} from '../src/app/calculation-actions.js';
 import {createResultCacheStorage} from '../src/data/result-cache.js';
 
 const entries = () => ['A','B'].map((profileId,index)=>({

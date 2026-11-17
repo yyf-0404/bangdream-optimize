@@ -1,0 +1,57 @@
+/* Application-only surfaces. Approved page controls have no legacy CSS. */
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+button:disabled{cursor:default}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:var(--focus-ring-width) solid var(--color-focus);outline-offset:var(--focus-ring-offset)}
+dialog{max-width:calc(100vw - 28px);max-height:calc(100dvh - 28px);border-radius:var(--radius-lg)}
+dialog::backdrop{background:var(--color-backdrop)}
+svg{width:18px;height:18px;flex-shrink:0}
+.page-hero{position:relative;overflow:hidden;isolation:isolate}
+.hero-visual{position:absolute;inset:0;z-index:-1}
+.hero-visual:after{content:'';position:absolute;inset:0;z-index:5;pointer-events:none}
+.hero-cover-scene{position:absolute}
+.hero-cover-choice{position:absolute;z-index:6}
+.hero-event-scene{position:absolute;inset:0;overflow:hidden}
+.hero-event-background,.hero-event-texture{position:absolute;height:100%;width:auto;max-width:none;right:0;top:0}
+.hero-event-foreground{position:absolute;height:100%;width:auto;max-width:none;right:18px;top:0;z-index:3}
+.mobile-status{display:none}
+.mastery-matrix{display:grid;gap:8px;max-width:600px}
+.mastery-row{display:grid;grid-template-columns:38px repeat(5,minmax(0,1fr));gap:12px;align-items:center;font-size:var(--text-2xs);color:var(--color-text-subtle)}
+.mastery-row img{width:26px;height:26px;object-fit:contain}
+.mastery-row input{width:100%;min-width:0;padding:5px;font-size:var(--text-sm);border:0;border-bottom:1px solid var(--color-border-accent);background:transparent;text-align:center}
+.config-toolbar-actions{display:flex;gap:10px;flex-wrap:wrap}
+/* Fallback for .primary outside the approved page scopes: same gradient as the approved .primary. */
+.primary{background:var(--gradient-primary);border:0;color:var(--color-text-inverse)}
+@media(max-width:680px){.mastery-row{gap:5px;grid-template-columns:28px repeat(5,minmax(0,1fr))}}
+
+/* Existing texture worker geometry, matching the approved event stage. */
+[data-hero=activity]{height:264px;background:var(--color-surface)}
+.hero-event-stage{--scene-scale:.825;position:absolute;right:0;top:0;width:720px;height:320px;transform:scale(var(--scene-scale));transform-origin:right top;isolation:isolate}
+.hero-event-backdrop{
+  position:absolute;right:0;top:24px;height:272px;width:2880px;overflow:hidden;border-radius:var(--radius-md);
+  background:linear-gradient(90deg,var(--color-surface) 70%,var(--color-border-accent));
+  box-shadow:var(--shadow-md);
+}
+.hero-event-backdrop:after{
+  content:'';position:absolute;inset:0;
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--color-surface) 61%,transparent);
+  background:
+    linear-gradient(270deg,color-mix(in srgb,var(--color-text) 14%,transparent),transparent 375px,color-mix(in srgb,var(--color-surface) 22%,transparent) 720px),
+    linear-gradient(0deg,color-mix(in srgb,var(--color-border-strong) 24%,transparent),transparent 65%);
+}
+.hero-event-background{position:absolute;right:-12px;top:-12px;width:744px;height:296px;object-fit:cover;object-position:center 42%;filter:blur(4.5px) saturate(.78) contrast(.84) brightness(.98)}
+.hero-event-quilt{position:absolute;right:0;top:0;width:2880px;height:272px;max-width:none;filter:blur(4.5px) saturate(.78) contrast(.84) brightness(.98)}
+.hero-event-foreground{
+  position:absolute;right:18px;height:100%;max-width:none;width:auto;top:0;z-index:3;object-fit:contain;
+  filter:drop-shadow(12px 10px 13px color-mix(in srgb,var(--color-heading-strong) 21%,transparent))
+    drop-shadow(-1px -1px 1.2px color-mix(in srgb,var(--color-surface) 33%,transparent));
+}
+.hero-event-light{
+  position:absolute;left:308px;top:20px;width:340px;height:280px;z-index:1;border-radius:var(--radius-round);
+  background:radial-gradient(ellipse,color-mix(in srgb,var(--color-warning-surface) 38%,transparent),color-mix(in srgb,var(--color-border-strong) 20%,transparent) 47%,transparent 74%);
+  filter:blur(18px);
+}
+.hero-event-mist{position:absolute;inset:auto 0 0;height:25px;background:linear-gradient(0deg,color-mix(in srgb,var(--color-surface) 90%,transparent),transparent);z-index:4}
+.hero-event-logo{display:block;width:128px;height:49px;object-fit:contain;object-position:left center;margin-top:12px}

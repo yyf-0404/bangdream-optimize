@@ -1,5 +1,5 @@
 export const SCORING_REVISION = 'cn-9.4.4-f32-v1';
-import { totalFireCost } from '../utils.js?v=3';
+import { totalFireCost } from '../shared/utils.js';
 
 const DB_NAME = 'bangdream-optimize-result-cache-v1';
 const DB_VERSION = 1;

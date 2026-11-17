@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createDesktopRuntime} from '../src/runtime/desktop.js';
-import {createDownloadActions} from '../src/actions/download.js';
-import {createResourceActions} from '../src/actions/resource.js';
+import {createDownloadActions} from '../src/pages/shell/download-actions.js';
+import {createResourceActions} from '../src/pages/archive/resource-actions.js';
 
 test('desktop capability controls keep local resource tools and hide browser-only download and archive clearing', () => {
   const elements = Object.fromEntries(['openDesktopDownloads','clearLocalCache','syncAllGameData','refreshCoreGameData'].map(key=>[key,{hidden:false}]));

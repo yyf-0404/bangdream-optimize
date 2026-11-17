@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {cardReleaseOrder, comparator, groupCards, resolveCardCover, releaseOf} from '../src/ui/cards/rules.js';
+import {cardReleaseOrder, comparator, groupCards, resolveCardCover, releaseOf} from '../src/components/cards/rules.js';
 
 const card = (id, releaseDates, extra = {}) => ({id, releaseDates, rarity:5, owned:true, ...extra});
 const bridgeCards = () => [

@@ -13,6 +13,7 @@
 !/var/bangdream-account/
 !/var/bangdream-account/persist.example.json
 /dist/
+node_modules/
 /tmp/
 /docs/archive/
 /scripts/publish-desktop-windows.local.psd1

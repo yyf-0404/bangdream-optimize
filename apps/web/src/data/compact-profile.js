@@ -1,4 +1,4 @@
-import {mergeCustomCards} from '../models/custom-cards.js';
+import {mergeCustomCards} from '../domain/custom-cards.js';
 const COMMON_CARD_LEVELS = [1, 20, 30, 50, 60];
 
 export function createCompactProfileCodec({ normalizedPlayer } = {}) {

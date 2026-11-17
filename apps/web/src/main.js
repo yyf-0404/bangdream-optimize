@@ -1,97 +1,97 @@
-import { createRuntime } from './runtime/index.js?v=9';
-import { characterIconUrls } from './assets/index.js?v=3';
+import { createRuntime } from './runtime/index.js';
+import { characterIconUrls } from './shared/assets.js';
 import {
   areaItemGroupIconUrls,
   createAreaItemHelpers,
   formatAreaItemRate,
-} from './domain/area.js?v=3';
-import { attributeSwatch } from './ui/attribute.js?v=3';
-import { createActivityActions } from './actions/activity.js?v=4';
-import { createAppLifecycle } from './app/lifecycle.js?v=7';
-import { createInitialState } from './app/state.js?v=3';
+} from './domain/area.js';
+import { attributeSwatch } from './shared/ui/attribute.js';
+import { createActivityActions } from './pages/activity/activity-actions.js';
+import { createAppLifecycle } from './app/lifecycle.js';
+import { createInitialState } from './app/state.js';
 import {
   createBestdoriProfileImporter,
   mainBandCardIds,
   parseBestdoriProfileExport,
-} from './data/bestdori.js?v=3';
-import { createCalculationActions } from './actions/calculation.js?v=6';
+} from './data/bestdori.js';
+import { createCalculationActions } from './app/calculation-actions.js';
 import {
   characterBonusWithRates as buildCharacterBonusWithRates,
   createCharacterBonusHelpers,
-} from './domain/character.js?v=3';
-import { createConfigActions } from './actions/config.js?v=3';
-import { createCoreLoader } from './app/core.js?v=3';
+} from './domain/character.js';
+import { createConfigActions } from './app/config-actions.js';
+import { createCoreLoader } from './app/core.js';
 import {
   createDiagnostics,
   diagnosticFileName,
-} from './data/diagnostics.js?v=3';
-import { createDownloadActions } from './actions/download.js?v=3';
-import { queryElements } from './app/elements.js?v=5';
+} from './data/diagnostics.js';
+import { createDownloadActions } from './pages/shell/download-actions.js';
+import { queryElements } from './app/elements.js';
 import {
   createEventModel,
   CUSTOM_EVENT_ID,
   isHiddenEventId,
   normalizedCalculationMode,
   recentUnfinishedEvent,
-} from './models/event.js?v=3';
-import { createEventActions } from './actions/event.js?v=3';
-import { createEventContext } from './app/event.js?v=3';
-import { createFormActions } from './actions/form.js?v=3';
-import { createFeedbackActions } from './actions/feedback.js?v=2';
+} from './domain/event.js';
+import { createEventActions } from './pages/activity/event-actions.js';
+import { createEventContext } from './app/event-context.js';
+import { createFormActions } from './pages/cards/add-card-actions.js';
+import { createFeedbackActions } from './pages/shell/feedback-actions.js';
 import {
   numericStringSort,
   optionText,
   parseEntityId,
   parseNonNegativeInteger,
   readOptionalInteger,
-} from './utils.js?v=3';
-import { createCardView } from './views/card-library.js';
-import { createEventView } from './views/event.js?v=5';
-import { createFormCells } from './ui/form.js?v=3';
-import { createGameMeta } from './domain/meta.js?v=3';
+} from './shared/utils.js';
+import { createCardView } from './pages/cards/card-library.js';
+import { createEventView } from './pages/activity/event-view.js';
+import { createFormCells } from './shared/ui/form-cells.js';
+import { createGameMeta } from './domain/meta.js';
 import {
   cloneJson,
   createPlayerModel,
   normalizedServer as normalizeServerValue,
   readFiniteInput,
-} from './models/player.js?v=3';
-import { createPageController } from './app/page.js?v=6';
-import { createPlayerStore } from './app/player.js?v=3';
-import { createPlayerView } from './views/player-library.js';
-import { createProfileActions } from './actions/profile.js?v=5';
-import { createProfileView } from './views/profile.js?v=3';
+} from './domain/player.js';
+import { createPageController } from './app/page-controller.js';
+import { createPlayerStore } from './app/player-store.js';
+import { createPlayerView } from './pages/player/player-library.js';
+import { createProfileActions } from './pages/archive/profile-actions.js';
+import { createProfileView } from './pages/archive/profile-view.js';
 import {
   createReferenceView,
   installRecoveringDatalistInput,
-} from './views/reference.js?v=3';
-import { createReferenceData } from './data/reference.js?v=3';
+} from './app/reference-view.js';
+import { createReferenceData } from './data/reference.js';
 import {
   renderMetrics as renderMetricsView,
   renderResultSummary as renderResultSummaryView,
-} from './views/result.js?v=7';
+} from './pages/result/result-view.js';
 import {
   RESULT_CACHE_LIMIT,
   createResultCacheStorage,
-} from './data/result-cache.js?v=4';
-import { createResourceActions } from './actions/resource.js?v=3';
-import { createServerContext } from './app/server.js?v=3';
-import { createSongView } from './views/song.js?v=3';
-import { createStatusProxy } from './app/status.js?v=3';
-import { createStatusView } from './views/status.js?v=3';
-import { createViewAdapters } from './views/adapters.js?v=3';
-import { createArchiveUI } from './ui/archive.js';
-import { createResultCacheView } from './views/result-cache.js?v=3';
+} from './data/result-cache.js';
+import { createResourceActions } from './pages/archive/resource-actions.js';
+import { createServerContext } from './app/server-context.js';
+import { createSongView } from './pages/activity/song-view.js';
+import { createStatusProxy } from './app/status-proxy.js';
+import { createStatusView } from './pages/shell/status-view.js';
+import { createViewAdapters } from './app/view-adapters.js';
+import { createArchiveUI } from './pages/archive/archive.js';
+import { createResultCacheView } from './pages/result/result-cache-view.js';
 
-import { mountShell } from './ui/shell.js';
-import { configureCardPresentation } from './ui/card-preview.js?v=3';
-import { createCardBrief } from './ui/cards/brief.js';
-import { cardModel } from './ui/cards/model.js';
-import { createCardDetails } from './ui/cards/presentation.js';
-import { createTeamEditor } from './ui/team-editor.js';
-import { createHeroes } from './ui/hero.js';
-import { createActivityUI } from './ui/activity.js?v=2';
-import { createEquipmentUI } from './ui/equipment.js';
-import {installSelects} from './ui/select.js';
+import { mountShell } from './pages/shell/shell.js';
+import { configureCardPresentation } from './components/cards/preview.js';
+import { createCardBrief } from './components/cards/brief.js';
+import { cardModel } from './components/cards/model.js';
+import { createCardDetails } from './components/cards/presentation.js';
+import { createTeamEditor } from './pages/activity/team-editor.js';
+import { createHeroes } from './pages/shell/hero.js';
+import { createActivityUI } from './pages/activity/activity.js';
+import { createEquipmentUI } from './pages/activity/equipment.js';
+import {installSelects} from './shared/ui/select.js';
 
 // Runtime state and deferred cross-module calls.
 mountShell(document);

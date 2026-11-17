@@ -29,6 +29,7 @@ class WebReleaseTests(unittest.TestCase):
             "package.json": '{"version":"0.4.4","type":"module"}',
             "config.desktop.js": "// local desktop configuration",
             "test/example.test.js": "// test only",
+            "styleguide/index.html": "<!-- development only -->",
         }
         for relative, content in self.original.items():
             path = self.source / relative
@@ -79,6 +80,7 @@ class WebReleaseTests(unittest.TestCase):
         self.build()
         self.assertFalse((self.output / "config.desktop.js").exists())
         self.assertFalse((self.output / "test").exists())
+        self.assertFalse((self.output / "styleguide").exists())
         for relative, content in self.original.items():
             self.assertEqual((self.source / relative).read_bytes(), content if isinstance(content, bytes) else content.encode())
 

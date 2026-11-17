@@ -5,7 +5,7 @@ import {
   formatScaledAverageFixed,
   formatScaledAverageInteger,
   ptResultMultiplierOptions,
-} from '../src/views/result.js';
+} from '../src/pages/result/result-view.js';
 
 test('challenge performance exposes CP costs and PT multipliers', () => {
   assert.deepEqual(ptResultMultiplierOptions('challenge_cp'), [

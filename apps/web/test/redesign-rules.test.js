@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {gameText,languageOrder,saveProfilePreference,profilePreference} from '../src/ui/preferences.js';
-import {defaultFilters,filterCards,cardMatchesReleaseFilter,resolveCardCover,comparator,normalizeCardSort,groupCards} from '../src/ui/cards/rules.js';
-import {toggleSelectionScope} from '../src/ui/cards/catalog.js';
-import {planBulk} from '../src/ui/cards/bulk.js';
-import {cardModel,cardConfig,catalogModels,allCardModels} from '../src/ui/cards/model.js';
-import {bonusApplication} from '../src/ui/activity.js';
-import {importChanges} from '../src/ui/import-review.js';
+import {gameText,languageOrder,saveProfilePreference,profilePreference} from '../src/shared/preferences.js';
+import {defaultFilters,filterCards,cardMatchesReleaseFilter,resolveCardCover,comparator,normalizeCardSort,groupCards} from '../src/components/cards/rules.js';
+import {toggleSelectionScope} from '../src/components/cards/catalog.js';
+import {planBulk} from '../src/components/cards/bulk.js';
+import {cardModel,cardConfig,catalogModels,allCardModels} from '../src/components/cards/model.js';
+import {bonusApplication} from '../src/pages/activity/activity.js';
+import {importChanges} from '../src/pages/archive/import-review.js';
 
 test('game text prefers the application language then Chinese-first fallback',()=>{
   const texts=['日本語','English','繁體','简体','한국어'];

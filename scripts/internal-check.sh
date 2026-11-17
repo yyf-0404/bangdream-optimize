@@ -24,7 +24,7 @@ fi
 "${PYTHON[@]}" scripts/checks/test-prepare-web-release.py
 
 node --check apps/web/src/main.js
-node --check apps/web/src/actions/feedback.js
+node --check apps/web/src/pages/shell/feedback-actions.js
 node --check apps/web/src/data/calculation-errors.js
 node --check apps/web/src/data/diagnostics.js
 node --check apps/web/src/data/feedback.js

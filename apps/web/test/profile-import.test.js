@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createBrowserRuntime } from '../src/runtime/browser.js';
-import { createProfileActions } from '../src/actions/profile.js';
-import { importSourceMarkup } from '../src/ui/approved/archive-flows.js';
-import { flowHelpers } from '../src/ui/archive-flows.js';
+import { createProfileActions } from '../src/pages/archive/profile-actions.js';
+import { importSourceMarkup } from '../src/design/approved/archive-flows.js';
+import { flowHelpers } from '../src/pages/archive/archive-flows.js';
 
 const servers = ['cn', 'jp', 'en', 'tw', 'kr'];
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { skillQueuePresentation } from '../src/views/result.js';
+import { skillQueuePresentation } from '../src/pages/result/result-view.js';
 
 const deps = { songLabel: id => `Song ${id}` };
 const notice = (kind, searchMayBeSuboptimal = false) => ({ songId:186, difficulty:2, kind, searchMayBeSuboptimal });

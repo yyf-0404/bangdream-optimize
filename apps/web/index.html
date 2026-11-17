@@ -8,7 +8,7 @@
     <link rel="icon" type="image/svg+xml" href="./assets/brand.svg?v=1" />
     <link rel="apple-touch-icon" href="./icon.png?v=4" />
     <meta name="theme-color" content="#d9467c" />
-    <link rel="stylesheet" href="./design.css?v=64" />
+    <link rel="stylesheet" href="./design.css?v=65" />
     <link
       rel="preconnect"
       href="https://fonts.googleapis.com"
@@ -23,7 +23,7 @@
       rel="stylesheet"
     />
     <script src="./config.js?v=3"></script>
-    <script type="module" src="./src/main.js?v=65"></script>
+    <script type="module" src="./src/main.js?v=66"></script>
   </head>
   <body>
     <main class="app-shell">
@@ -111,18 +111,16 @@
             </div>
           </div>
 
-          <dialog id="desktop-downloads-dialog" class="desktop-downloads-dialog" aria-labelledby="desktop-downloads-title">
-            <div class="desktop-downloads-dialog-content">
-              <div class="desktop-downloads-header">
-                <div><p class="desktop-downloads-eyebrow">在本地继续计算</p><h2 id="desktop-downloads-title">下载桌面端</h2></div>
-                <button type="button" id="close-desktop-downloads-dialog" class="compact-button">关闭</button>
-              </div>
-              <div class="desktop-downloads-body">
-                <p class="desktop-downloads-intro">选择 Windows 安装包或便携版。已有档案可通过导出配置带到桌面端。</p>
-                <div class="desktop-downloads-status" id="desktop-downloads-status" role="status">加载中</div>
-                <div class="desktop-downloads-list" id="desktop-downloads-list"></div>
-                <button type="button" id="retry-desktop-downloads" class="secondary" hidden>重新加载</button>
-              </div>
+          <dialog id="desktop-downloads-dialog" class="desktop-downloads-dialog ui-dialog" aria-labelledby="desktop-downloads-title">
+            <header class="ui-dialog__header">
+              <div><p class="ui-dialog__eyebrow">在本地继续计算</p><h2 id="desktop-downloads-title" class="ui-dialog__title">下载桌面端</h2></div>
+              <button type="button" id="close-desktop-downloads-dialog" class="ui-button ui-button--icon" aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+            </header>
+            <div class="ui-dialog__body">
+              <p class="ui-text ui-text--secondary ui-text--md desktop-downloads-intro">选择 Windows 安装包或便携版。已有档案可通过导出配置带到桌面端。</p>
+              <div class="ui-text ui-text--secondary ui-text--md desktop-downloads-status" id="desktop-downloads-status" role="status">加载中</div>
+              <div class="desktop-downloads-list" id="desktop-downloads-list"></div>
+              <button type="button" id="retry-desktop-downloads" class="ui-button" hidden>重新加载</button>
             </div>
           </dialog>
 

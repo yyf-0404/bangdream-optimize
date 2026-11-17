@@ -1,16 +1,16 @@
-import { gameText } from '../ui/preferences.js';
+import { gameText } from '../shared/preferences.js';
 import {
   cardIconUrls as buildCardIconUrls,
   cardTrainingStatusList as cardTrainingStatusListForCard,
   normalizeTrainingStatus,
   songCoverUrls as buildSongCoverUrls,
-} from '../assets/index.js?v=3';
+} from '../shared/assets.js';
 import {
   compactJoin,
   hasText,
   normalizedAttribute,
   positiveIntegerOrUndefined,
-} from '../utils.js?v=3';
+} from '../shared/utils.js';
 
 export function createGameMeta({
   getCore,
