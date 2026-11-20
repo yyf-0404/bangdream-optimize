@@ -265,6 +265,14 @@ impl BestdoriCachedFilesystemCalculationInputBuilder {
         self.read_json(&path)
     }
 
+    pub fn sync_chart(&self, song_id: u32, difficulty: u8) -> Result<Value, DataError> {
+        let path = chart_path(song_id, difficulty)?;
+        if self.sync_remote_file(&path, false)? {
+            self.clear_loaded_calculator()?;
+        }
+        self.read_json(&path)
+    }
+
     pub fn refresh_core(&self) -> Result<(), DataError> {
         if self.refresh_core_inner()? {
             self.clear_loaded_calculator()?;

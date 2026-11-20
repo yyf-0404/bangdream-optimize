@@ -26,6 +26,8 @@ import { songBandCategory } from '../activity/song-rules.js';
 import { scoreRangeEmptyExplanation } from '../../data/calculation-errors.js';
 import {equipmentBonusText, resultCharacterBonuses, statFields} from '../../domain/result-bonuses.js';
 import {formatCompactPercentNumber} from '../../shared/utils.js';
+import { isCompleteTimingResult, timingSongSummary } from '../../domain/hit-timing.js';
+import { createHitTimingPlan } from './hit-timing-plan.js';
 
 const POINT_BONUS_EVENT_TYPES = new Set(['challenge', 'live_try', 'mission_live']);
 const SINGLE_FIRE_PT_MULTIPLIERS = Object.freeze([
@@ -88,7 +90,7 @@ export function renderResultSummary(resultElement, result, deps, options = {}) {
   applyResultLayout(resultElement,result,options.diagnostic);
 }
 
-function renderSummaryContent(resultElement, result, deps, { diagnostic } = {}) {
+function renderSummaryContent(resultElement, result, deps, { diagnostic, timingPlanElement, onTimingResult } = {}) {
   resultElement.textContent = '';
   const failureDiagnostic = diagnostic?.error ? diagnostic : undefined;
   resultElement.hidden = false;
@@ -132,6 +134,9 @@ function renderSummaryContent(resultElement, result, deps, { diagnostic } = {}) 
   );
   resultElement.append(overview);
 
+  const currentTiming = isCompleteTimingResult(result);
+  if (result.hitTiming) resultElement.append(renderTimingScope(result, currentTiming));
+
   if (result.items) {
     resultElement.append(renderSelectedItems(result.items, deps));
   }
@@ -144,7 +149,9 @@ function renderSummaryContent(resultElement, result, deps, { diagnostic } = {}) 
   list.className = 'result-song-list';
   const maxScore = songs.reduce((max, song) => Math.max(max, Number(song.score) || 0), 0);
   for (const [index, song] of songs.entries()) {
-    list.append(renderSongResult(song, index, maxScore, deps));
+    list.append(renderSongResult(song, index, maxScore, deps, {
+      perOrderTiming: result.hitTiming?.probabilitySemantics === 'perOrderOptimized',
+    }));
   }
   if (songs.length === 0) {
     list.append(emptyMessage('没有歌曲结果', 'result-empty'));
@@ -153,6 +160,55 @@ function renderSummaryContent(resultElement, result, deps, { diagnostic } = {}) 
   if (songs.some(song => teamOrderPresentation(song, true).activation)) songSection.append(renderOrderReference());
   songSection.append(list);
   resultElement.append(songSection);
+  if (currentTiming) {
+    resultElement.append(timingPlanElement ?? createHitTimingPlan(result, {
+      ...deps,
+      player: diagnostic?.player,
+      onResult: onTimingResult,
+    }));
+  }
+}
+
+function renderTimingScope(result, current) {
+  const timing = result.hitTiming;
+  const songs = Array.isArray(timing.songs) ? timing.songs : [];
+  const multiple = songs.length > 1;
+  const section = document.createElement('section');
+  section.className = 'timing-result-scope';
+  const title = document.createElement('h3');
+  title.className = 'ui-subtitle';
+  const restrictions = timing.rangeRestrictions?.songs;
+  const limited = Array.isArray(restrictions)
+    ? restrictions.reduce((count, song) => count + (Array.isArray(song?.ranges) ? song.ranges.length : 0), 0)
+    : 0;
+  title.textContent = current ? (limited?'击打优化 · 自定义范围最高分':'击打优化 · 模型最高分') : '历史击打结果 · 需重新计算';
+  const scope = document.createElement('p');
+  scope.className = 'ui-text ui-text--secondary';
+  const model = timing.model === 'chartTimeVisibleNodes' ? '时间距离 · 可见音符' : '历史模型';
+  const offset = timing.offsetFrames === 0 ? '零偏移' : `${timing.offsetFrames ?? '未记录'} 帧偏移`;
+  scope.textContent = `${model} · ${timing.fps ?? '未记录'} FPS · ${offset}。覆盖 ${formatInteger(timing.poolCardCount)} 张可用卡牌、${formatInteger(timing.equipmentCombinations)} 种${multiple ? '共用' : ''}道具组合。${limited ? `已应用 ${limited} 处范围限制。` : ''}`;
+  const note = document.createElement('p');
+  note.className = 'ui-text ui-text--secondary';
+  note.textContent = current
+    ? '技能顺序权重按各顺序分别优化击打后的最高分统计。判定范围采用可见音符的谱面时间距离。'
+    : '重新计算后可使用范围编辑和当前版击打方案。';
+  const details = document.createElement('details');
+  const summary = document.createElement('summary');
+  summary.textContent = '查看击打概要';
+  const list = document.createElement('ul');
+  for (const [index, song] of songs.entries()) {
+    const metrics = timingSongSummary(song);
+    const row = document.createElement('li');
+    const prefix = multiple ? `第 ${index + 1} 曲 · ` : '';
+    row.textContent = `${prefix}${metrics.noteCount} 个音符 · 判定后 Perfect ${metrics.perfect} / Great ${metrics.great} · 击打偏移 ${metrics.minOffsetMs.toFixed(1)} 至 ${metrics.maxOffsetMs.toFixed(1)} ms`;
+    list.append(row);
+  }
+  details.append(summary, list);
+  const intro = document.createElement('div');
+  intro.className = 'timing-scope-intro';
+  intro.append(title, scope);
+  section.append(intro, note, details);
+  return section;
 }
 
 function renderPtMaximizeSummary(resultElement, result, deps) {
@@ -832,27 +888,39 @@ function resultItem(label, value, { imageUrls } = {}) {
   return item;
 }
 
-function renderSongResult(song, index, maxScore, deps, {skillTitle='最优技能顺序',showSkillOrder=true}={}) {
+function renderSongMetrics(song, scoreLabel) {
+  const metrics = document.createElement('div');
+  metrics.className = 'song-score';
+  metrics.append(
+    resultItem('综合力', formatInteger(song.stat)),
+    resultItem(scoreLabel, formatInteger(song.score)),
+  );
+  return metrics;
+}
+
+function renderSongResult(song, index, maxScore, deps, {skillTitle='最优技能顺序',showSkillOrder=true,perOrderTiming=false}={}) {
  const el=(tag,cls,text)=>{const n=document.createElement(tag);n.className=cls||'';if(text!==undefined)n.textContent=text;return n;};
  const card=el('article','song-result');
+ const scoreLabel=showSkillOrder?'得分':'平均分数';
  const top=el('div','song-top'),info=el('div','composition-song-info'),sleeve=el('span','record-sleeve'),cover=assetImage(deps.songCoverUrls(song.songId),'song-cover',deps.songLabel(song.songId));if(cover)sleeve.append(cover);info.append(sleeve);
  const identity=el('div','song-identity'),title=el('div','song-title',deps.songLabel(song.songId));title.append(el('small','',`第 ${index+1} 曲 · #${song.songId}`));identity.append(title);
- const meta=el('div','song-meta'),difficulty=renderPlayedDifficulty(deps.getSongRecord?.(song.songId),song.difficulty);meta.append(difficulty,el('span','','综合力 '+formatInteger(song.stat)));identity.append(meta);info.append(identity);
- const score=el('div','song-score');score.append(el('span','',showSkillOrder?'得分':'平均分数'),el('strong','',formatInteger(song.score)));top.append(info,score);card.append(top);
+ const meta=el('div','song-meta'),difficulty=renderPlayedDifficulty(deps.getSongRecord?.(song.songId),song.difficulty);meta.append(difficulty);identity.append(meta);info.append(identity);
+ top.append(info,renderSongMetrics(song,scoreLabel));card.append(top);
  const presentation=teamOrderPresentation(song,showSkillOrder);
- const label=el('div','team-label');label.append(el('span','',presentation.title),el('span','',presentation.note));
+ const label=el('div','team-label');label.append(el('span','',presentation.title),el('span','',
+  perOrderTiming&&presentation.activation?'从左到右 · 队长居中 · 按最高分顺序权重推荐':presentation.note));
  const details=el('button','text-button','歌曲详情');details.type='button';details.onclick=()=>{
   const dialog=el('dialog','accepted-song-details');dialog.setAttribute('aria-label','歌曲详情');
   const header=el('header','dialog-top');header.append(el('h2','','歌曲详情'));
   const close=el('button','icon-button','×');close.type='button';close.setAttribute('aria-label','关闭歌曲详情');close.onclick=()=>dialog.close();header.append(close);
   const body=el('div','dialog-content song-details-body'),image=assetImage(deps.songCoverUrls(song.songId),'',deps.songLabel(song.songId)),identity=el('div','song-details-identity');
   if(image)body.append(image);
-  identity.append(el('h3','',deps.songLabel(song.songId)),el('p','',`#${song.songId} · 综合力 ${formatInteger(song.stat)}`),renderDifficultyList(deps.getSongRecord?.(song.songId),song.difficulty),el('p','',(showSkillOrder?'得分 ':'平均分数 ')+formatInteger(song.score)));body.append(identity);dialog.append(header,body);
+  identity.append(el('h3','',deps.songLabel(song.songId)),el('p','',`#${song.songId}`),renderDifficultyList(deps.getSongRecord?.(song.songId),song.difficulty),renderSongMetrics(song,scoreLabel));body.append(identity);dialog.append(header,body);
   dialog.onclose=()=>{dialog.remove();details.focus({preventScroll:true});};document.querySelector('#result-design').append(dialog);dialog.showModal();
  };label.append(details);card.append(label);
  const displaySong={...song,skillOrderCardIds:presentation.ids};
  const team=renderSkillOrder(displaySong,deps,{sectionTitle:presentation.title,showOrder:presentation.legacyOrder}).querySelector('.result-skill-preview');team.className=presentation.legacyOrder?'team-grid':'team-grid is-display-order';card.append(team);
- if(presentation.activation)card.append(renderActivationOrder(presentation.activation,song.captainCardId,deps));
+ if(presentation.activation)card.append(renderActivationOrder(presentation.activation,song.captainCardId,deps,{perOrderTiming}));
  if(song.detailedScore&&song.scoreDistribution){const range=el('details','range-detail');range.open=true;range.append(el('summary','','得分范围'));const values=el('div','range-values');for(const [label,value]of[['最低分数',formatInteger(song.scoreDistribution.minScore)],['平均分数',formatScoreDistributionAverage(song.scoreDistribution)],['最高分数',formatInteger(song.scoreDistribution.maxScore)]]){const metric=el('div','',label);metric.append(el('strong','',value));values.append(metric);}const bar=el('span','bar');bar.setAttribute('aria-hidden','true');const d=song.scoreDistribution;bar.style.setProperty('--average-position',`${d.maxScore>d.minScore?100*(Number(song.score)-d.minScore)/(d.maxScore-d.minScore):50}%`);values.append(bar);range.append(values);card.append(range);}
  return card;
 }

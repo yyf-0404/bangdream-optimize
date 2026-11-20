@@ -40,6 +40,10 @@ pub struct BestdoriFilesystemConfig {
 }
 
 impl BestdoriFilesystemConfig {
+    pub fn read_chart(&self, song_id: u32, difficulty: u8) -> Result<Value, DataError> {
+        read_json(&chart_path(&self.charts_dir, song_id, difficulty)?)
+    }
+
     pub fn from_root(root: impl Into<PathBuf>) -> Self {
         let root = root.into();
         if root.join("api/cards/all.5.json").exists() {
@@ -255,6 +259,22 @@ impl BestdoriFilesystemCalculationInputBuilder {
             .get(&event_id.to_string())
             .cloned()
             .ok_or(DataError::MissingEventSongs { event_id })?;
+        if options.hit_timing {
+            let event = self.event_calculation_data(&player, event_id)?;
+            let card_definitions = self.card_definitions(&player)?;
+            let area_item_definitions = self.area_item_definitions(&player, server)?;
+            let charts = song_list.iter().map(|song| {
+                Ok(crate::timing_medley::TimingSongChart {
+                    song: song.clone(), play_level: self.song_level(song.song_id, song.difficulty)?,
+                    data: read_json(&chart_path(&self.charts_dir, song.song_id, song.difficulty)?)?,
+                })
+            }).collect::<Result<Vec<_>, DataError>>()?;
+            return crate::timing_medley::maximize_timing_in_ranges(crate::timing_medley::TimingMaximizeInput {
+                event_id, event: &event, player: &player, server, data: &self.game_data,
+                card_definitions: &card_definitions, area_item_definitions: &area_item_definitions,
+                charts: &charts,
+            }, options.hit_timing_ranges);
+        }
         let snapshot = self.snapshot_for(&player, event_id, &song_list, server)?;
 
         SnapshotMaximizeInputBuilder::new(snapshot).maximize_sync(
@@ -411,7 +431,7 @@ impl BestdoriFilesystemCalculationInputBuilder {
         Ok(snapshot)
     }
 
-    fn card_definitions(
+    pub(crate) fn card_definitions(
         &self,
         player: &PlayerConfig,
     ) -> Result<BTreeMap<u32, CardDefinition>, DataError> {

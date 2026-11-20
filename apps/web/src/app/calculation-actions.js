@@ -17,6 +17,11 @@ import {equipmentAvailable} from '../domain/area.js';
 import {restrictEventCardPool} from '../domain/event-card-pool.js';
 import {resultCacheInvalidationReason, resultTotalStat, RESULT_CACHE_SCHEMA_VERSION, SCORING_REVISION} from '../data/result-cache.js';
 
+import {
+  isCompleteTimingResult, requireCompleteTimingResult, timingOptimizationEnabled, timingWitnessExport,
+  TIMING_REVISION, TIMING_PREPARATION_REVISION,
+} from '../domain/hit-timing.js';
+
 export function createCalculationActions({
   state,
   elements,
@@ -91,6 +96,9 @@ export function createCalculationActions({
       skillShuffleModel: 'cn-9.4.2',
       server: player.server,
       calculationMode: player.calculationMode,
+      ...(timingOptimizationEnabled(player)
+        ? { hitTiming: true, timingRevision: TIMING_REVISION, timingPreparationRevision: TIMING_PREPARATION_REVISION }
+        : {}),
       eventAvailableCardsOnly: player.eventAvailableCardsOnly === true,
       activityMode: player.activityMode,
       scoreRange: player.scoreRange,
@@ -187,12 +195,32 @@ export function createCalculationActions({
     }
   }
 
-  function applyResult(result, diagnostic, cacheKey, profileId = state.activePlayerProfileId, reveal = true) {
+  function applyResult(result, diagnostic, cacheKey, profileId = state.activePlayerProfileId, reveal = true, timingPlanElement) {
     state.profileDiagnostics ??= {};
     state.profileDiagnostics[profileId] = {result,diagnostic,cacheKey};
     if (profileId !== state.activePlayerProfileId) return;
     elements.result.textContent = JSON.stringify(result, null, 2);
-    renderResultSummary(result, { diagnostic });
+    renderResultSummary(result, {
+      diagnostic,
+      timingPlanElement,
+      onTimingResult: (next, editor) => {
+        if (profileId !== state.activePlayerProfileId) return;
+        const ranges = next.hitTiming.rangeRestrictions;
+        const nextDiagnostic = {
+          ...diagnostic,
+          generatedAt: new Date().toISOString(),
+          result: next,
+          calculationRequest: {
+            hitTiming: true,
+            timingRevision: TIMING_REVISION,
+            timingPreparationRevision: TIMING_PREPARATION_REVISION,
+            ...(ranges ? { hitTimingRanges: ranges } : {}),
+          },
+        };
+        applyResult(next, nextDiagnostic, ranges ? null : cacheKey, profileId, false, editor);
+        if (ranges) renderResultCachePanel();
+      },
+    });
     renderMetrics(result.metrics);
     state.lastDiagnostic = diagnostic;
     state.activeResultCacheKey = cacheKey;
@@ -267,13 +295,17 @@ export function createCalculationActions({
         await savePlayerNow(player);
       }
       if (requestProfileId !== state.activePlayerProfileId) throw new Error('档案已切换，请重新开始计算');
+      const eventSnapshot = editableEventSnapshot(eventId, player);
+      const timingActive = timingOptimizationEnabled(player);
       const {player: calculationPlayer, restriction} = restrictEventCardPool(
-        player, editableEventSnapshot(eventId, player), {...core?.cardsFix, ...core?.cards},
+        player, eventSnapshot, {...core?.cardsFix, ...core?.cards},
       );
       const cacheKey = makeResultCacheKey(player, eventId, requestProfileId);
       state.activeResultCacheKey = cacheKey;
       const cached = getCachedResult(cacheKey);
-      if (cached && !resultCacheInvalidationReason(cached) && (!restriction || JSON.stringify(cached.diagnostic?.cardAvailability) === JSON.stringify(restriction))) {
+      if (cached?.result != null && !resultCacheInvalidationReason(cached)
+        && (!timingActive || isCompleteTimingResult(cached.result))
+        && (!restriction || JSON.stringify(cached.diagnostic?.cardAvailability) === JSON.stringify(restriction))) {
         applyResult(cached.result, cached.diagnostic, cacheKey, requestProfileId, revealResult());
         renderResultCachePanel(cacheKey);
         setStatus('完成（缓存）');
@@ -284,7 +316,8 @@ export function createCalculationActions({
       let result;
       let calculationRequest;
       try {
-        calculationRequest = scoreRangeRequest ?? ptMaximizeRequest ?? ptEvaluateRequest;
+        calculationRequest = scoreRangeRequest ?? ptMaximizeRequest ?? ptEvaluateRequest
+          ?? (timingActive ? { hitTiming: true, timingRevision: TIMING_REVISION, timingPreparationRevision: TIMING_PREPARATION_REVISION } : undefined);
         result = player.calculationMode === 'scoreRange'
           ? await calculateScoreRange({
             player: calculationPlayer,
@@ -310,9 +343,15 @@ export function createCalculationActions({
             player: calculationPlayer,
             server: player.server,
             eventId,
-            options: {},
+            options: timingActive ? { hitTiming: true } : {},
             core,
           });
+        if (timingActive) {
+          requireCompleteTimingResult(result);
+          if (result.hitTiming.rangeRestrictions != null) {
+            throw new Error('无限制计算返回了受限结果，请重新计算');
+          }
+        }
       } catch (error) {
         const diagnostic = await buildDiagnostic({
           player: calculationPlayer,
@@ -1063,6 +1102,22 @@ export function createCalculationActions({
     }
   }
 
+  async function handleExportHitTiming() {
+    try {
+      const plan = globalThis.document?.querySelector('#result-summary .timing-plan');
+      const result = plan ? plan.getTimingPlanResult() : state.lastDiagnostic?.result;
+      const witness = timingWitnessExport(result);
+      const fileName = 'hit-timing-' + witness.eventId + '.json';
+      const saved = await state.runtime.saveJsonFile({ fileName, text: JSON.stringify(witness, null, 2) });
+      const message = saved === 'cancelled' ? '已取消导出击打记录' : '已导出 ' + fileName;
+      const notice = globalThis.document?.querySelector('#result-action-status');
+      if (notice) notice.textContent = message;
+      setStatus(message);
+    } catch (error) {
+      setError(error);
+    }
+  }
+
   function setCalculatingState(isBusy) {
     const buttons = calculateButtons.length > 0
       ? calculateButtons
@@ -1104,6 +1159,17 @@ export function createCalculationActions({
       : '配置已更改，当前展示上次计算结果。';
   }
 
+  function refreshResultView() {
+    const profileId = state.activePlayerProfileId;
+    const saved = state.profileDiagnostics?.[profileId];
+    if (!saved?.result) {
+      if (saved?.diagnostic) renderResultSummary(null, { diagnostic: saved.diagnostic });
+      return;
+    }
+    const editor = elements.resultSummary?.querySelector('.timing-plan');
+    applyResult(saved.result, saved.diagnostic, saved.cacheKey, profileId, false, editor);
+  }
+
   function syncProfileResult() {
     if (state.displayedResultProfileId !== state.activePlayerProfileId) {
       state.displayedResultProfileId = state.activePlayerProfileId;
@@ -1119,11 +1185,13 @@ export function createCalculationActions({
 
   return {
     syncProfileResult,
+    refreshResultView,
     invalidateResultCache,
     hasActiveCalculation: () => isCalculating,
     handleCalculate,
     handleSaveResultImage,
     handleExportDiagnostics,
+    handleExportHitTiming,
     handleResultCacheAction,
     handleClearResultCache,
     handleScoreRangeInputChange,

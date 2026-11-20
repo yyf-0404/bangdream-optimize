@@ -1,4 +1,5 @@
 import { SCORING_REVISION } from '../domain/scoring-revision.js';
+import { isCompleteTimingResult } from '../domain/hit-timing.js';
 import { totalFireCost } from '../shared/utils.js';
 
 export { SCORING_REVISION };
@@ -11,6 +12,11 @@ export const RESULT_CACHE_SCHEMA_VERSION = 15;
 export const RESULT_CACHE_LIMIT = 20;
 
 export function resultCacheInvalidationReason(entry) {
+  const timing = entry?.result?.hitTiming;
+  if (timing?.rangeRestrictions != null) return '此结果含自定义击打范围，需另行计算无限制最高分';
+  if (timing && !isCompleteTimingResult(entry.result)) {
+    return '此历史结果的击打记录不完整或模型不兼容，需重新计算';
+  }
   // Old 5v5 snapshots include teammateScores in the request/result scenario.
   // Keep them readable, but never reuse the inflated PT after this correction.
   const festivalInputs = [

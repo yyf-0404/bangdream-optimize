@@ -15,34 +15,41 @@ extern "C" {
     fn performance_now() -> f64;
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+pub use std::time::Instant;
+
+/// Monotonic clock for calculation diagnostics in native and browser workers.
+#[cfg(target_arch = "wasm32")]
+#[derive(Debug, Clone, Copy)]
+pub struct Instant {
+    start_ms: f64,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Instant {
+    pub fn now() -> Self {
+        Self { start_ms: performance_now() }
+    }
+
+    pub fn elapsed(&self) -> std::time::Duration {
+        std::time::Duration::from_secs_f64(((performance_now() - self.start_ms) / 1000.0).max(0.0))
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Timer {
-    #[cfg(not(target_arch = "wasm32"))]
-    start: std::time::Instant,
-    #[cfg(target_arch = "wasm32")]
-    start_ms: f64,
+    start: Instant,
 }
 
 impl Timer {
     pub(crate) fn start() -> Self {
         Self {
-            #[cfg(not(target_arch = "wasm32"))]
-            start: std::time::Instant::now(),
-            #[cfg(target_arch = "wasm32")]
-            start_ms: performance_now(),
+            start: Instant::now(),
         }
     }
 
     pub(crate) fn elapsed_ms(&self) -> f64 {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.start.elapsed().as_secs_f64() * 1000.0
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            performance_now() - self.start_ms
-        }
+        self.start.elapsed().as_secs_f64() * 1000.0
     }
 }
 

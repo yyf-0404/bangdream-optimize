@@ -1,0 +1,377 @@
+{
+  "client": "CN 9.4.4",
+  "resourceVersion": "9.4.3.0",
+  "decoder": "UnityPy 1.25.3",
+  "unityFallback": "2022.3.62f3",
+  "laneArtwork": 3,
+  "bundles": {
+    "skin00": {
+      "bytes": 673031,
+      "sha256": "3439f03dcc4319ffd0cddd7b08830fb3914bb48385afaf97fddc793f846d71fe",
+      "url": "https://l4-prod-patch-bd.bilibiligame.net/assetbundle/9.4.3.0/Android/ingameskin/noteskin/skin00",
+      "catalogEntry": {
+        "bundle_name": "ingameskin/noteskin/skin00",
+        "detail_name": "ingameskin/noteskin/skin00",
+        "hash": "d500eb5cb5d22b592d6bf406a227041c63f3f5c9758ae1803882650cb6f0a2d5",
+        "version": "9.4.3.0",
+        "category": "StartApp",
+        "crc": 576247590,
+        "file_size": 673031,
+        "dependencies": ""
+      }
+    },
+    "directionalflickskin00": {
+      "bytes": 200485,
+      "sha256": "0e7e20bb0b7006ac56754080f1916bf2823aabcec9d5a40528c9df0af0505420",
+      "url": "https://l4-prod-patch-bd.bilibiligame.net/assetbundle/9.4.3.0/Android/ingameskin/noteskin/directionalflickskin00",
+      "catalogEntry": {
+        "bundle_name": "ingameskin/noteskin/directionalflickskin00",
+        "detail_name": "ingameskin/noteskin/directionalflickskin00",
+        "hash": "a31b2b101e9c3a28db4c1dcd05dd871faac6b9d0dbbaea8c928d71287cc54598",
+        "version": "9.4.3.0",
+        "category": "StartApp",
+        "crc": 3602487159,
+        "file_size": 200485,
+        "dependencies": ""
+      }
+    }
+  },
+  "assets": {
+    "tap.png": {
+      "bundle": "skin00",
+      "objectId": 4310398050175728653,
+      "name": "note_normal_3",
+      "type": "Sprite",
+      "rect": {
+        "x": 1550.0,
+        "y": 0.0,
+        "width": 308.0,
+        "height": 120.0
+      },
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "trimmedSize": [
+        308,
+        120
+      ],
+      "trimOffset": [
+        0,
+        0
+      ],
+      "size": [
+        308,
+        120
+      ],
+      "sha256": "c20e476a02ae7f115d6538da828fae591c138adb02c72dea6f6b6a81a4737702",
+      "rgbaSha256": "9b9069fce64da26e3d544c50ffa8702c76e000d1982a3b6af05b8880d242ef60"
+    },
+    "flick.png": {
+      "bundle": "skin00",
+      "objectId": -603077230646153591,
+      "name": "note_flick_3",
+      "type": "Sprite",
+      "rect": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 308.0,
+        "height": 120.0
+      },
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "trimmedSize": [
+        304,
+        106
+      ],
+      "trimOffset": [
+        2,
+        7
+      ],
+      "size": [
+        308,
+        120
+      ],
+      "sha256": "98515d13cede9e00cc175232735d779685f9de41c31effabb2c718c1434910b8",
+      "rgbaSha256": "2464ad4d6f6dba02b665e283b531cd42faca62ae0840d0903dafdd598506f916"
+    },
+    "flick_arrow.png": {
+      "bundle": "skin00",
+      "objectId": 7224880325731112582,
+      "name": "note_flick_top",
+      "type": "Sprite",
+      "rect": {
+        "x": 1240.0,
+        "y": 854.0,
+        "width": 171.0,
+        "height": 138.0
+      },
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "trimmedSize": [
+        161,
+        131
+      ],
+      "trimOffset": [
+        5,
+        1
+      ],
+      "size": [
+        171,
+        138
+      ],
+      "sha256": "582597532a8d41d448176f6ba1aa74add5fea30f0e841a9c2fc85a522c6ca818",
+      "rgbaSha256": "44ef3a96a395875a68a7dd4f523a78089a5cab03aa2a24a3fb9fd88fb0651528"
+    },
+    "slide.png": {
+      "bundle": "skin00",
+      "objectId": -1128686636534415381,
+      "name": "note_long_3",
+      "type": "Sprite",
+      "rect": {
+        "x": 620.0,
+        "y": 122.0,
+        "width": 308.0,
+        "height": 120.0
+      },
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "trimmedSize": [
+        304,
+        120
+      ],
+      "trimOffset": [
+        2,
+        0
+      ],
+      "size": [
+        308,
+        120
+      ],
+      "sha256": "802e01f50dc0b04fffb971b75bac62c67c5a2059ecf0fff64234fcb97b057f08",
+      "rgbaSha256": "edb8053c0bbd424811ad3b4fad153b25890456ce492d6c21c598ea335af30be7"
+    },
+    "sep.png": {
+      "bundle": "skin00",
+      "objectId": -5691963342825090376,
+      "name": "note_slide_among",
+      "type": "Sprite",
+      "rect": {
+        "x": 310.0,
+        "y": 610.0,
+        "width": 308.0,
+        "height": 120.0
+      },
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "trimmedSize": [
+        302,
+        26
+      ],
+      "trimOffset": [
+        3,
+        45
+      ],
+      "size": [
+        308,
+        120
+      ],
+      "sha256": "13e2972441b8c25420f17e3efca064231b0d3f7569df2622b1274bb80a1f8427",
+      "rgbaSha256": "4ece186b2ee481ac171f046c3718c41636fd7ba3f1581314f45f53707a6b403b"
+    },
+    "tap_skill.png": {
+      "bundle": "skin00",
+      "objectId": -8939961847514322523,
+      "name": "note_skill_3",
+      "type": "Sprite",
+      "rect": {
+        "x": 930.0,
+        "y": 122.0,
+        "width": 308.0,
+        "height": 120.0
+      },
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "trimmedSize": [
+        304,
+        120
+      ],
+      "trimOffset": [
+        2,
+        0
+      ],
+      "size": [
+        308,
+        120
+      ],
+      "sha256": "b3153d9afb2db84f5b608abb347e2510126c5bd8e4cfea1d7488e64abdd1dbd8",
+      "rgbaSha256": "9ee19bb170eb053b61da7ad14d897d43b2bed138aff49623ef5c9e3537962c17"
+    },
+    "long.png": {
+      "bundle": "skin00",
+      "objectId": 7885111247748804973,
+      "name": "longNoteLine",
+      "type": "Texture2D",
+      "size": [
+        146,
+        205
+      ],
+      "sha256": "4df76cf6f94459836d14c29d5662f1f724c87acdd7eebef818cc3491424d08ef",
+      "rgbaSha256": "c92c6a3c48aea789252ae631b58d11b5f8ea6069ead48e1e119ca7f9bba32d09"
+    },
+    "left.png": {
+      "bundle": "directionalflickskin00",
+      "objectId": 1312514357725629125,
+      "name": "note_flick_l_3",
+      "type": "Sprite",
+      "rect": {
+        "x": 0.0,
+        "y": 122.0,
+        "width": 308.0,
+        "height": 120.0
+      },
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "trimmedSize": [
+        215,
+        108
+      ],
+      "trimOffset": [
+        39,
+        9
+      ],
+      "size": [
+        308,
+        120
+      ],
+      "sha256": "278272f3c9814c652d0ac237e7816233a0a736bd3306b6dae127b1f691456ab0",
+      "rgbaSha256": "d577692d222c768da985c363906b5a7954be4fd0337227bfa86f3319cc59d2c0"
+    },
+    "right.png": {
+      "bundle": "directionalflickskin00",
+      "objectId": -2942532481440404597,
+      "name": "note_flick_r_3",
+      "type": "Sprite",
+      "rect": {
+        "x": 0.0,
+        "y": 732.0,
+        "width": 308.0,
+        "height": 120.0
+      },
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "trimmedSize": [
+        215,
+        108
+      ],
+      "trimOffset": [
+        53,
+        9
+      ],
+      "size": [
+        308,
+        120
+      ],
+      "sha256": "c67b9dfecce81dc8887b6c001eb71c6b98b4d21876879d72e9e1f4c78b62f37c",
+      "rgbaSha256": "27fca12837078315958d5b5fd328187b12b67dd08b02a6bd9e0c3014fb85d247"
+    },
+    "left_arrow.png": {
+      "bundle": "directionalflickskin00",
+      "objectId": 8357899896369795338,
+      "name": "note_flick_top_l",
+      "type": "Sprite",
+      "rect": {
+        "x": 310.0,
+        "y": 366.0,
+        "width": 138.0,
+        "height": 171.0
+      },
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "trimmedSize": [
+        122,
+        159
+      ],
+      "trimOffset": [
+        5,
+        10
+      ],
+      "size": [
+        138,
+        171
+      ],
+      "sha256": "07c735bc171cfe64a2cd3bd8f0682fad52889f770648d40282250b69e4555300",
+      "rgbaSha256": "51fb635c91a1c81f3d639d1809d3b496445d4f65fcff87a9066424747458890c"
+    },
+    "right_arrow.png": {
+      "bundle": "directionalflickskin00",
+      "objectId": 5155255656961828275,
+      "name": "note_flick_top_r",
+      "type": "Sprite",
+      "rect": {
+        "x": 310.0,
+        "y": 539.0,
+        "width": 138.0,
+        "height": 170.0
+      },
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "trimmedSize": [
+        122,
+        159
+      ],
+      "trimOffset": [
+        11,
+        8
+      ],
+      "size": [
+        138,
+        170
+      ],
+      "sha256": "3873b8411862c365169830e28d366285106e6ecc320d56b73d7656c135c41827",
+      "rgbaSha256": "7dc03d3db15ff868c8033ad28fd154a7bd03d7e5841881d468a0a8d7fddde131"
+    },
+    "left_line.png": {
+      "bundle": "directionalflickskin00",
+      "objectId": 781558832430136875,
+      "name": "FlickNoteLine_l",
+      "type": "Texture2D",
+      "size": [
+        10,
+        78
+      ],
+      "sha256": "217e0b8aea504b45f585f80f96eea743955ed6ddd7ce91e5bdae220a79c3af5e",
+      "rgbaSha256": "424d7cc72d77138e2c588c0d3c17d45ce34e6a0dc6cc0fdf21ec25e4d78cd93e"
+    },
+    "right_line.png": {
+      "bundle": "directionalflickskin00",
+      "objectId": -5254250772661216887,
+      "name": "FlickNoteLine_r",
+      "type": "Texture2D",
+      "size": [
+        10,
+        78
+      ],
+      "sha256": "644687980c16a6636c64a4f8b81fb5804731b9fdd7f0dbace7fa1cfe35aa3269",
+      "rgbaSha256": "3d6d1dd0f68bac29daa3468f0b51b21f1c938d40b7a80a42a719f94fa5891de9"
+    }
+  }
+}

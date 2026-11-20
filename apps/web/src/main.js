@@ -384,6 +384,8 @@ const {
   songLabel,
   getSongRecord: (songId) => state.core?.songs?.[String(songId)],
   getCore: () => state.core,
+  getRuntime: () => state.runtime,
+  getProfileId: () => state.activePlayerProfileId,
   cardLabel,
   cardName,
   cardRarity,
@@ -825,7 +827,7 @@ const { bootstrap } = createAppLifecycle({
 document.addEventListener('player-config-change', () => {calculationActions.syncProfileResult();void heroes.update();});
 document.addEventListener('game-language-change', () => {
   pageController.renderConfigForms(readPlayer());
-  if (state.lastDiagnostic) renderResultSummary(state.lastDiagnostic.result, {diagnostic:state.lastDiagnostic});
+  calculationActions.refreshResultView();
 });
 await bootstrap();
 pageController.activatePage(location.hash.slice(1) || 'activity');

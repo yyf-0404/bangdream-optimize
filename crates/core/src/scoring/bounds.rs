@@ -170,6 +170,34 @@ mod tests {
         .unwrap()
     }
     #[test]
+    fn weighted_envelopes_cover_native_count_rounding_without_allocating_the_chart() {
+        for count in [760, (1 << 24) - 1, 1 << 24, (1 << 24) + 1,
+            (1 << 24) + 3, (1 << 25) + 3, u32::MAX] {
+            for level in [1, 5, 27, 100] {
+                let factors = [
+                    (NoteFactors { judgement: 1.1, combo: 1.11, skill: 2.205, fever: 2. }, count-3),
+                    (NoteFactors { judgement: 0.8, combo: 1.01, skill: 1., fever: 1. }, 1),
+                    (NoteFactors { judgement: 0., combo: 1.34, skill: 2.5, fever: 2. }, 1),
+                    (NoteFactors { judgement: 1.1, combo: 1.34, skill: 0., fever: 2. }, 1),
+                ];
+                let model = CompiledScore::from_weighted(level, count, &factors).unwrap();
+                assert_eq!(model.note_count(), count);
+                assert_eq!(model.group_count(), 4);
+                let maximum = p(count as f32 * 1_000_000.);
+                let envelope = model.envelope(maximum).unwrap();
+                for power in [p(0.), p(f32::from_bits(1)), p(1.), p(count as f32),
+                    p(maximum.value().next_down()), maximum] {
+                    let bounds = envelope.bounds(power).unwrap();
+                    let scalar = model.score_scalar(power).unwrap();
+                    assert_eq!(scalar, model.score(power).unwrap());
+                    assert!(bounds.min <= scalar && scalar <= bounds.max,
+                        "count={count} level={level} power={} bounds={bounds:?} score={scalar}",
+                        power.value());
+                }
+            }
+        }
+    }
+    #[test]
     fn envelopes_enclose_exact_scores_across_float_binades() {
         for count in [1, 17, 121, 760, 2051] {
             let model = plan(count);

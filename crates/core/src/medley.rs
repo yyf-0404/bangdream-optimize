@@ -6,6 +6,7 @@ pub mod key_pair_bound;
 pub(crate) use crate::team_prune as prune;
 pub(crate) mod scoring;
 pub(crate) mod seed;
+pub use seed::{propose_medley_seed, MedleySeed, MedleySeedTeam};
 pub mod team;
 
 #[cfg(test)]

@@ -55,6 +55,9 @@ pub enum DataError {
     #[error("chart error: {0}")]
     Chart(#[from] bangdream_optimize_core::ChartError),
 
+    #[error("timing preparation error: {0}")]
+    Timing(#[from] bangdream_optimize_core::hit_timing::ReplayError),
+
     #[error("preparation error: {0}")]
     Preparation(#[from] bangdream_optimize_core::PreparationError),
 

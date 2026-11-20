@@ -7,7 +7,7 @@ use bangdream_optimize_core::{
 use bangdream_optimize_desktop::{
     CredentialImportRequest, CredentialImportResult, DesktopConfig, DesktopGameDataSource,
     DesktopOptimizer, DesktopReferenceData, DesktopRuntimeInfo, JpUuidImportRequest,
-    JpUuidImportResult, UserConfigProfile,
+    JpUuidImportResult, TimingPlanRequest, TimingPlanResponse, UserConfigProfile,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -220,6 +220,11 @@ async fn sync_card_detail(state: State<'_, AppState>, card_id: u32) -> Result<Va
 }
 
 #[tauri::command]
+async fn sync_chart(state: State<'_, AppState>, song_id: u32, difficulty: u8) -> Result<Value, String> {
+    run_optimizer_task(state, move |optimizer| optimizer.sync_chart(song_id, difficulty)).await
+}
+
+#[tauri::command]
 async fn sync_all_game_data(state: State<'_, AppState>) -> Result<(), String> {
     run_optimizer_task(state, |optimizer| optimizer.sync_all_game_data()).await
 }
@@ -232,6 +237,11 @@ async fn refresh_core_game_data(state: State<'_, AppState>) -> Result<(), String
 #[tauri::command]
 fn runtime_info(state: State<'_, AppState>) -> Result<DesktopRuntimeInfo, String> {
     Ok(optimizer(&state)?.runtime_info())
+}
+
+#[tauri::command]
+async fn optimize_hit_timing_plan(request: TimingPlanRequest) -> Result<TimingPlanResponse, String> {
+    run_blocking_task(move || Ok(bangdream_optimize_desktop::optimize_timing_plan(request))).await
 }
 
 #[tauri::command]
@@ -373,10 +383,12 @@ fn main() {
             clear_game_cache,
             sync_reference_data,
             sync_card_detail,
+            sync_chart,
             sync_all_game_data,
             refresh_core_game_data,
             runtime_info,
             calculate_for_config,
+            optimize_hit_timing_plan,
             score_range_for_config,
             pt_maximize_for_config,
             pt_evaluate_for_config,

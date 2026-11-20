@@ -1,22 +1,25 @@
-const ASSET_VERSION = 'native-f32-6';
+const ASSET_VERSION = 'hit-timing-2';
+const WASM_METHODS = new Map([
+  ['calculate', 'calculateFromStaticData'],
+  ['scoreRange', 'scoreRangeFromStaticData'],
+  ['ptMaximize', 'ptMaximizeFromStaticData'],
+  ['ptEvaluate', 'ptEvaluateFromStaticData'],
+  ['timingPlan', 'optimizeHitTimingPlan'],
+]);
 
 let wasmPromise = null;
 
 self.onmessage = async (event) => {
   const { id, type, payloadJson } = event.data ?? {};
-  if (type !== 'calculate' && type !== 'scoreRange' && type !== 'ptMaximize' && type !== 'ptEvaluate') {
-    return;
-  }
+  const method = WASM_METHODS.get(type);
+  if (!method) return;
 
   try {
     const wasm = await loadWasm();
-    const resultJson = type === 'scoreRange'
-      ? wasm.scoreRangeFromStaticData(payloadJson)
-      : type === 'ptMaximize'
-        ? wasm.ptMaximizeFromStaticData(payloadJson)
-        : type === 'ptEvaluate'
-          ? wasm.ptEvaluateFromStaticData(payloadJson)
-          : wasm.calculateFromStaticData(payloadJson);
+    if (typeof wasm[method] !== 'function') {
+      throw new Error('计算核心需要更新');
+    }
+    const resultJson = wasm[method](payloadJson);
     self.postMessage({ id, ok: true, resultJson });
   } catch (error) {
     self.postMessage({

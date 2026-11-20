@@ -35,7 +35,7 @@ export function formatOrderProbability(count, total) {
   return `${count / a}/${total / a}`;
 }
 
-export function renderActivationOrder(order, captainId, deps) {
+export function renderActivationOrder(order, captainId, deps, {perOrderTiming = false} = {}) {
   const make = (tag, className, text) => {
     const node = document.createElement(tag);
     node.className = className;
@@ -43,12 +43,14 @@ export function renderActivationOrder(order, captainId, deps) {
     return node;
   };
   const section = make('section', 'activation-order');
-  section.setAttribute('aria-label', '最优技能触发顺序与概率');
+  section.setAttribute('aria-label', perOrderTiming ? '最优技能触发顺序与权重' : '最优技能触发顺序与概率');
   const heading = make('div', 'activation-heading');
   heading.append(make('strong', '', '最优技能触发顺序'));
-  const probability = make('span', 'activation-probability', '最高分概率 ');
+  const probability = make('span', 'activation-probability', perOrderTiming ? '最高分顺序权重 ' : '最高分概率 ');
   probability.append(make('b', '', formatOrderProbability(order.maxScorePathCount, order.totalPathCount)));
-  probability.title = `所有可达最高分顺序的合计概率：${order.maxScorePathCount} / ${order.totalPathCount}`;
+  probability.title = perOrderTiming
+    ? '各技能顺序分别优化击打后的合计权重'
+    : '所有可达最高分顺序的合计概率';
   heading.append(probability);
   section.append(heading);
   const sequence = make('ol', 'activation-sequence');
@@ -66,7 +68,7 @@ export function renderActivationOrder(order, captainId, deps) {
   });
   section.append(sequence, make('p', 'activation-slot-key', '数字对应上方编队从左到右的 1–5 号位'));
   if (order.optimalOrderCount > 1) {
-    section.append(make('p', 'activation-total', `共 ${order.optimalOrderCount} 种触发顺序可达到最高分，上方展示其中一种。`));
+    section.append(make('p', 'activation-total', `共 ${order.optimalOrderCount} 种触发顺序${perOrderTiming ? '分别优化击打后' : ''}可达到最高分，上方展示其中一种。`));
   }
   return section;
 }

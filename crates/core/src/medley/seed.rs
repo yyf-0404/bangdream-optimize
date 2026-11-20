@@ -16,6 +16,77 @@ const SEED_BANNED_CARD_VARIANTS: usize = 12;
 const SEED_DISJOINT_GREEDY_ROUNDS: usize = 4;
 const SEED_LOCAL_SEARCH_ROUNDS: usize = 16;
 
+/// A bounded proposal for a later search, not an optimality certificate or a
+/// timing-model score. Callers must resolve actual equipment powers, arrange a
+/// reachable skill order and replay the proposal under their scoring rules.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MedleySeed {
+    pub items: SelectedAreaItems,
+    pub teams: [MedleySeedTeam; MEDLEY_TEAM_COUNT],
+    pub estimated_item_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MedleySeedTeam {
+    /// Estimated first-five activation order, not physical display slots.
+    pub card_ids: [u32; TEAM_SIZE],
+    pub captain_card_id: u32,
+}
+
+/// Reuse the existing greedy/local seed search without enumerating the full
+/// candidate pool. Item estimates select one promising equipment set only;
+/// they do not eliminate equipment from the caller's subsequent exact search.
+/// Charts must already be initialized with their cumulative medley combo.
+/// `None` means no proposal was constructed, not a proof of infeasibility.
+pub fn propose_medley_seed(
+    cards: &[PreparedCard],
+    charts: &[Chart],
+    area_item_percent: &AreaItemPercent,
+) -> Result<Option<MedleySeed>, TeamBuildError> {
+    if charts.len() != MEDLEY_TEAM_COUNT || cards.len() < MEDLEY_TOTAL_CARD_COUNT {
+        return Ok(None);
+    }
+    let selections = crate::area_item_combinations(area_item_percent);
+    let estimated_item_count = selections.len();
+    let mut best = None;
+    for items in selections {
+        let estimate = super::team::medley_same_team_item_score_upper_bound(
+            cards,
+            charts,
+            area_item_percent,
+            &items,
+        )?;
+        if best.as_ref().is_none_or(|(_, score)| estimate > *score) {
+            best = Some((items, estimate));
+        }
+    }
+    let Some((items, _)) = best else {
+        return Ok(None);
+    };
+    Ok(seed_medley_candidates_for_items(
+        cards,
+        charts,
+        area_item_percent,
+        &items,
+        TeamGenerationOptions::default(),
+    )?
+    .map(|chosen| MedleySeed {
+        items,
+        teams: std::array::from_fn(|song| MedleySeedTeam {
+            card_ids: chosen[song]
+                .candidate
+                .ordered_team_card_ids
+                .as_ref()
+                .unwrap()[song]
+                .as_slice()
+                .try_into()
+                .unwrap(),
+            captain_card_id: chosen[song].candidate.captain_card_ids[song],
+        }),
+        estimated_item_count,
+    }))
+}
+
 pub(crate) fn seed_medley_result_for_items(
     event_id: u32,
     song_list: &[SongSelection],
@@ -55,6 +126,7 @@ pub(crate) fn seed_medley_result_for_items(
         .collect();
 
     Ok(Some(BuildResult {
+        hit_timing: None,
         scoring_revision: Some(crate::scoring::ARITHMETIC_REVISION.to_owned()),
         skill_queue_notices: Vec::new(),
         event_id,
@@ -545,4 +617,72 @@ fn seed_medley_candidates_for_items(
         &mut exact_score_scratch,
     )?;
     Ok(Some(chosen))
+}
+
+#[cfg(test)]
+mod proposal_tests {
+    use super::*;
+    use crate::{medley::test_support, model::preparation::StatRate, Attribute};
+    use std::collections::{BTreeMap, BTreeSet};
+
+    fn area() -> AreaItemPercent {
+        AreaItemPercent {
+            native_items: vec![],
+            band: BTreeMap::from([("1".into(), StatRate::all(0.1))]),
+            attribute: BTreeMap::from([("cool".into(), StatRate::all(0.1))]),
+            magazine: BTreeMap::from([("performance".into(), StatRate::all(0.1))]),
+        }
+    }
+
+    #[test]
+    fn proposal_has_three_owned_disjoint_teams_and_valid_captains() {
+        let cards: Vec<_> = (0..15)
+            .map(|i| test_support::prepared_card(i + 1, i % 5 + 1, 1, Attribute::Cool))
+            .collect();
+        let mut charts = test_support::medley_charts();
+        let mut combo = 0;
+        for chart in &mut charts {
+            chart.init(combo, true).unwrap();
+            combo += chart.count as i32;
+        }
+        let proposal = propose_medley_seed(&cards, &charts, &area())
+            .unwrap()
+            .unwrap();
+        assert_eq!(proposal.estimated_item_count, 1);
+        assert!(crate::area_item_combinations(&area()).contains(&proposal.items));
+        let mut used = BTreeSet::new();
+        for team in &proposal.teams {
+            assert!(team.card_ids.contains(&team.captain_card_id));
+            let mut characters = BTreeSet::new();
+            for id in team.card_ids {
+                let card = cards.iter().find(|c| c.card_id == id).unwrap();
+                assert!(used.insert(id));
+                assert!(characters.insert(card.character_id));
+            }
+        }
+        assert_eq!(used.len(), 15);
+        assert_eq!(
+            Some(proposal),
+            propose_medley_seed(&cards, &charts, &area()).unwrap()
+        );
+    }
+
+    #[test]
+    fn proposal_requires_three_songs_fifteen_cards_and_available_items() {
+        let cards: Vec<_> = (0..15)
+            .map(|i| test_support::prepared_card(i + 1, i % 5 + 1, 1, Attribute::Cool))
+            .collect();
+        let charts = test_support::medley_charts();
+        assert!(propose_medley_seed(&cards[..14], &charts, &area())
+            .unwrap()
+            .is_none());
+        assert!(propose_medley_seed(&cards, &charts[..2], &area())
+            .unwrap()
+            .is_none());
+        assert!(
+            propose_medley_seed(&cards, &charts, &AreaItemPercent::empty())
+                .unwrap()
+                .is_none()
+        );
+    }
 }

@@ -26,6 +26,42 @@ pub struct CompiledScore {
 }
 
 impl CompiledScore {
+    pub(crate) fn storage_bytes(&self) -> usize {
+        std::mem::size_of::<Self>()
+            + (self.judgement.capacity()+self.combo.capacity()+self.skill.capacity()+self.fever.capacity())
+                *std::mem::size_of::<f32>()
+            + self.multiplicity.capacity()*std::mem::size_of::<u32>()
+    }
+    /// Weighted operands use the complete chart count as the native divisor.
+    /// This is useful when a caller already groups immutable equal notes.
+    pub(crate) fn from_weighted(level: i32, count: u32, notes: &[(NoteFactors, u32)])
+        -> Result<Self, ScoringError> {
+        NoteScorer::new(ScoringPower::new(0.0)?, level, count)?;
+        let mut groups = BTreeMap::<[u32; 4], u32>::new();
+        let mut total = 0_u32;
+        for (note, n) in notes {
+            total = total.checked_add(*n).ok_or(ScoringError::InvalidChart)?;
+            let key = [
+                nonnegative(note.judgement, "judgment multiplier")?.to_bits(),
+                nonnegative(note.combo, "combo multiplier")?.to_bits(),
+                nonnegative(note.skill, "skill multiplier")?.to_bits(),
+                nonnegative(note.fever, "Fever multiplier")?.to_bits(),
+            ];
+            if *n != 0 { *groups.entry(key).or_default() += *n; }
+        }
+        if total != count { return Err(ScoringError::InvalidChart); }
+        let mut result = Self { level, count, judgement: Vec::new(), combo: Vec::new(),
+            skill: Vec::new(), fever: Vec::new(), multiplicity: Vec::new() };
+        for (key, n) in groups {
+            result.judgement.push(f32::from_bits(key[0]));
+            result.combo.push(f32::from_bits(key[1]));
+            result.skill.push(f32::from_bits(key[2]));
+            result.fever.push(f32::from_bits(key[3]));
+            result.multiplicity.push(n);
+        }
+        Ok(result)
+    }
+
     pub(super) fn chart_parameters(&self) -> (i32, u32) {
         (self.level, self.count)
     }
@@ -154,6 +190,20 @@ impl CompiledScore {
 mod tests {
     use super::*;
     use crate::scoring::{normal_combo_multiplier, Crescendo, Judgement};
+    #[test]
+    fn weighted_operands_preserve_full_divisor_scores_and_envelopes() {
+        let a = NoteFactors { judgement: 1.1, combo: 1.08, skill: 2.305, fever: 2. };
+        let b = NoteFactors { judgement: 0., combo: 1., skill: 1., fever: 1. };
+        let notes: Vec<_> = std::iter::repeat_n(a, 137).chain(std::iter::repeat_n(b, 1003)).collect();
+        let ordinary = CompiledScore::new(27, &notes).unwrap();
+        let weighted = CompiledScore::from_weighted(27, 1140, &[(a, 137), (b, 1003)]).unwrap();
+        for p in [0., 1., 300040.75, 700000.5] {
+            let p = ScoringPower::new(p).unwrap();
+            assert_eq!(ordinary.score(p), weighted.score(p));
+            assert_eq!(ordinary.envelope(p).unwrap().bounds(p), weighted.envelope(p).unwrap().bounds(p));
+        }
+        assert!(CompiledScore::from_weighted(27, 1139, &[(a, 137), (b, 1003)]).is_err());
+    }
     #[test]
     fn compressed_and_simd_match_uncompressed_at_fractional_boundaries() {
         let mut crescendo = Crescendo::new(100.0, 0.5, 150).unwrap();

@@ -22,7 +22,7 @@ export async function renderResultImage(page, runtime) {
   resultContent.style.cssText = `box-sizing:border-box;width:100%;max-width:none;margin:0;padding:${gutter}px`;
   snapshot.append(resultContent);
   // On-screen notices (copy status, stale/changed-config warning with its recalculate button) are UI, not result.
-  snapshot.querySelectorAll('dialog,.heading-actions,.log-panel,[hidden],.result-song-actions,.card-art-switch,.result-action-status,.result-stale').forEach(n => n.remove());
+  snapshot.querySelectorAll('dialog,.heading-actions,.log-panel,[hidden],.result-song-actions,.card-art-switch,.result-action-status,.result-stale,.timing-plan').forEach(n => n.remove());
   for (const image of snapshot.querySelectorAll('img')) image.loading = 'eager';
   host.append(snapshot);
   document.body.append(host);

@@ -10,6 +10,30 @@ export function explainCalculationError(error, {
   const message = String(error?.message ?? error ?? '未知错误');
   const minimumStat = Number(calculationRequest?.minimumPersonalStat);
 
+  if (/击打优化结果缺少完整见证/.test(message)) {
+    return issue(INTERNAL,'timing-engine-mismatch','计算核心需要更新',
+      '当前计算核心未返回此版本击打优化所需的完整模型和击打记录。',
+      '更新桌面端，或刷新网页及计算核心后重新计算。');
+  }
+
+  if (/击打搜索达到资源上限|joint.*incomplete|incomplete.*timing/i.test(message)) {
+    return issue(INTERNAL, 'timing-search-incomplete', '击打搜索未完成',
+      '搜索达到资源上限，尚未证明完整卡池与全部道具组合的最高分。',
+      '保留当前配置并导出诊断；也可以关闭击打优化，使用常规最高分计算。');
+  }
+  if (/hitTimingSkill|customCards\.skill|Medley Combo exceeds|Combo 超出已验证/.test(message)) {
+    return issue(UNSUPPORTED, 'timing-model-unsupported', '当前击打模型不支持此配置',
+      '所选技能、活动类型或 Combo 范围超出当前击打模型的支持范围。',
+      '导出诊断以补充模型支持，或关闭击打优化后计算。');
+  }
+  if (/击打优化需要完整配置的卡池和至少(十五|五)张/.test(message)) {
+    const medley = message.includes('至少十五张');
+    return issue(CONFIGURATION, 'timing-insufficient-cards', '可用卡牌不足',
+      medley ? '三支队伍需要至少十五张配置完整的可用卡牌，且每队五个角色不同。'
+        : '单曲需要至少五张配置完整的可用卡牌，每张卡牌须来自不同角色。',
+      '补全卡牌与角色加成配置，并检查活动卡牌限制和自定义卡的启用状态。');
+  }
+
   if (
     /目标总 PT 必须大于当前 PT/.test(message)
     || /target total PT \d+ is below current PT \d+/i.test(message)

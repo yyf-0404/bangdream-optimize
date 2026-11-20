@@ -14,6 +14,9 @@ pub mod pt_evaluate;
 pub mod pt_maximize;
 pub mod score_range;
 pub mod snapshot;
+pub mod timing_chart;
+pub mod timing_medley;
+pub mod timing_plan;
 pub mod traits;
 pub(crate) mod utils;
 
@@ -46,3 +49,4 @@ pub use traits::{
 pub type BestdoriFilesystemCalculator = BestdoriFilesystemCalculationInputBuilder;
 #[cfg(feature = "native-cache")]
 pub type BestdoriCachedFilesystemCalculator = BestdoriCachedFilesystemCalculationInputBuilder;
+extern crate self as bangdream_optimize_data;

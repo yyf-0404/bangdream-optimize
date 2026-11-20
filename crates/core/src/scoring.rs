@@ -51,7 +51,10 @@ fn nonnegative(value: f32, name: &'static str) -> Result<f32, ScoringError> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
 #[repr(u8)]
 pub enum Judgement {
     Miss = 0,

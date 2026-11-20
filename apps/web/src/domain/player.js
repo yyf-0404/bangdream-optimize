@@ -43,6 +43,7 @@ export function createPlayerModel({
       currentEvent: player.currentEvent,
       calculationMode,
       eventAvailableCardsOnly: player.eventAvailableCardsOnly === true,
+      ...(player.hitTiming === true ? { hitTiming: true } : {}),
       activityMode: normalizedActivityMode(player.activityMode),
       scoreRange: normalizeScoreRangeConfig(player.scoreRange, server),
       ptMaximize: normalizePtMaximizeConfig(player.ptMaximize),

@@ -8,6 +8,7 @@ repository.workspace = true
 [dependencies]
 async-trait.workspace = true
 bangdream-optimize-core.workspace = true
+bangdream-optimize-medley-solver.workspace = true
 reqwest = { workspace = true, optional = true }
 serde_json.workspace = true
 serde.workspace = true

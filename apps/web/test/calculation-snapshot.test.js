@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {SCORING_REVISION} from '../src/data/result-cache.js';
+import {SCORING_REVISION,RESULT_CACHE_SCHEMA_VERSION} from '../src/data/result-cache.js';
 import {createCalculationActions} from '../src/app/calculation-actions.js';
+
+import {timingResult} from './fixtures/timing-result.js';
 
 function gate(){let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};}
 function harness({ensureCore=async()=>({}),calculate=async()=>({scoringRevision:SCORING_REVISION,totalScore:42}),getActivePage=()=>undefined,hasOpenDialog=()=>false,calculateButtons=[],initialPlayer={},eventRecord={eventType:'versus'}}={}){
@@ -12,16 +14,90 @@ function harness({ensureCore=async()=>({}),calculate=async()=>({scoringRevision:
   const elements=new Proxy({eventId:{value:String(player.currentEvent)},scoreRangeAutoBaseMultiplier:{value:'0.5'},result:{},calculateButtons},{get:(o,k)=>k in o?o[k]:k==='calculateButton'?null:field});
   const noop=()=>{};
   const actions=createCalculationActions({state,elements,readPlayer:()=>structuredClone(player),writePlayer:p=>{writes.push(p);player=structuredClone(p);},savePlayerNow:async()=>{},readOptionalInteger:v=>v===''?undefined:Number(v),parseEntityId:v=>Number(v),applyEventInputToPlayer:noop,editableEventSnapshot:()=>eventRecord,normalizeCurrentActivityForMode:noop,ensureOwnedCardCharacterBonuses:noop,ensureCore,renderConfigForms:noop,renderResultSummary:r=>renders.push(r),renderMetrics:noop,buildDiagnostic:async data=>data,activatePage:p=>navigations.push(p),getActivePage,hasOpenDialog,setStatus:noop,setError:e=>errors.push(e),eventLabel:()=> '活动',normalizedPlayer:p=>p,persistResultCache:async()=>{},yieldForPaint:async()=>{}});
-  return {state,elements,actions,writes,renders,errors,navigations,getPlayer:()=>player,setScope:value=>{player.eventAvailableCardsOnly=value;},edit:()=>{player.cardList[1].skillLevel=2;}};
+  return {state,elements,actions,writes,renders,errors,navigations,getPlayer:()=>player,setScope:value=>{player.eventAvailableCardsOnly=value;},setTiming:value=>{player.hitTiming=value;},edit:()=>{player.cardList[1].skillLevel=2;}};
 }
+
+test('timing and ordinary Medley calculations use separate caches and submit the effective option',async()=>{
+  const calls=[],h=harness({eventRecord:{eventType:'medley'},initialPlayer:{activityMode:'medley'},calculate:async input=>{calls.push(input);return input.options?.hitTiming?timingResult(calls.length):{scoringRevision:SCORING_REVISION,totalScore:calls.length};}});
+  await h.actions.handleCalculate({preventDefault(){}});
+  const ordinaryKey=h.state.resultCache[0].key;
+  assert.deepEqual(calls[0].options,{});
+  h.setTiming(true);await h.actions.handleCalculate({preventDefault(){}});
+  assert.deepEqual(calls[1].options,{hitTiming:true});
+  assert.notEqual(h.state.resultCache[0].key,ordinaryKey);
+  assert.equal(h.state.lastDiagnostic.calculationRequest.hitTiming,true);
+  h.setTiming(false);await h.actions.handleCalculate({preventDefault(){}});
+  assert.equal(calls.length,2);
+  assert.equal(h.state.activeResultCacheKey,ordinaryKey);
+  assert.equal(h.state.lastDiagnostic.result.totalScore,1);
+  assert.deepEqual(h.errors,[]);
+});
+
+test('an old engine cannot silently substitute ordinary scores for a timing request',async()=>{
+  const h=harness({eventRecord:{eventType:'medley'},initialPlayer:{hitTiming:true}});
+  await h.actions.handleCalculate({preventDefault(){}});
+  assert.equal(h.state.resultCache.length,0);
+  assert.equal(h.state.lastDiagnostic.result,undefined);
+  assert.match(h.state.lastDiagnostic.error.message,/击打优化结果缺少完整见证/);
+});
+
+test('an inconsistent timing response becomes a failure diagnostic and never enters successful history',async()=>{
+  for (const mutate of [
+    r=>{delete r.hitTiming.songs[0].input.hitOrder;delete r.hitTiming.songs[0].result.hitOrder;},
+    r=>{r.songs[0].score++;},
+    r=>{r.hitTiming.songs[0]=null;},
+  ]) {
+    const response=timingResult(300);mutate(response);
+    const h=harness({eventRecord:{eventType:'medley'},initialPlayer:{hitTiming:true},calculate:async()=>response});
+    await h.actions.handleCalculate({preventDefault(){}});
+    assert.equal(h.state.resultCache.length,0);
+    assert.equal(h.state.lastDiagnostic.result,undefined);
+    assert.match(h.state.lastDiagnostic.error.message,/完整见证/);
+    assert.equal(h.actions.hasActiveCalculation(),false);
+  }
+});
+
+test('a previous cache generation stays readable but is never reused by the updated core',async()=>{
+  let calls=0;
+  const h=harness({calculate:async()=>({scoringRevision:SCORING_REVISION,totalScore:++calls})});
+  await h.actions.handleCalculate({preventDefault(){}});
+  const old=h.state.resultCache[0];
+  old.cacheVersion=9;
+  const key=JSON.parse(old.key);key.cacheVersion=9;old.key=JSON.stringify(key);
+  await h.actions.handleResultCacheAction({preventDefault(){},target:{closest:()=>({dataset:{resultCacheAction:'restore',resultCacheKey:old.key}})}});
+  assert.equal(h.state.lastDiagnostic.result.totalScore,1);
+  await h.actions.handleCalculate({preventDefault(){}});
+  assert.equal(calls,2);
+  assert.equal(old.result.totalScore,1);
+  assert.equal(h.state.lastDiagnostic.result.totalScore,2);
+  assert.equal(h.state.resultCache[0].cacheVersion,RESULT_CACHE_SCHEMA_VERSION);
+});
+
+test('both single-song highest-score events submit timing and keep their complete results', async () => {
+  for (const eventType of ['challenge', 'versus']) {
+    const calls = [];
+    const response = timingResult(42, eventType);
+    const h = harness({
+      eventRecord: { eventType },
+      initialPlayer: { hitTiming: true },
+      calculate: async input => { calls.push(input); return response; },
+    });
+    await h.actions.handleCalculate({ preventDefault() {} });
+    assert.deepEqual(calls[0].options, { hitTiming: true });
+    assert.equal(h.state.lastDiagnostic.calculationRequest.hitTiming, true);
+    assert.deepEqual(h.state.lastDiagnostic.result, response);
+    assert.deepEqual(h.errors, []);
+  }
+});
 
 test('festival submits only rank and victory; obsolete history stays viewable but is not reused',async()=>{
  for(const won of [false,true]){
-  const calls=[],h=harness({initialPlayer:{calculationMode:'ptMaximize',ptMaximize:{liveVariantByEventType:{festival:'festival'},festivalTeammateScores:[null,-1,99999999,0]}},eventRecord:{eventType:'festival'},calculate:async input=>{calls.push(input);return {scoringRevision:SCORING_REVISION,liveVariant:'festival',totalScore:calls.length,scenario:{festival:input.request.festival}};}});
+  const calls=[],h=harness({initialPlayer:{calculationMode:'ptMaximize',hitTiming:true,ptMaximize:{liveVariantByEventType:{festival:'festival'},festivalTeammateScores:[null,-1,99999999,0]}},eventRecord:{eventType:'festival'},calculate:async input=>{calls.push(input);return {scoringRevision:SCORING_REVISION,liveVariant:'festival',totalScore:calls.length,scenario:{festival:input.request.festival}};}});
   h.elements.ptMaximizeFestivalRank={querySelector:()=>({value:'3'})};
   h.elements.ptMaximizeFestivalWon={querySelector:()=>({value:String(won)})};
   await h.actions.handleCalculate({preventDefault(){}});
   assert.deepEqual(h.errors,[]);
+  assert.equal(calls[0].options?.hitTiming, undefined);
   assert.deepEqual(calls[0].request.festival,{teamRank:3,won});
   assert.equal('festivalTeammateScores' in calls[0].player.ptMaximize,false);
   const entry=h.state.resultCache[0];

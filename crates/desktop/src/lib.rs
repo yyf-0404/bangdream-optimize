@@ -8,6 +8,7 @@ use bangdream_optimize_core::{
     PtMaximizeRequest, PtMaximizeResult, ScoreRangeRequest, ScoreRangeResult, Server,
 };
 pub use bangdream_optimize_data::hero_asset;
+pub use bangdream_optimize_data::timing_plan::{optimize_timing_plan, TimingPlanRequest, TimingPlanResponse};
 use bangdream_optimize_data::{
     update_published_score_range_chart_meta, BestdoriCachedFilesystemCalculator,
     BestdoriFilesystemCalculator, BestdoriFilesystemConfig, BestdoriStaticMirrorConfig, DataError,
@@ -285,6 +286,15 @@ impl DesktopOptimizer {
                 read_json(&directory.join(format!("{card_id}.json")))
             }
             DesktopCalculator::Remote { calculator, .. } => calculator.sync_card_detail(card_id),
+        }
+    }
+
+    pub fn sync_chart(&self, song_id: u32, difficulty: u8) -> Result<Value, DataError> {
+        match &self.calculator {
+            DesktopCalculator::Filesystem { root, .. } => {
+                BestdoriFilesystemConfig::from_root(root).read_chart(song_id, difficulty)
+            }
+            DesktopCalculator::Remote { calculator, .. } => calculator.sync_chart(song_id, difficulty),
         }
     }
 

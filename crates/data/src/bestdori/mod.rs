@@ -1,6 +1,7 @@
 mod area_item;
 mod card;
 mod skill;
+pub mod timing_skill;
 
 use crate::{
     utils::{into_object_map, merge_object_map, normalize_object},
@@ -40,6 +41,12 @@ impl BestdoriData {
             area_items: Arc::new(into_object_map(area_items, "areaItems")?),
             custom_timing_cards: BTreeMap::new(),
         })
+    }
+
+    pub(crate) fn with_custom_timing_definitions(&self, definitions: &[CardDefinition]) -> Self {
+        let mut data = self.clone();
+        data.custom_timing_cards = definitions.iter().map(|d| (d.card_id, d.clone())).collect();
+        data
     }
 
     pub fn apply_repairs(

@@ -128,6 +128,13 @@ pub fn calculate_from_static_data(payload_json: &str) -> Result<String, JsValue>
         .map_err(|err| JsValue::from_str(&err.to_string()))
 }
 
+#[wasm_bindgen(js_name = optimizeHitTimingPlan)]
+pub fn optimize_hit_timing_plan(payload_json: &str) -> Result<String, JsValue> {
+    let request = serde_json::from_str(payload_json).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    serde_json::to_string(&bangdream_optimize_data::timing_plan::optimize_timing_plan(request))
+        .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
 #[wasm_bindgen(js_name = scoreRangeFromStaticData)]
 pub fn score_range_from_static_data(payload_json: &str) -> Result<String, JsValue> {
     let payload: WebScoreRangePayload =
@@ -187,6 +194,26 @@ pub fn calculate_payload(payload: WebCalculationPayload) -> Result<BuildResult, 
 
     let card_definitions = card_definitions(&payload.player, &game_data)?;
     let area_item_definitions = area_item_definitions(&payload.player, payload.server, &game_data)?;
+    if payload.options.hit_timing {
+        let event = bangdream_optimize_data::EventData {
+            event_type, event_bonus: event_bonus(&payload.event)?, preferred: None,
+        };
+        let charts = payload.charts.into_iter().map(|chart| {
+            Ok(bangdream_optimize_data::timing_medley::TimingSongChart {
+                play_level: song_level(&payload.songs, chart.song_id, chart.difficulty)?,
+                song: bangdream_optimize_core::SongSelection {
+                    song_id: chart.song_id, difficulty: chart.difficulty,
+                }, data: chart.data,
+            })
+        }).collect::<Result<Vec<_>, DataError>>()?;
+        return bangdream_optimize_data::timing_medley::maximize_timing_in_ranges(
+            bangdream_optimize_data::timing_medley::TimingMaximizeInput {
+                event_id, event: &event, player: &payload.player, server: payload.server,
+                data: &game_data, card_definitions: &card_definitions,
+                area_item_definitions: &area_item_definitions, charts: &charts,
+            }, payload.options.hit_timing_ranges,
+        );
+    }
     let mut snapshot = GameDataSnapshot::new(
         card_definitions,
         area_item_definitions,

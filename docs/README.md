@@ -13,7 +13,7 @@
 
 ## 计算规则与设计
 
-- [计算架构与活动支持范围](calculation/calculation-architecture.md)
+- [计算架构与活动支持范围](calculation/calculation-architecture.md) · [击打优化](calculation/hit-timing.md)
 - [控分设计与实现](calculation/score-range-design-draft.md) · [最大平均 PT 设计草案](calculation/pt-maximize-design-draft.md) · [指定队伍 PT](calculation/pt-evaluate-design.md)
 - [技能触发顺序](calculation/skill-activation-order.md) · [技能排队](calculation/skill-queue-support.md)
 

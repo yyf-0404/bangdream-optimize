@@ -121,6 +121,7 @@ mod tests {
             _options: MaximizeOptions,
         ) -> Result<BuildResult, DataError> {
             Ok(BuildResult {
+                hit_timing: None,
                 scoring_revision: Some(
                     bangdream_optimize_core::scoring::ARITHMETIC_REVISION.to_owned(),
                 ),

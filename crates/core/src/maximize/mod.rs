@@ -19,6 +19,8 @@ pub use crate::single::mode_candidates;
 
 #[derive(Debug, Error)]
 pub enum CalculationError {
+    #[error("hit timing requires the raw-chart highest-score calculation entry")]
+    TimingRequiresRawCharts,
     #[error("skill-order recommendation error: {0}")]
     SkillOrder(#[from] crate::DpModelError),
     #[error("event type {event_type:?} is not supported by maximize")]
@@ -81,6 +83,11 @@ pub struct PreferredItemTarget {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemSearchOptions {
+    /// Joint search over highest-score teams, equipment and hit timings.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hit_timing: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hit_timing_ranges: Option<crate::hit_timing::ranges::TimingRangeRequest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preferred: Option<PreferredItemTarget>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -92,12 +99,16 @@ pub struct ItemSearchOptions {
 impl Default for ItemSearchOptions {
     fn default() -> Self {
         Self {
+            hit_timing: false,
+            hit_timing_ranges: None,
             preferred: None,
             solver_preference: None,
             team_generation: TeamGenerationOptions::default(),
         }
     }
 }
+
+fn is_false(value: &bool) -> bool { !*value }
 
 pub fn calculate_best_result_for_items(
     event_id: u32,
@@ -108,6 +119,9 @@ pub fn calculate_best_result_for_items(
     area_item_percent: &AreaItemPercent,
     options: ItemSearchOptions,
 ) -> Result<BuildResult, CalculationError> {
+    if options.hit_timing || options.hit_timing_ranges.is_some() {
+        return Err(CalculationError::TimingRequiresRawCharts);
+    }
     if !supports_event_type(event_type) {
         return Err(CalculationError::UnsupportedEventType { event_type });
     }
@@ -923,6 +937,8 @@ mod tests {
             &charts,
             &area_item_percent(),
             ItemSearchOptions {
+                hit_timing: false,
+                hit_timing_ranges: None,
                 preferred: Some(PreferredItemTarget {
                     band: "1".to_owned(),
                     attribute: "cool".to_owned(),
@@ -984,6 +1000,8 @@ mod tests {
             &[chart(0), chart(1), chart(2)],
             &area_item_percent(),
             ItemSearchOptions {
+                hit_timing: false,
+                hit_timing_ranges: None,
                 preferred: Some(PreferredItemTarget {
                     band: "1".to_owned(),
                     attribute: "cool".to_owned(),
@@ -1027,6 +1045,8 @@ mod tests {
             &[chart(0), chart(1), chart(2)],
             &area_item_percent(),
             ItemSearchOptions {
+                hit_timing: false,
+                hit_timing_ranges: None,
                 preferred: Some(PreferredItemTarget {
                     band: "1".to_owned(),
                     attribute: "cool".to_owned(),

@@ -179,6 +179,7 @@ export function queryElements(document) {
     feedbackResult: byId('feedback-result'),
     clearResultCache: byId('clear-result-cache'),
     exportDiagnostics: byId('export-diagnostics'),
+    exportHitTiming: byId('export-hit-timing'),
     log: byId('log'),
     clearLog: byId('clear-log'),
   };

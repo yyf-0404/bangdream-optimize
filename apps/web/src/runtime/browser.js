@@ -15,7 +15,7 @@ import {
 } from '../data/user-storage.js';
 import { submitFeedbackRequest } from '../data/feedback.js';
 
-const ASSET_VERSION = 'native-f32-6';
+const ASSET_VERSION = 'hit-timing-2';
 
 export async function createBrowserRuntime({ onProgress } = {}) {
   const config = readRuntimeConfig();
@@ -45,10 +45,19 @@ export async function createBrowserRuntime({ onProgress } = {}) {
       const wasm = await getWasm();
       return wasm.ptEvaluateFromStaticData(payloadJson);
     },
+    timingPlanOnMainThread: async (payloadJson) => {
+      const wasm = await getWasm();
+      if (typeof wasm.optimizeHitTimingPlan !== 'function') {
+        throw new Error('计算核心需要更新后才能调整击打范围');
+      }
+      return wasm.optimizeHitTimingPlan(payloadJson);
+    },
   });
 
   return {
     kind: 'browser',
+    optimizeHitTimingPlan: async (request) =>
+      JSON.parse(await calculationWorker.timingPlan(JSON.stringify(request))),
     loadResultAsset: async path => {
       const base = (config.headerAssetApiBaseUrl ?? config.apiBaseUrl ?? '').replace(/\/$/, '');
       const response = await fetch(base + '/bestdori/header/' + path, {signal:AbortSignal.timeout(15000)});
@@ -92,6 +101,7 @@ export async function createBrowserRuntime({ onProgress } = {}) {
     }),
     syncEventData: (eventId) => gameData.syncEvent(eventId),
     syncCardDetail: (cardId) => gameData.syncCardDetail(cardId),
+    syncChart: (songId, difficulty) => gameData.syncChart(songId, difficulty),
     syncReferenceData: ({ refreshManifest = false } = {}) =>
       gameData.syncCore({ refreshManifest }),
     saveJsonFile: ({ fileName, text }) => {
@@ -150,6 +160,7 @@ function createCalculationWorkerClient({
   scoreRangeOnMainThread,
   ptMaximizeOnMainThread,
   ptEvaluateOnMainThread,
+  timingPlanOnMainThread,
 }) {
   let worker = null;
   let nextId = 1;
@@ -170,6 +181,10 @@ function createCalculationWorkerClient({
 
   function ptEvaluate(payloadJson) {
     return run('ptEvaluate', payloadJson, ptEvaluateOnMainThread);
+  }
+
+  function timingPlan(payloadJson) {
+    return run('timingPlan', payloadJson, timingPlanOnMainThread);
   }
 
   function run(type, payloadJson, runOnMainThread) {
@@ -239,7 +254,7 @@ function createCalculationWorkerClient({
     pending.clear();
   }
 
-  return { calculate, scoreRange, ptMaximize, ptEvaluate };
+  return { calculate, scoreRange, ptMaximize, ptEvaluate, timingPlan };
 }
 
 function errorFromWorker(payload) {

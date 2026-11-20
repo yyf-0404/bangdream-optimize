@@ -1,0 +1,97 @@
+#aurora-soft-study .activity-option-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4) var(--space-16);
+  max-inline-size: 100%;
+}
+
+#aurora-soft-study .bo-event-row .activity-option-heading { margin-block-end: var(--space-12); }
+#aurora-soft-study .activity-option-heading > .bo-subheading { margin: 0; }
+
+#aurora-soft-study .activity-option {
+  --_bg: transparent;
+  --_border: transparent;
+  --_fg: var(--color-text-secondary);
+  position: relative;
+  min-height: var(--control-height-sm);
+  padding-inline: var(--space-8);
+  white-space: normal;
+}
+
+#aurora-soft-study .activity-option:hover { --_fg: var(--color-text); }
+#aurora-soft-study .activity-option:has(> input:checked) {
+  --_fg: var(--color-primary-selected);
+}
+
+#aurora-soft-study .activity-option[hidden] { display: none; }
+#aurora-soft-study .activity-option > .ui-text { color: inherit; }
+#aurora-soft-study .activity-option > input {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  pointer-events: none;
+}
+
+#aurora-soft-study .activity-option-mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  inline-size: var(--space-12);
+  block-size: var(--space-12);
+  border: 1px solid currentColor;
+  border-radius: var(--radius-round);
+}
+#aurora-soft-study .activity-option > input:checked + .activity-option-mark::after {
+  content: '';
+  inline-size: var(--space-6);
+  block-size: var(--space-6);
+  border-radius: var(--radius-round);
+  background: currentColor;
+}
+#aurora-soft-study .activity-option:has(> input:focus-visible) {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+#aurora-soft-study .activity-option:has(> input.validation-focus) {
+  outline: var(--focus-ring-width) solid var(--color-danger-border);
+  outline-offset: var(--focus-ring-offset);
+}
+
+#aurora-soft-study .activity-option-notice { color: var(--color-warning); }
+
+#aurora-soft-study .activity-timing-option { display: inline-flex; align-items: center; max-inline-size: 100%; }
+#aurora-soft-study .activity-timing-option[hidden] { display: none; }
+#aurora-soft-study .activity-timing-option > .activity-option { padding-inline-end: 0; }
+#aurora-soft-study .activity-timing-help { flex: none; width: var(--control-height-sm); min-height: var(--control-height-sm); }
+#aurora-soft-study .activity-timing-help svg { width: var(--icon-size-sm); height: var(--icon-size-sm); }
+
+#aurora-soft-study .activity-timing-explanation {
+  --timing-explanation-width: min(26em, calc(100% - 2 * var(--space-16)));
+  inline-size: var(--timing-explanation-width);
+  margin: auto;
+  padding: var(--space-12) var(--space-16);
+  border: 1px solid var(--color-border-accent);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+  line-height: var(--leading-relaxed);
+}
+
+@supports (top: anchor(bottom)) {
+  #aurora-soft-study .activity-timing-help { anchor-name: --activity-timing-help; }
+  #aurora-soft-study .activity-timing-explanation {
+    position-anchor: --activity-timing-help;
+    inset: auto;
+    inset-block-start: calc(anchor(bottom) + var(--space-4));
+    inset-inline-start: clamp(var(--space-16), anchor(left), calc(100% - var(--timing-explanation-width) - var(--space-16)));
+    margin: 0;
+    position-try-fallbacks: flip-block;
+  }
+}
+
+@media (pointer: coarse) {
+  #aurora-soft-study :is(.activity-option, .activity-timing-help) { min-height: var(--control-height-touch); }
+  #aurora-soft-study .activity-timing-help { width: var(--control-height-touch); }
+}

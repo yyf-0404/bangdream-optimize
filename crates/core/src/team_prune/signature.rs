@@ -4,7 +4,7 @@ use crate::model::schema::Attribute;
 const TEAM_SIZE: usize = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum MedleyPruneSignature {
+pub enum MedleyPruneSignature {
     Mixed,
     UnifiedBand(u32),
     UnifiedAttribute(Attribute),
@@ -12,7 +12,7 @@ pub(crate) enum MedleyPruneSignature {
 }
 
 impl MedleyPruneSignature {
-    pub(crate) fn allows(self, card: &PreparedCard) -> bool {
+    pub fn allows(self, card: &PreparedCard) -> bool {
         match self {
             Self::Mixed => true,
             Self::UnifiedBand(band_id) => card.band_id == band_id,
@@ -23,14 +23,14 @@ impl MedleyPruneSignature {
         }
     }
 
-    pub(crate) fn team_band_id(self) -> Option<u32> {
+    pub fn team_band_id(self) -> Option<u32> {
         match self {
             Self::Mixed | Self::UnifiedAttribute(_) => None,
             Self::UnifiedBand(band_id) | Self::UnifiedBandAttribute(band_id, _) => Some(band_id),
         }
     }
 
-    pub(crate) fn team_attribute(self) -> Option<Attribute> {
+    pub fn team_attribute(self) -> Option<Attribute> {
         match self {
             Self::Mixed | Self::UnifiedBand(_) => None,
             Self::UnifiedAttribute(attribute) | Self::UnifiedBandAttribute(_, attribute) => {

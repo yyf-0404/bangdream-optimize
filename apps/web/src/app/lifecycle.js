@@ -83,6 +83,7 @@ const CLICK_BINDINGS = [
   ['clearLocalCache', 'handleClearLocalCache'],
   ['saveResultImage', 'handleSaveResultImage'],
   ['exportDiagnostics', 'handleExportDiagnostics'],
+  ['exportHitTiming', 'handleExportHitTiming'],
 ];
 
 export function createAppLifecycle({

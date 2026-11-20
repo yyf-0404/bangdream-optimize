@@ -15,6 +15,7 @@ export async function createDesktopRuntime() {
 
   return {
     kind: 'desktop',
+    optimizeHitTimingPlan: (request) => invokeJson(invoke, 'optimize_hit_timing_plan', { request }),
     loadResultAsset: async path => new Blob([new Uint8Array(await invoke('load_header_asset',{path}))],{type:path.endsWith('.svg')?'image/svg+xml':'image/png'}),
     copyImage: async blob => invoke('copy_result_image', {bytes: Array.from(new Uint8Array(await blob.arrayBuffer()))}),
     loadHeaderAsset: async path => new Blob([new Uint8Array(await invoke('load_header_asset',{path}))],{type:'image/png'}),
@@ -69,6 +70,11 @@ export async function createDesktopRuntime() {
     runtimeInfo: () => invokeJson(invoke, 'runtime_info'),
     syncReferenceData: () => invokeJson(invoke, 'sync_reference_data'),
     syncCardDetail: (cardId) => invokeJson(invoke, 'sync_card_detail', { cardId }),
+    syncChart: async (songId, difficulty) => ({
+      songId,
+      difficulty,
+      data: await invokeJson(invoke, 'sync_chart', { songId, difficulty }),
+    }),
     saveJsonFile: (payload) => saveJsonFileWithPicker(invoke, payload),
     calculate: ({ player, server, eventId, options }) =>
       invokeJson(invoke, 'calculate_for_config', {

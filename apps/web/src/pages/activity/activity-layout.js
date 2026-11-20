@@ -9,7 +9,25 @@ import { cardModel } from '../../components/cards/model.js';
 import { imageSources } from '../../components/cards/images.js';
 import { mountEventSelection, eventTypeNames } from './event-selection.js';
 import {eventCardPoolInfo, supportsEventCardPool} from '../../domain/event-card-pool.js';
+import { timingOptimizationEnabled } from '../../domain/hit-timing.js';
 const el=(tag,cls,text)=>{const n=document.createElement(tag);n.className=cls||'';if(text!==undefined)n.textContent=text;return n;};
+
+function activitySwitch(id, title, noteId) {
+ const label = el('label', 'ui-button activity-option');
+ const input = el('input', 'ui-visually-hidden');
+ input.id = id;
+ input.type = 'checkbox';
+ input.setAttribute('role', 'switch');
+ input.setAttribute('aria-labelledby', `${id}-label`);
+ input.setAttribute('aria-describedby', noteId);
+ label.htmlFor = id;
+ const name = el('span', 'ui-text', title);
+ name.id = `${id}-label`;
+ const mark = el('span', 'activity-option-mark');
+ mark.setAttribute('aria-hidden', 'true');
+ label.append(input, mark, name);
+ return { label, input };
+}
 
 export function mountActivityLayout({elements,getPlayer,getCore,getProfileId,writePlayer,renderForms,eventSnapshot,parameters,changeCustomType,breaks}){
  const root=document.querySelector('#aurora-soft-study'),q=s=>root.querySelector(s),target=q('.activity-selector-card');
@@ -20,13 +38,51 @@ export function mountActivityLayout({elements,getPlayer,getCore,getProfileId,wri
  for(const input of replacement.querySelectorAll('input'))input.replaceWith(original.find(n=>n.value===input.value));
  fieldset.className='bo-target-group';fieldset.replaceChildren(...replacement.childNodes);replacement.replaceWith(fieldset);
  target.className='activity-selector-card bo-section';target.replaceChildren(...approved.childNodes);
- const cardScope=el('div','event-card-scope');
- cardScope.innerHTML='<label for="event-available-cards-only"><input id="event-available-cards-only" type="checkbox" role="switch" aria-describedby="event-card-scope-note"><span class="event-card-switch" aria-hidden="true"></span><span>仅使用当前服务器在本活动可用的卡牌</span></label><p id="event-card-scope-note"></p>';
- fieldset.append(cardScope);
- const scopeInput=cardScope.querySelector('input');
- scopeInput.onchange=e=>{e.stopPropagation();const player=getPlayer();player.eventAvailableCardsOnly=scopeInput.checked;writePlayer(player);renderForms(player);};
+ const cardScopeNote = el('span', 'ui-visually-hidden');
+ cardScopeNote.id = 'event-card-scope-note';
+ const cardScope = activitySwitch('event-available-cards-only', '仅限本服活动可用卡牌', cardScopeNote.id);
+ cardScope.label.append(cardScopeNote);
+ const timingExplanation = el('span', 'ui-text activity-timing-explanation', '在 Perfect 判定范围内调整音符的击打时机，寻找得分更高的方案。结果页会显示建议提前或延后的音符及对应帧数。');
+ timingExplanation.id = 'hit-timing-note';
+ timingExplanation.popover = 'auto';
+ const timing = activitySwitch('hit-timing-optimization', '击打优化', timingExplanation.id);
+ const timingHelp = el('button', 'ui-button ui-button--icon activity-timing-help');
+ timingHelp.type = 'button';
+ timingHelp.title = '击打优化说明';
+ timingHelp.setAttribute('aria-label', '查看击打优化说明');
+ timingHelp.setAttribute('popovertarget', timingExplanation.id);
+ timingHelp.innerHTML = designIcon('help');
+ const timingOption = el('span', 'activity-timing-option');
+ timingOption.append(timing.label, timingHelp, timingExplanation);
+ const goalHeading = fieldset.querySelector('legend');
+ const goalTitle = goalHeading.querySelector('.bo-subheading');
+ goalTitle.id = 'calculation-mode-title';
+ fieldset.setAttribute('aria-labelledby', goalTitle.id);
+ goalHeading.classList.add('activity-option-heading');
+ goalHeading.append(timingOption);
+ const cardScopeNotice = el('span', 'ui-text activity-option-notice', '缺少本服活动结束时间，使用完整卡池。');
+ cardScopeNotice.hidden = true;
+ cardScope.input.addEventListener('change', event => {
+  event.stopPropagation();
+  const player = getPlayer();
+  player.eventAvailableCardsOnly = cardScope.input.checked;
+  writePlayer(player);
+  renderForms(player);
+ });
+ timing.input.addEventListener('change', event => {
+  event.stopPropagation();
+  const player = getPlayer();
+  if (timing.input.checked) player.hitTiming = true;
+  else delete player.hitTiming;
+  writePlayer(player);
+  renderForms(player);
+ });
  const context=target.querySelector('.bo-section-heading>span');
  const eventSelection=mountEventSelection({root,target,elements,getPlayer,getProfileId,eventSnapshot,changeCustomType});
+ const eventTitle = target.querySelector('.bo-event-row .bo-subheading');
+ const eventHeading = el('div', 'activity-option-heading');
+ eventTitle.before(eventHeading);
+ eventHeading.append(eventTitle, cardScope.label, cardScopeNotice);
  target.querySelector('.bo-note').textContent='活动名称、类型、头图与加成随预设联动；歌曲可独立选择。';
  target.querySelector('#bo-advanced').remove();
  parameters.className='calc-settings bo-subsection';parameters.id='bo-calculation-settings';target.append(parameters);
@@ -43,12 +99,17 @@ export function mountActivityLayout({elements,getPlayer,getCore,getProfileId,wri
  // Team selection precedes the lower-frequency equipment settings in the accepted page.
  liveSettings.after(elements.ptEvaluateTeamPanel);elements.ptEvaluateTeamPanel.after(elements.ptEvaluateItemPanel);elements.ptEvaluateItemPanel.after(q('.activity-song-card'));
  function render(player,event,point){
-  cardScope.hidden=!supportsEventCardPool(player.calculationMode);
-  scopeInput.checked=player.eventAvailableCardsOnly===true;
+  timingOption.hidden = timing.input.disabled = player.calculationMode !== 'maximize';
+  if (timingOption.hidden && timingExplanation.matches(':popover-open')) timingExplanation.hidePopover();
+  timing.input.checked = timingOptimizationEnabled(player);
+  cardScope.label.hidden = cardScope.input.disabled = !supportsEventCardPool(player.calculationMode);
+  cardScope.input.checked = player.eventAvailableCardsOnly === true;
   const scope=eventCardPoolInfo(player,event,{...getCore()?.cardsFix,...getCore()?.cards});
-  cardScope.querySelector('p').textContent=scope.endAt===null
-   ? '当前活动缺少本服结束时间，自动使用全部已持有卡牌及已启用的自定义卡。'
-   : `按本服活动结束前发布判断，包含活动中途发布的卡牌${scopeInput.checked?` · 符合条件 ${scope.cardIds.length} 张`:''}。开启后不使用自定义卡。`;
+  cardScopeNote.textContent = scope.endAt === null
+   ? '当前活动缺少本服结束时间，将使用全部已持有卡牌及已启用的自定义卡。'
+   : `限本服活动结束前发布的卡牌，开启时排除自定义卡。${cardScope.input.checked ? `符合条件 ${scope.cardIds.length} 张。` : ''}`;
+  cardScope.label.title = cardScopeNote.textContent;
+  cardScopeNotice.hidden = cardScope.input.disabled || !cardScope.input.checked || scope.endAt !== null;
   controls.render(player,event);
   eventSelection.render(player,event);
   context.textContent=(Number(player.currentEvent)?'已选择活动 · ':'自定义活动 · ')+(eventTypeNames[event.eventType]||event.eventType);

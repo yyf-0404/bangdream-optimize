@@ -37,7 +37,8 @@ mongodb = "3.3.0"
 lettre = { version = "0.11.22", default-features = false, features = ["builder", "smtp-transport", "pool", "tokio1-rustls", "ring", "webpki-roots"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.145"
+# Chart beats and replay times must retain their f64 bits through JSON transport.
+serde_json = { version = "1.0.145", features = ["float_roundtrip"] }
 sha2 = "0.10"
 thiserror = "2.0.17"
 tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "signal"] }

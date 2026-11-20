@@ -22,8 +22,10 @@
 @import url('./src/design/components.css') layer(components);
 @import url('./src/design/motion.css') layer(components);
 @import url('./src/pages/shell/shell.css') layer(components);
+@import url('./src/pages/activity/activity-options.css') layer(components);
 @import url('./src/pages/archive/archive.css') layer(components);
 @import url('./src/pages/result/result.css') layer(components);
+@import url('./src/pages/result/hit-timing-plan.css') layer(components);
 
 /* Validation follows the visible section, including controls on another page.
    Colours follow the approved error notice (.mb-error) via tokens. */

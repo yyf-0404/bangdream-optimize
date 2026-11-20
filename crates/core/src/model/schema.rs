@@ -510,6 +510,36 @@ pub struct BuildResult {
     pub solver: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metrics: Option<CalculationMetrics>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hit_timing: Option<HitTimingBuildResult>,
+}
+
+/// Complete search within the declared chart-time model. Each song includes
+/// its exact input and witness so saved/exported results remain replayable.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HitTimingBuildResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range_restrictions: Option<crate::hit_timing::ranges::TimingRangeRequest>,
+    pub timing_revision: String,
+    pub preparation_revision: String,
+    pub model: String,
+    pub fps: u32,
+    pub offset_frames: i32,
+    pub complete: bool,
+    pub pool_card_count: usize,
+    pub equipment_combinations: usize,
+    pub probability_semantics: String,
+    pub songs: Vec<HitTimingSongResult>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HitTimingSongResult {
+    pub song_id: u32,
+    pub difficulty: u8,
+    pub input: crate::hit_timing::ReplayInput,
+    pub result: crate::hit_timing::ReplayResult,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

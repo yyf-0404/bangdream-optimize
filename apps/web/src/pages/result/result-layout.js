@@ -12,6 +12,10 @@ export function mountResultLayout(){
  const historyPanel=page.querySelector('.result-cache-panel'),dialog=el('dialog','result-history-drawer history-dialog');const header=el('header','drawer-head dialog-top');header.append(el('h2','','历史结果'));const close=el('button','icon-button');close.innerHTML=icon(CLOSE_ICON);close.type='button';close.setAttribute('aria-label','关闭历史结果');close.onclick=()=>dialog.close();header.append(close);dialog.append(header,historyPanel);historyPanel.classList.remove('panel');const note=historyPanel.querySelector('.panel-header');note.className='history-note';note.querySelector('h2').replaceWith(el('span','','当前档案的计算记录'));page.append(dialog);
  const rerun=el('button','','重新计算');rerun.type='button';rerun.dataset.calculationSubmit='';rerun.onclick=()=>{menu.open=false;document.querySelector('.side-calculate').click();};const diagnostic=el('button','','计算诊断');diagnostic.type='button';diagnostic.onclick=()=>{menu.open=false;showResultDiagnostics(currentDiagnostic);};actions.prepend(rerun,diagnostic);actions.addEventListener('click',()=>{menu.open=false;});
  const history=el('button','text-button');history.type='button';history.innerHTML=designIcon('result')+'历史结果 <small id="result-history-count">0</small>';history.onclick=()=>dialog.showModal();const tools=el('div','heading-actions');tools.append(actions.querySelector('#save-result-image'),history,menu);hero.append(tools);const notice=el('p','result-action-status');notice.id='result-action-status';notice.setAttribute('role','status');hero.after(notice);
+ page.addEventListener('timing-plan-readiness', event => {
+  const timingExport = page.querySelector('#export-hit-timing');
+  if (timingExport) timingExport.disabled = event.target.dataset.exportReady !== 'true';
+ });
  historyPanel.querySelector('#result-cache-list').addEventListener('click',e=>{if(e.target.closest('[data-result-cache-action=restore]'))dialog.close();});
  const clear=historyPanel.querySelector('#clear-result-cache');clear.textContent='清空历史';clear.className='text-button danger';
  panel.querySelector('.panel-header').remove();
@@ -28,6 +32,12 @@ export function applyResultLayout(root,result,diagnostic){
  const page=root.closest('#result-design');if(!page)return;
  page.querySelector('#save-result-image').disabled=!result;
  page.querySelector('#export-diagnostics').disabled=!diagnostic;
+ const timingExport = page.querySelector('#export-hit-timing');
+ if (timingExport) {
+  timingExport.hidden = !result?.hitTiming;
+  const plan = root.querySelector('.timing-plan');
+  timingExport.disabled = plan ? plan.dataset.exportReady !== 'true' : !result?.hitTiming?.complete;
+ }
  page.querySelector('#result-action-status').textContent='';
  const state=page.querySelector('#result-run-state');state.replaceChildren();state.innerHTML=designIcon('result');state.append(document.createTextNode(diagnostic?.error?'计算失败':result?'计算完成':'尚未计算'));state.dataset.phase=diagnostic?.error?'failed':result?'complete':'idle';
  const overview=root.querySelector('.result-overview');if(overview&&overview.children.length>4){const secondary=el('div','secondary-metrics');for(const n of [...overview.children].slice(4)){n.className='';secondary.append(n);}overview.after(secondary);}

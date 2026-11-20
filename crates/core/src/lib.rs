@@ -1,4 +1,5 @@
 pub mod event_pt;
+pub mod hit_timing;
 pub mod maximize;
 pub mod medley;
 pub mod model;
@@ -10,7 +11,9 @@ pub mod single;
 mod skill_assignment;
 pub mod skill_shuffle;
 pub(crate) mod team_prune;
-mod timing;
+pub use team_prune::framework as pruning;
+#[doc(hidden)]
+pub mod timing;
 
 /// Backward-compatible imports for callers migrating from the old module name.
 pub mod calculation {
