@@ -4,6 +4,7 @@ use crate::model::{
     preparation::{AreaItemPercent, PreparedCard},
     schema::SelectedAreaItems,
 };
+use crate::LiveVariant;
 use thiserror::Error;
 
 pub(crate) mod candidate;
@@ -49,6 +50,15 @@ pub struct SingleSongResult {
     pub captain_card_id: u32,
 }
 
+pub(crate) struct SingleSongCandidate {
+    pub score: i32,
+    pub team_card_ids: Vec<u32>,
+    pub captain_card_id: u32,
+    scoring: crate::scoring::ScoringPower,
+    power: crate::scoring::TeamPower,
+    layout: [usize; 5],
+}
+
 pub fn calculate_single_song(
     cards: &[PreparedCard],
     chart: &Chart,
@@ -56,6 +66,24 @@ pub fn calculate_single_song(
     selected_items: &SelectedAreaItems,
     mode: SongMode,
 ) -> Result<SingleSongResult, SingleSongError> {
+    let candidate = find_single_song(cards, chart, area_item_percent, selected_items, mode)?;
+    Ok(SingleSongResult {
+        score: candidate.score,
+        stat: candidate
+            .power
+            .display_for_live(candidate.layout, LiveVariant::ChallengeCp),
+        team_card_ids: candidate.team_card_ids,
+        captain_card_id: candidate.captain_card_id,
+    })
+}
+
+pub(crate) fn find_single_song(
+    cards: &[PreparedCard],
+    chart: &Chart,
+    area_item_percent: &AreaItemPercent,
+    selected_items: &SelectedAreaItems,
+    mode: SongMode,
+) -> Result<SingleSongCandidate, SingleSongError> {
     let active_indices =
         candidate::pruned_card_indices(cards, chart, area_item_percent, selected_items, mode)?;
     let cards = candidate::resolve_card_indices(

@@ -48,10 +48,6 @@ pub(crate) fn seed_medley_result_for_items(
         .enumerate()
         .map(|(song_idx, candidate)| candidate.candidate.scores[song_idx])
         .sum();
-    let total_stat = chosen_candidates
-        .iter()
-        .map(|candidate| candidate.stat)
-        .sum();
     let songs = chosen_candidates
         .iter()
         .enumerate()
@@ -64,7 +60,7 @@ pub(crate) fn seed_medley_result_for_items(
         event_id,
         event_type: EventType::Medley,
         total_score,
-        total_stat,
+        total_stat: 0,
         songs,
         items: Some(selected_items.clone()),
         solver: Some("seed".to_owned()),
@@ -310,7 +306,7 @@ fn seed_team_candidate_from_raw(
             .map(|chart_idx| cards[candidate.captain_raw_indices[chart_idx]].card_id)
             .collect(),
         scores: candidate.scores[..chart_count].to_vec(),
-        stat: candidate.stat,
+        stat: 0,
     }
 }
 
@@ -466,7 +462,7 @@ fn seed_song_result(
         song_id: song.song_id,
         difficulty: song.difficulty,
         score: candidate.scores[song_idx],
-        stat: candidate.stat,
+        stat: 0,
         team_card_ids: candidate
             .ordered_team_card_ids
             .as_ref()

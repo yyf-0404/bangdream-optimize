@@ -26,7 +26,6 @@ pub(in crate::medley) struct MedleyCardInput<'a> {
 pub(in crate::medley) struct ResolvedMedleyCardInput {
     power: crate::scoring::MemberPower,
     raw_index: usize,
-    stat: f64,
     band_id: u32,
     attribute: Attribute,
     skill: TeamCardSkill,
@@ -42,7 +41,6 @@ pub(crate) struct RawTeamCandidate {
     pub(crate) ordered_raw_indices: [[usize; TEAM_SIZE]; MEDLEY_TEAM_COUNT],
     pub(crate) captain_raw_indices: [usize; MEDLEY_TEAM_COUNT],
     pub(crate) scores: [i32; MEDLEY_TEAM_COUNT],
-    pub(crate) stat: i32,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -136,7 +134,6 @@ pub(in crate::medley) fn resolve_medley_cards_for_signature(
             Ok(ResolvedMedleyCardInput {
                 power: card.power,
                 raw_index: card.raw_index,
-                stat: card.stat,
                 band_id: card.card.band_id,
                 attribute: card.card.attribute,
                 skill,
@@ -197,7 +194,6 @@ fn build_resolved_candidate_internal<const PROFILE: bool>(
     let total_start = PROFILE.then(Timer::start);
     let stage_start = PROFILE.then(Timer::start);
     let selected_cards = selected_indices.map(|index| &cards[index]);
-    let stat_floor = crate::floor_team_stat(selected_cards.iter().map(|card| card.stat));
     let team = selected_cards.map(|card| card.skill);
     let power = crate::scoring::TeamPower::Members(selected_cards.map(|card| card.power));
     let power_groups = power.groups_for_charts(charts, options.score_as_medley);
@@ -257,7 +253,6 @@ fn build_resolved_candidate_internal<const PROFILE: bool>(
         ordered_raw_indices,
         captain_raw_indices,
         scores,
-        stat: stat_floor,
     };
     if let (Some(profile), Some(start)) = (profile.as_deref_mut(), stage_start) {
         profile.finalize_ms += start.elapsed_ms();
@@ -284,8 +279,6 @@ pub(in crate::medley) fn build_candidate(
     let team_attribute = unified_attribute(cards, &selected_indices);
     let resolved_skills =
         resolve_team_skills(cards, &selected_indices, team_band_id, team_attribute);
-    let stat_floor =
-        crate::floor_team_stat(selected_indices.iter().map(|&index| cards[index].stat));
 
     let power =
         crate::scoring::TeamPower::Members(selected_indices.map(|index| cards[index].power));
@@ -333,7 +326,6 @@ pub(in crate::medley) fn build_candidate(
         ordered_raw_indices,
         captain_raw_indices,
         scores,
-        stat: stat_floor,
     })
 }
 

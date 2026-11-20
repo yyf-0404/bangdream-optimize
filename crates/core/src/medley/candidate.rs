@@ -141,12 +141,10 @@ pub(crate) fn calculate_medley_from_raw_candidates(
         );
     }
 
-    let mut total_stat = 0;
     let mut songs = Vec::with_capacity(3);
     for (song_idx, &solver_candidate_idx) in plan.indices.iter().enumerate() {
         let candidate_idx = candidate_indices[solver_candidate_idx];
         let candidate = &request.candidates[candidate_idx];
-        total_stat += candidate.stat;
         songs.push(raw_song_result(
             &request.song_list[song_idx],
             candidate,
@@ -161,7 +159,7 @@ pub(crate) fn calculate_medley_from_raw_candidates(
         event_id: request.event_id,
         event_type: EventType::Medley,
         total_score: plan.score,
-        total_stat,
+        total_stat: 0,
         songs,
         items: request.items,
         solver: Some(format_medley_solver(plan.implementation).to_owned()),
@@ -518,7 +516,7 @@ fn raw_song_result(
         song_id: song.song_id,
         difficulty: song.difficulty,
         score: candidate.scores[song_idx],
-        stat: candidate.stat,
+        stat: 0,
         team_card_ids: candidate.ordered_raw_indices[song_idx]
             .iter()
             .map(|&raw_idx| cards[raw_idx].card_id)

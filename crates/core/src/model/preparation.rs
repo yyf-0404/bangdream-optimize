@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use thiserror::Error;
 
+mod growth;
+
 pub const ALL_BAND_KEY: &str = "1000";
 pub const ALL_ATTRIBUTE_KEY: &str = "~all";
 pub const PERFORMANCE_KEY: &str = "performance";
@@ -25,6 +27,9 @@ pub enum PreparationError {
 
     #[error("skill level {skill_level} is invalid for card {card_id}")]
     InvalidSkillLevel { card_id: u32, skill_level: u8 },
+
+    #[error("limit break rank {limit_break_rank} is invalid for card {card_id}; expected 0 through 4")]
+    InvalidLimitBreakRank { card_id: u32, limit_break_rank: u8 },
 
     #[error("level {level} is invalid for card {card_id}")]
     InvalidCardLevel { card_id: u32, level: u8 },
@@ -574,6 +579,18 @@ pub fn prepare_card(
     character_bonus: &CharacterBonusConfig,
     event: &EventBonus,
 ) -> Result<PreparedCard, PreparationError> {
+    if player_card.limit_break_rank > 4 {
+        return Err(PreparationError::InvalidLimitBreakRank {
+            card_id: card.card_id,
+            limit_break_rank: player_card.limit_break_rank,
+        });
+    }
+    if !(1..=5).contains(&player_card.skill_level) {
+        return Err(PreparationError::InvalidSkillLevel {
+            card_id: card.card_id,
+            skill_level: player_card.skill_level,
+        });
+    }
     let level = card_level(card, player_card)?;
     let base_stat =
         card.level_stats
@@ -599,20 +616,17 @@ pub fn prepare_card(
     }
     stat.add_each(card.rarity as f64 * player_card.limit_break_rank as f64 * 50.0);
 
-    let potential = stat
-        .mul_rate(character_bonus.potential.into())
-        .floor_components();
-    let character_task = stat
-        .mul_rate(character_bonus.character_task.into())
-        .floor_components();
-    stat.add(potential);
-    stat.add(character_task);
+    stat = growth::apply_character_bonuses(stat, character_bonus).map_err(|reason| {
+        PreparationError::NativePower {
+            message: format!("card {} has invalid growth: {reason}", card.card_id),
+        }
+    })?;
 
     let event_add_stat = stat.mul_rate(event_percent(card, player_card.limit_break_rank, event));
     let duration = card
         .skill
         .durations
-        .get(player_card.skill_level.saturating_sub(1) as usize)
+        .get((player_card.skill_level - 1) as usize)
         .copied()
         .ok_or(PreparationError::InvalidSkillLevel {
             card_id: card.card_id,
@@ -965,6 +979,66 @@ mod tests {
             limit_break_rank: 2,
             skill_level: 5,
         }
+    }
+
+    #[test]
+    fn rejects_player_growth_outside_supported_rank_and_skill_domains() {
+        let mut card = card_definition();
+        // A supplied sixth duration must not expand the game's skill-level domain.
+        card.skill.durations.push(7.5);
+        let bonus = CharacterBonusConfig {
+            potential: SchemaStatRate { performance: 0., technique: 0., visual: 0. },
+            character_task: SchemaStatRate { performance: 0., technique: 0., visual: 0. },
+        };
+        for rank in 5..=u8::MAX {
+            let mut config = player_card();
+            config.limit_break_rank = rank;
+            assert!(matches!(
+                prepare_card(&card, &config, &bonus, &EventBonus::default()),
+                Err(PreparationError::InvalidLimitBreakRank { card_id: 101, limit_break_rank })
+                    if limit_break_rank == rank
+            ));
+        }
+        for skill_level in 0..=u8::MAX {
+            if (1..=5).contains(&skill_level) { continue; }
+            let mut config = player_card();
+            config.skill_level = skill_level;
+            assert!(matches!(
+                prepare_card(&card, &config, &bonus, &EventBonus::default()),
+                Err(PreparationError::InvalidSkillLevel { card_id: 101, skill_level: actual })
+                    if actual == skill_level
+            ));
+        }
+        for rank in 0..=4 {
+            for skill_level in 1..=5 {
+                let mut config = player_card();
+                config.level = 0; // This is the intentional automatic maximum-level sentinel.
+                config.limit_break_rank = rank;
+                config.skill_level = skill_level;
+                let result = prepare_card(&card, &config, &bonus, &EventBonus::default()).unwrap();
+                assert_eq!((result.level, result.limit_break_rank, result.skill_level), (60, rank, skill_level));
+                assert_eq!(result.skill.duration, card.skill.durations[(skill_level - 1) as usize]);
+            }
+        }
+    }
+
+    #[test]
+    fn prepares_integer_growth_before_native_power_at_decimal_boundary() {
+        let mut card = card_definition();
+        card.level_stats.get_mut(&60).unwrap().technique = 5500;
+        let mut config = player_card();
+        config.training = false;
+        config.episodes = [false, false];
+        config.limit_break_rank = 0;
+        let mut bonus = CharacterBonusConfig {
+            potential: SchemaStatRate {performance:0., technique:0., visual:0.},
+            character_task: SchemaStatRate {performance:0., technique:0.018, visual:0.},
+        };
+        let grown = prepare_card(&card, &config, &bonus, &EventBonus::default()).unwrap();
+        assert_eq!(grown.stat.technique, 5599.);
+        assert_eq!(grown.native_power.unwrap().original[1], 5599);
+        bonus.potential.performance = -0.01;
+        assert!(prepare_card(&card, &config, &bonus, &EventBonus::default()).is_err());
     }
 
     #[test]

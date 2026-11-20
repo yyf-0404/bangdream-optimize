@@ -2,6 +2,7 @@ pub mod candidate;
 pub(crate) mod disjoint_bound;
 mod enumeration;
 pub mod error;
+pub mod key_pair_bound;
 pub(crate) use crate::team_prune as prune;
 pub(crate) mod scoring;
 pub(crate) mod seed;

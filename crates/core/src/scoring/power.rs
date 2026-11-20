@@ -1,4 +1,5 @@
 use super::{nonnegative, ScoringError};
+use crate::{AreaItemPercent, LiveVariant, PreparedCard, SelectedAreaItems};
 
 /// Aggregate targeted item values in equipment order before dividing by 100.
 /// Inputs are master-data percentages, not already-divided per-group rates.
@@ -168,25 +169,42 @@ pub struct DeckPower {
     with_area_total: f32,
 }
 
+fn sum_axes(values: [f32; 3]) -> f32 {
+    (values[0] + values[1]) + values[2]
+}
+
+fn original_and_area_totals(members: &[MemberPower]) -> (f32, f32) {
+    let mut original = [0.0_f32; 3];
+    let mut area = [0.0_f32; 3];
+    for member in members {
+        for i in 0..3 {
+            original[i] += member.original[i];
+            area[i] += member.with_area[i] - member.original[i];
+        }
+    }
+    (sum_axes(original), sum_axes(area))
+}
+
+pub(super) fn cooperative_room_stat(members: &[MemberPower]) -> i32 {
+    // ScreenLayerMultiPlayLiveLevelSelect.get_DeckTotalParam passes this
+    // integer to room selection before the song starts.
+    let (original, area) = original_and_area_totals(members);
+    (original + area) as i32
+}
+
 impl DeckPower {
     pub fn from_members(members: &[MemberPower]) -> Result<Self, ScoringError> {
-        let mut original = [0.0_f32; 3];
-        let mut area = [0.0_f32; 3];
+        let (original_total, area_total) = original_and_area_totals(members);
         let mut event = [0.0_f32; 3];
         for member in members {
             for i in 0..3 {
-                original[i] += member.original[i];
-                area[i] += member.with_area[i] - member.original[i];
                 event[i] += member.common_event[i];
                 // Pre-adding this to common_event changes the rounding order.
                 event[i] += member.extra_event[i];
             }
         }
-        let sum = |v: [f32; 3]| (v[0] + v[1]) + v[2];
-        let original_total = sum(original);
-        let area_total = sum(area);
         let with_area_total = original_total + area_total;
-        let display_unrounded = with_area_total + sum(event);
+        let display_unrounded = with_area_total + sum_axes(event);
         Ok(Self {
             scoring: ScoringPower::from_parameters(members.iter().map(|m| m.final_parameters))?,
             display_unrounded: nonnegative(display_unrounded, "display power")?,
@@ -194,6 +212,22 @@ impl DeckPower {
             area_total: nonnegative(area_total, "area power")?,
             with_area_total: nonnegative(with_area_total, "power with area")?,
         })
+    }
+
+    pub(crate) fn from_selected_cards(
+        card_ids: [u32; 5],
+        cards: &[PreparedCard],
+        area: &AreaItemPercent,
+        items: &SelectedAreaItems,
+    ) -> Result<Self, ScoringError> {
+        let members = card_ids.map(|id| {
+            let card = cards
+                .iter()
+                .find(|card| card.card_id == id)
+                .expect("selected card belongs to the input pool");
+            card.member_power(area, &items.band, &items.attribute, items.magazine.as_str())
+        });
+        Self::from_members(&members)
     }
     pub fn scoring(self) -> ScoringPower {
         self.scoring
@@ -205,6 +239,19 @@ impl DeckPower {
         display_integer(self.display_unrounded)
     }
 
+    pub fn display_for_live(self, live_variant: LiveVariant) -> Result<i32, ScoringError> {
+        match live_variant {
+            // DeckSelectViewer and ScreenLayerMultiPlayLiveLevelSelect read
+            // DeckParamDetail.TotalParameterIncludeAreaItem.
+            LiveVariant::Solo | LiveVariant::Cooperative => display_integer(self.with_area_total),
+            LiveVariant::ChallengeCp => self.score_attack_display_integer(),
+            // Versus and Festival rooms and per-deck Medley use the inclusive total.
+            LiveVariant::Versus | LiveVariant::Festival | LiveVariant::Medley => {
+                self.display_integer()
+            }
+        }
+    }
+
     /// The score-attack screen truncates the deck's pre-event total, then adds
     /// its displayed event bonus. The bonus is `int(total - area) - int(original)`
     /// in the CN 9.4.4 UI, so truncating the full float gives a different value
@@ -212,6 +259,9 @@ impl DeckPower {
     pub fn score_attack_display_integer(self) -> Result<i32, ScoringError> {
         let with_area = display_integer(self.with_area_total)?;
         let without_area = display_integer(self.display_unrounded - self.area_total)?;
+        if without_area == 0 {
+            return Ok(with_area);
+        }
         let original = display_integer(self.original_total)?;
         let event = without_area
             .checked_sub(original)
@@ -325,7 +375,45 @@ mod tests {
         });
         let deck = DeckPower::from_members(&members).unwrap();
         assert_eq!(deck.scoring().value(), 493_923.156_25);
-        assert_eq!(deck.display_integer().unwrap(), 493_923);
-        assert_eq!(deck.score_attack_display_integer().unwrap(), 493_922);
+        assert_eq!(
+            deck.display_for_live(LiveVariant::ChallengeCp).unwrap(),
+            493_922
+        );
+        for variant in [
+            LiveVariant::Versus,
+            LiveVariant::Festival,
+            LiveVariant::Medley,
+        ] {
+            assert_eq!(deck.display_for_live(variant).unwrap(), 493_923);
+        }
+        for variant in [LiveVariant::Solo, LiveVariant::Cooperative] {
+            assert_eq!(
+                deck.display_for_live(variant).unwrap(),
+                display_integer(deck.with_area_total).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn regular_live_display_matches_game_at_the_area_bonus_rounding_boundary() {
+        let members = [
+            [12_335, 11_995, 12_790],
+            [13_752, 11_173, 12_180],
+            [13_749, 12_132, 12_386],
+            [13_815, 12_321, 11_251],
+            [14_482, 11_505, 14_121],
+        ]
+        .map(|original| {
+            MemberPower::from_bonuses(original, [0.0; 3], [1.075, 0.855, 0.855], 0.0, [0.0; 3])
+                .unwrap()
+        });
+        let deck = DeckPower::from_members(&members).unwrap();
+        assert_eq!(deck.display_for_live(LiveVariant::Solo).unwrap(), 367_415);
+        assert_eq!(
+            deck.display_for_live(LiveVariant::Cooperative).unwrap(),
+            367_415
+        );
+        assert_eq!(deck.score_attack_display_integer().unwrap(), 367_414);
+        assert_eq!(deck.scoring().value(), 367_415.156_25);
     }
 }

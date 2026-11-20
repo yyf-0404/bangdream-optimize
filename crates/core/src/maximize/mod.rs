@@ -9,6 +9,7 @@ use crate::model::preparation::{AreaItemPercent, PreparedCard};
 use crate::model::schema::{BuildResult, EventType, SelectedAreaItems, SongSelection};
 use crate::single::SingleSongError;
 use crate::timing::Timer;
+use crate::LiveVariant;
 use bangdream_optimize_medley_solver::{MedleySolverError, MedleySolverPreference};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -59,6 +60,15 @@ pub const SUPPORTED_EVENT_TYPES: [EventType; 3] =
 
 pub fn supports_event_type(event_type: EventType) -> bool {
     SUPPORTED_EVENT_TYPES.contains(&event_type)
+}
+
+fn live_variant_for_event(event_type: EventType) -> LiveVariant {
+    match event_type {
+        EventType::Medley => LiveVariant::Medley,
+        EventType::Versus => LiveVariant::Versus,
+        EventType::Challenge => LiveVariant::ChallengeCp,
+        _ => unreachable!("validated maximize event type"),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -278,6 +288,7 @@ pub fn calculate_best_result_for_items(
             })
         })
         .collect();
+    let live_variant = live_variant_for_event(event_type);
     let mut display_powers = Vec::new();
     for (song, chart) in result.songs.iter_mut().zip(charts) {
         let selected = song
@@ -343,15 +354,19 @@ pub fn calculate_best_result_for_items(
         let layout = order
             .recommended_team_card_ids
             .map(|id| selected.iter().position(|card| card.card_id == id).unwrap());
-        let display = power.display_unrounded(layout);
-        song.stat = display as i32;
-        display_powers.push(display);
+        if live_variant == LiveVariant::Medley {
+            let display = power.display_unrounded(layout);
+            song.stat = display as i32;
+            display_powers.push(display);
+        } else {
+            song.stat = power.display_for_live(layout, live_variant);
+        }
     }
-    result.total_stat = if display_powers.len() == 3 {
+    result.total_stat = if live_variant == LiveVariant::Medley {
         crate::scoring::DeckPower::display_total_values(display_powers.try_into().unwrap())
             .map_err(|error| crate::DpModelError::Chart(error.into()))?
     } else {
-        display_powers[0] as i32
+        result.songs[0].stat
     };
     let metrics = result.metrics.get_or_insert_with(Default::default);
     metrics.card_count = cards.len();
@@ -645,6 +660,59 @@ mod tests {
                     visual: 0.0,
                 },
             )]),
+        }
+    }
+
+    #[test]
+    fn single_song_result_displays_power_for_the_recommended_order_and_live() {
+        let cards = (1..=5)
+            .map(|id| {
+                let mut card = prepared_card(id, id, 1);
+                card.stat = StatValue {
+                    performance: 10_001.0,
+                    technique: 10_001.0,
+                    visual: 10_001.0,
+                };
+                card.native_power = Some(crate::scoring::preparation::PreparedPowerCard {
+                    card_id: id,
+                    band_id: card.band_id,
+                    attribute: card.attribute,
+                    original: [10_001; 3],
+                    event_percent: 25.0,
+                    extra_event: [0.0; 3],
+                });
+                card
+            })
+            .collect::<Vec<_>>();
+        let area = AreaItemPercent {
+            native_items: Vec::new(),
+            band: BTreeMap::from([("1".to_owned(), StatRate::all(0.25))]),
+            attribute: BTreeMap::from([("cool".to_owned(), StatRate::zero())]),
+            magazine: BTreeMap::from([(PERFORMANCE_KEY.to_owned(), StatRate::zero())]),
+        };
+        let charts = [chart(0)];
+
+        for (event_type, expected_stat) in [
+            (EventType::Challenge, 225_021),
+            (EventType::Versus, 225_022),
+        ] {
+            let result = calculate_best_result_for_items(
+                200,
+                event_type,
+                vec![SongSelection {
+                    song_id: 1,
+                    difficulty: 3,
+                }],
+                &cards,
+                &charts,
+                &area,
+                ItemSearchOptions::default(),
+            )
+            .unwrap();
+
+            assert!(result.songs[0].team_order.is_some());
+            assert_eq!(result.songs[0].stat, expected_stat);
+            assert_eq!(result.total_stat, expected_stat);
         }
     }
 

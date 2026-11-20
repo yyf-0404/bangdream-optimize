@@ -1,5 +1,6 @@
 //! Keep physical member order separate from skill activation order.
 use super::{DeckPower, MemberPower, ScoringPower};
+use crate::LiveVariant;
 use std::{borrow::Cow, sync::OnceLock};
 
 #[derive(Debug, Clone, Copy)]
@@ -94,12 +95,25 @@ impl TeamPower {
         }
     }
 
+    pub(crate) fn cooperative_room_stat(self, layout: [usize; 5]) -> i32 {
+        match self {
+            Self::Fixed(power) => power.value() as i32,
+            Self::Members(members) => {
+                super::power::cooperative_room_stat(&layout.map(|i| members[i]))
+            }
+        }
+    }
+
     pub fn score_attack_display_integer(self, layout: [usize; 5]) -> i32 {
+        self.display_for_live(layout, LiveVariant::ChallengeCp)
+    }
+
+    pub(crate) fn display_for_live(self, layout: [usize; 5], live_variant: LiveVariant) -> i32 {
         match self {
             Self::Fixed(value) => value.value() as i32,
             Self::Members(members) => DeckPower::from_members(&layout.map(|i| members[i]))
                 .expect("validated member parameters")
-                .score_attack_display_integer()
+                .display_for_live(live_variant)
                 .expect("validated display power"),
         }
     }

@@ -403,6 +403,7 @@ pub fn search_single_song_with_metrics(
         }
         None => return Err(PtMaximizeError::NoResult),
     };
+    let result = finish_single_team(result, cards, area_item_percent, scenario.live_variant())?;
     let metrics = trace.metrics(items.len(), modes.len());
     Ok((result, metrics))
 }
@@ -433,7 +434,35 @@ pub fn search_team_for_mode(
         &mut trace,
         &mut exact_scratch,
     )?;
-    best.ok_or(PtMaximizeError::NoResult)
+    finish_single_team(
+        best.ok_or(PtMaximizeError::NoResult)?,
+        cards,
+        area_item_percent,
+        scenario.live_variant(),
+    )
+}
+
+fn finish_single_team(
+    mut result: PtMaximizeTeamResult,
+    cards: &[PreparedCard],
+    area: &AreaItemPercent,
+    live_variant: LiveVariant,
+) -> Result<PtMaximizeTeamResult, PtMaximizeError> {
+    let ids = result
+        .evaluation
+        .recommended_team_card_ids
+        .unwrap_or_else(|| {
+            result
+                .team_card_ids
+                .as_slice()
+                .try_into()
+                .expect("selected team has five cards")
+        });
+    result.total_stat =
+        crate::scoring::DeckPower::from_selected_cards(ids, cards, area, &result.items)
+            .and_then(|power| power.display_for_live(live_variant))
+            .map_err(crate::ChartError::from)?;
+    Ok(result)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1587,13 +1616,7 @@ fn evaluate_cooperative_selection(
             .layouts
             .iter()
             .filter(|layout| layout.cards[2] == 0)
-            .all(|layout| {
-                (if super::displays_score_attack_parameters(scenario.event_type) {
-                    power.score_attack_display_integer(layout.cards)
-                } else {
-                    power.display_unrounded(layout.cards) as i32
-                }) < minimum
-            })
+            .all(|layout| power.cooperative_room_stat(layout.cards) < minimum)
     }) {
         trace.minimum_stat_rejects += u64::from(trace.enabled);
         return Ok(());
@@ -1634,15 +1657,6 @@ fn evaluate_cooperative_selection(
         minimum_stat,
         &mut exact_scratch.cooperative,
     )?;
-    let ids = evaluation
-        .recommended_team_card_ids
-        .expect("physical cooperative layout");
-    let layout = ids.map(|id| selected.iter().position(|card| card.card_id == id).unwrap());
-    let stat = if super::displays_score_attack_parameters(scenario.event_type) {
-        power.score_attack_display_integer(layout)
-    } else {
-        power.display_unrounded(layout) as i32
-    };
     finish_exact_trace(trace, evaluation_start);
 
     let (team_card_ids, captain_index) = sorted_team_with_captain_index(
@@ -1653,7 +1667,7 @@ fn evaluate_cooperative_selection(
     let candidate = PtMaximizeTeamResult {
         captain_card_id: evaluation.captain_card_id,
         team_card_ids,
-        total_stat: stat,
+        total_stat: 0,
         point_bonus_basis_points,
         items: selected_items.clone(),
         evaluation,
@@ -1746,13 +1760,10 @@ fn evaluate_selected_team(
 ) -> Result<(), PtMaximizeError> {
     let power = crate::scoring::TeamPower::Members(std::array::from_fn(|i| selected[i].power));
     if minimum_stat.is_some_and(|minimum| {
-        crate::skill_shuffle::tables().layouts.iter().all(|layout| {
-            (if super::displays_score_attack_parameters(scenario.event_type()) {
-                power.score_attack_display_integer(layout.cards)
-            } else {
-                power.display_unrounded(layout.cards) as i32
-            }) < minimum
-        })
+        crate::skill_shuffle::tables()
+            .layouts
+            .iter()
+            .all(|layout| f64::from(power.power(layout.cards)) < f64::from(minimum))
     }) {
         trace.minimum_stat_rejects += u64::from(trace.enabled);
         return Ok(());
@@ -1824,19 +1835,10 @@ fn evaluate_selected_team(
         evaluation.captain_card_id,
     );
     evaluation.captain_index = captain_index;
-    let display_ids = evaluation
-        .recommended_team_card_ids
-        .unwrap_or_else(|| std::array::from_fn(|i| selected[i].card_id));
-    let layout = display_ids.map(|id| selected.iter().position(|card| card.card_id == id).unwrap());
-    let stat = if super::displays_score_attack_parameters(scenario.event_type()) {
-        power.score_attack_display_integer(layout)
-    } else {
-        power.display_unrounded(layout) as i32
-    };
     let candidate = PtMaximizeTeamResult {
         captain_card_id: evaluation.captain_card_id,
         team_card_ids,
-        total_stat: stat,
+        total_stat: 0,
         point_bonus_basis_points,
         items: selected_items.clone(),
         evaluation,

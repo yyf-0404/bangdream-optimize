@@ -261,7 +261,6 @@ mod tests {
                         [0.0; 3],
                     ),
                     raw_index: index * 7 + 3,
-                    stat: 40_000.0 + class as f64 * 110.4 + if group == 2 { 123.0 } else { 0.0 },
                     band_id: 1,
                     attribute: Attribute::Cool,
                     skill,
@@ -286,7 +285,6 @@ mod tests {
     fn assert_same(a: &RawTeamCandidate, b: &RawTeamCandidate) {
         assert_eq!(a.raw_indices, b.raw_indices);
         assert_eq!(a.scores, b.scores);
-        assert_eq!(a.stat, b.stat);
         assert_eq!(a.ordered_raw_indices, b.ordered_raw_indices);
         assert_eq!(a.captain_raw_indices, b.captain_raw_indices);
     }

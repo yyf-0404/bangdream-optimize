@@ -21,8 +21,9 @@ pub(crate) use team::TeamPowerGroups;
 pub use team::{TeamPower, TeamPowerGroup};
 use thiserror::Error;
 
-/// Arithmetic only; this does not identify a device's frame/update policy.
-pub const ARITHMETIC_REVISION: &str = "cn-9.4.4-f32-v1";
+/// Scoring arithmetic, integer-growth preparation and CN card source corrections.
+/// Device frame policy has its own revision.
+pub const ARITHMETIC_REVISION: &str = "cn-9.4.4-f32-v5-cn-area-source";
 
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
 pub enum ScoringError {

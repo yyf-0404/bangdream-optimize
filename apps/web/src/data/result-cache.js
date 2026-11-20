@@ -1,12 +1,13 @@
-export const SCORING_REVISION = 'cn-9.4.4-f32-v1';
+import { SCORING_REVISION } from '../domain/scoring-revision.js';
 import { totalFireCost } from '../shared/utils.js';
+
+export { SCORING_REVISION };
 
 const DB_NAME = 'bangdream-optimize-result-cache-v1';
 const DB_VERSION = 1;
 const STORE = 'result-cache';
 const CACHE_KEY = 'entries';
-const CACHE_SCHEMA_VERSION = 9;
-
+export const RESULT_CACHE_SCHEMA_VERSION = 15;
 export const RESULT_CACHE_LIMIT = 20;
 
 export function resultCacheInvalidationReason(entry) {
@@ -22,7 +23,34 @@ export function resultCacheInvalidationReason(entry) {
   if (entry && (entry.scoringRevision ?? entry.result?.scoringRevision ?? entry.result?.[0]?.scoringRevision) !== SCORING_REVISION) {
     return '此历史结果使用旧版计分规则，需重新计算';
   }
+  if (usesPreviousPowerDisplay(entry)) {
+    return '综合力显示规则已更新，需重新计算';
+  }
   return entry?.reusable === false ? '游戏数据已更新，需重新计算' : '';
+}
+
+function usesPreviousPowerDisplay(entry) {
+  const version = Number(entry?.cacheVersion);
+  // The earlier timing builds had the same scoring revision but older display logic.
+  if (version === 13 || version === 14) return true;
+  if (![9, 10, 11].includes(version)) return false;
+  if (entry.calculationMode === 'scoreRange') return entry.result?.[0]?.eventType === 'versus';
+  if (version === 11) return false;
+  const { eventType, liveVariant } = entry.result ?? {};
+  if (entry.calculationMode === 'maximize') {
+    return eventType === 'challenge' || (version === 9 && eventType === 'versus');
+  }
+  if (version !== 9 || (entry.calculationMode !== 'ptMaximize' && entry.calculationMode !== 'ptEvaluate')) return false;
+  return eventType === 'versus' || eventType === 'festival'
+    || (eventType === 'challenge' && (liveVariant === 'solo' || liveVariant === 'cooperative'));
+}
+
+export function resultTotalStat(result) {
+  const value = result?.totalStat
+    ?? result?.team?.totalStat
+    ?? result?.medley?.totalStat
+    ?? result?.[0]?.totalStat;
+  return value == null ? undefined : safeNumber(value);
 }
 
 export function createResultCacheStorage({ limit = RESULT_CACHE_LIMIT } = {}) {
@@ -75,7 +103,8 @@ function normalizeEntry(entry) {
   }
   const key = String(entry.key || '').trim();
   const cacheVersion = Number(entry.cacheVersion);
-  if (!key || (![7, 8, CACHE_SCHEMA_VERSION].includes(cacheVersion) || !entry.profileId)) {
+  if (!key || !entry.profileId || !Number.isInteger(cacheVersion)
+    || cacheVersion < 7 || cacheVersion > RESULT_CACHE_SCHEMA_VERSION) {
     return undefined;
   }
   const calculationMode = ['scoreRange', 'ptMaximize', 'ptEvaluate'].includes(entry.calculationMode)
@@ -94,7 +123,7 @@ function normalizeEntry(entry) {
     calculationMode,
     activityMode: typeof entry.activityMode === 'string' ? entry.activityMode : 'medley',
     totalScore: safeNumber(entry.totalScore),
-    totalStat: safeNumber(entry.totalStat),
+    totalStat: resultTotalStat(result) ?? (result?.medley ? undefined : safeNumber(entry.totalStat)),
     songCount: safeInteger(entry.songCount),
     targetDeltaPt: safeNumber(entry.targetDeltaPt),
     playCount: safeInteger(entry.playCount),

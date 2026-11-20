@@ -106,20 +106,51 @@ test('0.4.3 schema-8 history loads intact, and invalidation survives a storage r
 
 
 test('native history keeps its rule marker while old or stale-engine results stay readable', async t => {
-  const { SCORING_REVISION, resultCacheInvalidationReason } = await import('../src/data/result-cache.js');
+  const { RESULT_CACHE_SCHEMA_VERSION, SCORING_REVISION, resultCacheInvalidationReason } = await import('../src/data/result-cache.js');
   const previous = globalThis.indexedDB;
   t.after(() => { if (previous === undefined) delete globalThis.indexedDB; else globalThis.indexedDB = previous; });
-  const current = {...entries()[0], key: 'native', cacheVersion: 9, result: {totalScore: 12345, scoringRevision: SCORING_REVISION}};
+  const current = {...entries()[0], key: 'native', cacheVersion: RESULT_CACHE_SCHEMA_VERSION, result: {totalScore: 12345, scoringRevision: SCORING_REVISION}};
+  const oldDisplay = {
+    ...current,
+    key: 'old-display',
+    cacheVersion: 9,
+    calculationMode: 'ptMaximize',
+    result: {...current.result, eventType: 'challenge', liveVariant: 'cooperative', team: {totalStat: 367414}},
+  };
+  const oldChallengeDisplays = [9, 10, 13, 14].map(cacheVersion => ({
+    ...current,
+    key: `old-challenge-${cacheVersion}`,
+    cacheVersion,
+    calculationMode: 'maximize',
+    result: {...current.result, eventType: 'challenge', totalStat: 470255},
+  }));
   const old = {...entries()[0], key: 'old', cacheVersion: 8};
   const stale = {...entries()[0], key: 'stale-wasm', cacheVersion: 9};
-  let value = [current, old, stale];
+  const medley = {teams: Array.from({length: 3}, () => ({totalStat: 300000}))};
+  const exactMedley = {
+    ...current, key: 'medley-exact', totalStat: 900000,
+    result: {...current.result, medley: {...medley, totalStat: 900002}},
+  };
+  const olderMedley = {
+    ...current, key: 'medley-no-total', cacheVersion: 11, totalStat: 900000,
+    result: {...current.result, medley},
+  };
+  let value = [current, oldDisplay, ...oldChallengeDisplays, old, stale, exactMedley, olderMedley];
   const request = result => { const r = {result}; queueMicrotask(() => r.onsuccess()); return r; };
   const store = {get: () => request(structuredClone(value)), put: next => {value = structuredClone(next); return request();}};
   globalThis.indexedDB = {open: () => request({transaction: () => ({objectStore: () => store})})};
   const storage = createResultCacheStorage();
   const loaded = await storage.loadResultCache();
-  assert.equal(loaded.length, 3);
+  assert.equal(loaded.length, 10);
   assert.equal(loaded.find(e => e.key === 'native').reusable, true);
+  assert.equal(loaded.find(e => e.key === 'medley-exact').totalStat, 900002);
+  assert.equal(loaded.find(e => e.key === 'medley-no-total').totalStat, undefined);
+  for (const previousDisplay of [oldDisplay, ...oldChallengeDisplays]) {
+    const entry = loaded.find(e => e.key === previousDisplay.key);
+    assert.equal(entry.reusable, false);
+    assert.match(resultCacheInvalidationReason(entry), /综合力显示规则已更新/);
+    assert.deepEqual(entry.result, previousDisplay.result);
+  }
   for (const key of ['old', 'stale-wasm']) {
     const entry = loaded.find(e => e.key === key);
     assert.equal(entry.reusable, false);

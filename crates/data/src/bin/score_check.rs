@@ -1,6 +1,6 @@
 use bangdream_optimize_core::{
-    calculate_area_item_percent, prepare_cards, Attribute, BuildResult, PlayerConfig, PreparedCard,
-    Server, SongSelection, TeamCardSkill,
+    calculate_area_item_percent, prepare_cards, Attribute, BuildResult, EventType, LiveVariant,
+    PlayerConfig, PreparedCard, Server, SongSelection, TeamCardSkill,
 };
 use bangdream_optimize_data::{
     BestdoriFilesystemCalculationInputBuilder, BestdoriFilesystemConfig,
@@ -127,6 +127,11 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut total_score = 0;
     let mut display_powers = Vec::new();
     let mut display_stats = Vec::new();
+    let live_variant = match diagnostic.result.event_type {
+        EventType::Medley => LiveVariant::Medley,
+        EventType::Versus => LiveVariant::Versus,
+        _ => LiveVariant::ChallengeCp,
+    };
     println!(
         "score_check: event={} items={:?} songs={}",
         event_id,
@@ -151,7 +156,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             &area,
             &items,
             &charts[song_idx],
-            diagnostic.result.event_type == bangdream_optimize_core::EventType::Medley,
+            live_variant,
         )?;
         total_score += recalculated.score;
         display_powers.push(recalculated.display_unrounded);
@@ -208,7 +213,7 @@ fn recalculate_song(
     area: &bangdream_optimize_core::AreaItemPercent,
     items: &bangdream_optimize_core::SelectedAreaItems,
     chart: &bangdream_optimize_core::Chart,
-    score_as_medley: bool,
+    live_variant: LiveVariant,
 ) -> Result<RecalculatedSong, Box<dyn Error>> {
     let band = unified_band_for_cards(team);
     let attribute = unified_attribute_for_cards(team);
@@ -227,11 +232,7 @@ fn recalculate_song(
         .collect::<Result<Vec<_>, _>>()?;
     let power = bangdream_optimize_core::scoring::DeckPower::from_members(&members)?;
     let display_unrounded = power.display_unrounded();
-    let stat = if score_as_medley {
-        power.display_integer()?
-    } else {
-        power.score_attack_display_integer()?
-    };
+    let stat = power.display_for_live(live_variant)?;
     let skills = team
         .iter()
         .map(|card| TeamCardSkill {
@@ -253,7 +254,11 @@ fn recalculate_song(
                 .ok_or("saved skill order references a card outside the team")
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let score = chart.get_score(&skill_order, power.scoring(), score_as_medley)?;
+    let score = chart.get_score(
+        &skill_order,
+        power.scoring(),
+        live_variant == LiveVariant::Medley,
+    )?;
 
     Ok(RecalculatedSong {
         score,

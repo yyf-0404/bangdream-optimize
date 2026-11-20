@@ -5,7 +5,7 @@ use crate::model::schema::{
     BuildResult, CalculationMetrics, EventType, SelectedAreaItems, SingleCalculationMetrics,
     SongBuildResult, SongSelection,
 };
-use crate::single::{calculate_single_song, mode_candidates, SingleSongError, SingleSongResult};
+use crate::single::{find_single_song, mode_candidates, SingleSongCandidate, SingleSongError};
 use crate::timing::Timer;
 
 pub(super) fn calculate_single_result_for_items(
@@ -24,7 +24,7 @@ pub(super) fn calculate_single_result_for_items(
         .into_iter()
         .filter_map(|mode| {
             mode_count += 1;
-            match calculate_single_song(cards, chart, area_item_percent, selected_items, mode) {
+            match find_single_song(cards, chart, area_item_percent, selected_items, mode) {
                 Ok(result) => {
                     valid_mode_count += 1;
                     Some(Ok(result))
@@ -33,7 +33,7 @@ pub(super) fn calculate_single_result_for_items(
                 Err(error) => Some(Err(error)),
             }
         })
-        .try_fold(None, |best: Option<SingleSongResult>, result| {
+        .try_fold(None, |best: Option<SingleSongCandidate>, result| {
             let result = result?;
             Ok::<_, SingleSongError>(Some(match best {
                 Some(best) if best.score >= result.score => best,
@@ -48,7 +48,7 @@ pub(super) fn calculate_single_result_for_items(
         event_id,
         event_type,
         total_score: best.score,
-        total_stat: best.stat,
+        total_stat: 0,
         songs: vec![single_song_result(song, best)],
         items: Some(selected_items.clone()),
         solver: Some("exact".to_owned()),
@@ -63,13 +63,13 @@ pub(super) fn calculate_single_result_for_items(
     })
 }
 
-fn single_song_result(song: &SongSelection, result: SingleSongResult) -> SongBuildResult {
+fn single_song_result(song: &SongSelection, result: SingleSongCandidate) -> SongBuildResult {
     SongBuildResult {
         team_order: None,
         song_id: song.song_id,
         difficulty: song.difficulty,
         score: result.score,
-        stat: result.stat,
+        stat: 0,
         team_card_ids: result.team_card_ids,
         captain_card_id: result.captain_card_id,
         skill_queue_risk: false,

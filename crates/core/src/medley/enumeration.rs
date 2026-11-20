@@ -964,6 +964,7 @@ impl TopValues {
 pub(in crate::medley) fn compact_raw_candidate_masks(
     raw_candidates: Vec<RawTeamCandidate>,
     cards: &[PreparedCard],
+    card_powers: &[crate::scoring::MemberPower],
     chart_count: usize,
 ) -> Result<Vec<TeamCandidate>, TeamBuildError> {
     let mut used_cards = BTreeSet::new();
@@ -1015,7 +1016,11 @@ pub(in crate::medley) fn compact_raw_candidate_masks(
             ordered_team_card_ids: Some(ordered_team_card_ids),
             captain_card_ids,
             scores,
-            stat: raw_candidate.stat,
+            stat: crate::floor_team_stat(
+                raw_candidate
+                    .raw_indices
+                    .map(|index| card_powers[index].linear_total()),
+            ),
         });
     }
 

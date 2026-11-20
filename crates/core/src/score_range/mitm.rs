@@ -822,22 +822,38 @@ pub(crate) fn search_raw_domain(
         eprintln!("score-range selected objective: {selected_objective:?}");
     }
 
-    let mut result = candidates
-        .into_values()
-        .map(|candidate| (candidate.team, candidate.plan))
-        .collect::<Vec<_>>();
-    result.sort_by_key(|(team, plan)| {
-        (
-            plan_rank(plan),
-            team.stat,
-            team.card_ids,
-            team.items.band.clone(),
-            team.items.attribute.clone(),
-            team.items.magazine.as_str(),
-        )
-    });
-    result.truncate(request.max_results.max(1));
-    Ok(result)
+    let mut winners = candidates.into_iter().collect::<Vec<_>>();
+    winners.sort_by_key(
+        |((_, _, scoring_power_bits, _), Candidate { team, plan })| {
+            (
+                plan_rank(plan),
+                *scoring_power_bits,
+                team.card_ids,
+                team.items.band.clone(),
+                team.items.attribute.clone(),
+                team.items.magazine.as_str(),
+            )
+        },
+    );
+    winners.truncate(request.max_results.max(1));
+    let live_variant = match request.event_type {
+        crate::EventType::Medley => crate::LiveVariant::Medley,
+        _ => crate::LiveVariant::Solo,
+    };
+    winners
+        .into_iter()
+        .map(|(_, Candidate { mut team, plan })| {
+            team.stat = crate::scoring::DeckPower::from_selected_cards(
+                team.card_ids,
+                &raw.cards,
+                &raw.area_item_percent,
+                &team.items,
+            )
+            .and_then(|power| power.display_for_live(live_variant))
+            .map_err(crate::ChartError::from)?;
+            Ok((team, plan))
+        })
+        .collect()
 }
 
 fn ensure_non_rateup_bound_templates(
@@ -2415,7 +2431,7 @@ fn candidate_from_pair_records(
         resolved_skill.card_id = card_ids[0];
         let team = ScoreRangeTeam {
             card_ids,
-            stat: power.display_unrounded(layout) as i32,
+            stat: 0,
             skill: resolved_skill,
             point_bonus_basis_points,
             items: items.clone(),
@@ -3530,7 +3546,11 @@ mod tests {
                     technique: 100.0,
                     visual: 100.0,
                 },
-                event_add_stat: StatValue::zero(),
+                event_add_stat: StatValue {
+                    performance: 20.0,
+                    technique: 0.0,
+                    visual: 0.0,
+                },
                 skill: TeamCardSkill {
                     card_id: id,
                     duration: 5.0,
@@ -3862,11 +3882,18 @@ mod tests {
                     song_id: plan[0].song_id,
                     difficulty: plan[0].difficulty,
                 };
+                let power = crate::scoring::DeckPower::from_selected_cards(
+                    team.card_ids,
+                    &cards,
+                    &area_item_percent,
+                    &team.items,
+                )
+                .unwrap();
                 (
                     (
                         SkillBucketKey::from_skill(team.skill),
                         team.point_bonus_basis_points,
-                        (team.stat as f32).to_bits(),
+                        power.scoring().cache_key(),
                         CandidateSongs::One(song_key),
                     ),
                     Candidate { team, plan },

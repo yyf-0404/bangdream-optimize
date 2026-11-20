@@ -3,6 +3,7 @@
 //! of two mutually disjoint companions while ignoring the current candidate.
 //! The minimum of these relaxations still overestimates a legal three-team plan.
 
+use super::key_pair_bound::{self, Candidate};
 use crate::timing::Timer;
 
 const SONG_COUNT: usize = 3;
@@ -22,11 +23,6 @@ pub(crate) fn enabled() -> bool {
     }
     #[cfg(not(feature = "experimental-compatible-prune"))]
     true
-}
-
-struct Candidate {
-    cards: [usize; TEAM_SIZE],
-    scores: [i64; SONG_COUNT],
 }
 
 struct RankedPrefix {
@@ -103,6 +99,55 @@ impl RankedPrefix {
 }
 
 pub(crate) fn candidate_indices(
+    indices: Vec<usize>,
+    cards: impl Fn(usize) -> [usize; TEAM_SIZE],
+    scores: impl Fn(usize) -> [i64; SONG_COUNT],
+    floor: i64,
+    stage: &str,
+) -> Vec<usize> {
+    // Leave tiny pools and the existing individual ablation modes alone. Key
+    // projection is worthwhile for larger complete domains; skipping it can
+    // only retain more candidates. Auto/approximate routing is decided by the
+    // caller using the original candidate count, before this function runs.
+    let mut indices = indices;
+    if indices.len() >= 256 && maximum_bound_parts(stage) == 3 && key_pair_enabled() {
+        let candidates: Vec<_> = indices
+            .iter()
+            .map(|&i| Candidate {
+                cards: cards(i),
+                scores: scores(i),
+            })
+            .collect();
+        let keys = key_pair_bound::select_keys(&candidates, key_pair_bound::MAX_KEYS);
+        let (kept, stats) = key_pair_bound::filter(&candidates, &keys, floor)
+            .expect("automatic key selection is distinct and within budget");
+        if std::env::var_os("BANGDREAM_OPTIMIZE_PT_TRACE").is_some()
+            || std::env::var_os("BANGDREAM_OPTIMIZE_DP_TRACE").is_some()
+        {
+            eprintln!("PT medley key-pair bound: stage={stage} before={} after={} keys={} masks={} elapsed_ms={:.3}",
+                stats.before,stats.after,stats.keys.len(),stats.occupied_masks,
+                (stats.preparation_seconds+stats.filter_seconds)*1000.);
+        }
+        indices = kept.into_iter().map(|i| indices[i]).collect();
+    }
+    candidate_indices_without_key_projection(indices, cards, scores, floor, stage)
+}
+
+fn key_pair_enabled() -> bool {
+    #[cfg(feature = "experimental-compatible-prune")]
+    {
+        static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ENABLED.get_or_init(|| {
+            std::env::var("BANGDREAM_OPTIMIZE_KEY_PAIR_BOUND").as_deref() != Ok("off")
+        })
+    }
+    #[cfg(not(feature = "experimental-compatible-prune"))]
+    true
+}
+
+/// For callers that already ran key projection with their own key selection,
+/// including the timing experiment's independently switchable price keys.
+pub(crate) fn candidate_indices_without_key_projection(
     indices: Vec<usize>,
     cards: impl Fn(usize) -> [usize; TEAM_SIZE],
     scores: impl Fn(usize) -> [i64; SONG_COUNT],
@@ -334,6 +379,78 @@ mod tests {
         assert_eq!(
             candidate_indices(vec![2, 0, 3, 1], |i| cards[i], |i| scores[i], 300, "test"),
             [2, 0, 1]
+        );
+    }
+
+    #[test]
+    fn large_weighted_pool_preserves_competitive_triples_and_source_indices() {
+        let mut state = 83127_u32;
+        let mut next = || {
+            state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+            state >> 8
+        };
+        let candidates: Vec<_> = (0..300)
+            .map(|i| Candidate {
+                cards: std::array::from_fn(|g| {
+                    200 * g + if i < 3 { i } else { next() as usize % 3 }
+                }),
+                scores: std::array::from_fn(|_| {
+                    if i < 3 {
+                        1_000_000_000
+                    } else {
+                        (next() as i64 % 1100 - 100) * 1_000_000
+                    }
+                }),
+            })
+            .collect();
+        // Candidate IDs are neither dense nor in sorted order. The projected
+        // table returns local positions, which must map back to these IDs.
+        let indices: Vec<_> = (0..candidates.len()).rev().map(|i| i * 3 + 7).collect();
+        let cards = |i: usize| candidates[(i - 7) / 3].cards;
+        let scores = |i: usize| candidates[(i - 7) / 3].scores;
+        let floor = 3_000_000_000;
+        let old =
+            candidate_indices_without_key_projection(indices.clone(), cards, scores, floor, "test");
+        let kept = candidate_indices(indices.clone(), cards, scores, floor, "test");
+        assert!(kept.len() < indices.len());
+        assert!(kept.iter().all(|i| old.contains(i)));
+        assert_eq!(
+            kept,
+            indices
+                .into_iter()
+                .filter(|i| kept.contains(i))
+                .collect::<Vec<_>>()
+        );
+        let active: Vec<_> = (0..candidates.len())
+            .map(|i| kept.contains(&(i * 3 + 7)))
+            .collect();
+        let separate: Vec<Vec<_>> = candidates
+            .iter()
+            .map(|a| candidates.iter().map(|b| disjoint(a, b)).collect())
+            .collect();
+        let mut competitive = 0;
+        for a in 0..candidates.len() {
+            for b in 0..candidates.len() {
+                if !separate[a][b] {
+                    continue;
+                }
+                for c in 0..candidates.len() {
+                    if separate[a][c]
+                        && separate[b][c]
+                        && candidates[a].scores[0]
+                            + candidates[b].scores[1]
+                            + candidates[c].scores[2]
+                            >= floor
+                    {
+                        competitive += 1;
+                        assert!(active[a] && active[b] && active[c]);
+                    }
+                }
+            }
+        }
+        assert!(
+            competitive >= 6,
+            "the planted tie must be checked in all song orders"
         );
     }
 

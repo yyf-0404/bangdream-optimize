@@ -130,6 +130,15 @@ unsafe fn wide_mode(
         Some(2) => run!(2),
         Some(3) => run!(3),
         Some(4) => run!(4),
+        // Research-only wider specialization; normal builds keep their route.
+        #[cfg(feature = "experimental-maximize-reuse")]
+        Some(5) => run!(5),
+        #[cfg(feature = "experimental-maximize-reuse")]
+        Some(6) => run!(6),
+        #[cfg(feature = "experimental-maximize-reuse")]
+        Some(7) => run!(7),
+        #[cfg(feature = "experimental-maximize-reuse")]
+        Some(8) => run!(8),
         _ => solve_wide_avx2_x86(input, meter),
     }
 }
@@ -150,7 +159,7 @@ mod tests {
             seed ^= seed << 17;
             seed
         };
-        for words in [1, 2, 3, 4, 5, 7] {
+        for words in [1, 2, 3, 4, 5, 6, 7, 8, 9, 12] {
             for n in [0, 1, 2, 4, 7, 8, 9, 31] {
                 for case in 0..12 {
                     let masks: Vec<_> = (0..n)

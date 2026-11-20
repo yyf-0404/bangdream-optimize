@@ -38,13 +38,13 @@ struct CooperativeScoreKey {
 #[derive(Clone, Copy)]
 pub struct CooperativePower {
     pub scoring: ScoringPower,
-    pub display: i32,
+    pub room_stat: i32,
 }
 impl From<i32> for CooperativePower {
     fn from(value: i32) -> Self {
         Self {
             scoring: ScoringPower::new(value as f32).expect("validated power"),
-            display: value,
+            room_stat: value,
         }
     }
 }
@@ -219,11 +219,8 @@ fn native_full_team_summary(
     if let Some(minimum) = minimum {
         for group in &mut groups {
             group.layouts.to_mut().retain(|&index| {
-                (if super::displays_score_attack_parameters(scenario.event_type()) {
-                    power.score_attack_display_integer(skill_shuffle::tables().layouts[index].cards)
-                } else {
-                    power.display_unrounded(skill_shuffle::tables().layouts[index].cards) as i32
-                }) >= minimum
+                let layout = &skill_shuffle::tables().layouts[index];
+                f64::from(power.power(layout.cards)) >= f64::from(minimum)
             });
         }
         groups.retain(|group| !group.layouts.is_empty());
@@ -560,23 +557,19 @@ pub(crate) fn evaluate_cooperative_layouts(
         if captain.is_some_and(|index| index != captain_index) {
             continue;
         }
-        let display = if super::displays_score_attack_parameters(scenario.event_type) {
-            power.score_attack_display_integer(layout.cards)
-        } else {
-            power.display_unrounded(layout.cards) as i32
-        };
-        if minimum.is_some_and(|minimum| display < minimum) {
+        let room_stat = power.cooperative_room_stat(layout.cards);
+        if minimum.is_some_and(|minimum| room_stat < minimum) {
             continue;
         }
         let scoring = power.power(layout.cards);
-        if !seen.insert((captain_index, scoring.cache_key(), display)) {
+        if !seen.insert((captain_index, scoring.cache_key(), room_stat)) {
             continue;
         }
         let mut evaluation = evaluate_cooperative_captain_with_scratch(
             chart,
             team[captain_index],
             captain_index,
-            CooperativePower { scoring, display },
+            CooperativePower { scoring, room_stat },
             scenario,
             scratch,
         )?;
@@ -606,7 +599,7 @@ pub(crate) fn evaluate_cooperative_captain_with_scratch(
         scenario.leader_selection,
         std::array::from_fn(|i| {
             if i == 0 {
-                stat.display
+                stat.room_stat
             } else {
                 scenario.teammates[i - 1].expected_stat
             }

@@ -1,4 +1,4 @@
-//! Experimental per-card inverted index in the second/third song's score order.
+//! Bounded per-card inverted index in the second/third song's score order.
 //! Both loops skip conflicting positions in 64-candidate blocks. The third-song
 //! complement for the first team is built lazily and reused for every second team.
 use super::*;
@@ -18,12 +18,63 @@ struct CardIndex {
     stride: usize,
 }
 
+struct Members {
+    cards: Vec<usize>,
+    offsets: Vec<usize>,
+}
+
+impl Members {
+    fn get(&self, candidate: usize) -> &[usize] {
+        &self.cards[self.offsets[candidate]..self.offsets[candidate + 1]]
+    }
+}
+
+// Production WASM only: bound all additional array payloads before allocating
+// the index. Oversized/sparse-wide requests retain the portable prefix scan.
+#[cfg(any(test, target_arch = "wasm32"))]
+pub(super) fn within_budget<'a>(count: usize, masks: impl Iterator<Item = &'a [u64]>) -> bool {
+    if count < 256 {
+        return false;
+    }
+    let mut used = [0u64; 4];
+    let mut members = 0usize;
+    for mask in masks {
+        if mask.len() > used.len() {
+            return false;
+        }
+        for (word, &bits) in mask.iter().enumerate() {
+            used[word] |= bits;
+            members = members.saturating_add(bits.count_ones() as usize);
+        }
+    }
+    let cards: usize = used.iter().map(|bits| bits.count_ones() as usize).sum();
+    if cards == 0 {
+        return false;
+    }
+    let blocks = count.div_ceil(64);
+    // Two inverted indexes, cached third blocks, two score arrays, flat member
+    // IDs and offsets, plus a conservative allowance for the <=256 ID map.
+    let bytes = cards
+        .saturating_mul(blocks)
+        .saturating_mul(16)
+        .saturating_add(blocks.saturating_mul(8))
+        .saturating_add(count.saturating_mul(16))
+        .saturating_add(
+            members
+                .saturating_add(count)
+                .saturating_add(1)
+                .saturating_mul(std::mem::size_of::<usize>()),
+        )
+        .saturating_add(cards.saturating_mul(64));
+    bytes <= 8 * 1024 * 1024
+}
+
 impl CardIndex {
-    fn new(order: &[usize], members: &[Vec<usize>], card_count: usize) -> Self {
+    fn new(order: &[usize], members: &Members, card_count: usize) -> Self {
         let stride = order.len().div_ceil(64);
         let mut words = vec![0; card_count * stride];
         for (position, &candidate) in order.iter().enumerate() {
-            for &card in &members[candidate] {
+            for &card in members.get(candidate) {
                 words[card * stride + position / 64] |= 1u64 << (position % 64);
             }
         }
@@ -44,24 +95,30 @@ impl CardIndex {
 
 // Compact sparse/high mask bits before allocating rows. No candidate x candidate
 // matrix is stored; index space is O(distinct cards * candidates / 64).
-fn card_members<'a>(masks: impl Iterator<Item = &'a [u64]>) -> (Vec<Vec<usize>>, usize) {
+fn card_members<'a>(masks: impl Iterator<Item = &'a [u64]> + Clone) -> (Members, usize) {
     let mut slots = std::collections::HashMap::new();
-    let members = masks
-        .map(|mask| {
-            let mut cards = Vec::new();
-            for (word, &bits) in mask.iter().enumerate() {
-                let mut remaining = bits;
-                while remaining != 0 {
-                    let bit = word * 64 + remaining.trailing_zeros() as usize;
-                    let next = slots.len();
-                    cards.push(*slots.entry(bit).or_insert(next));
-                    remaining &= remaining - 1;
-                }
+    let count = masks.clone().count();
+    let member_count: usize = masks
+        .clone()
+        .flat_map(|mask| mask.iter())
+        .map(|bits| bits.count_ones() as usize)
+        .sum();
+    let mut cards = Vec::with_capacity(member_count);
+    let mut offsets = Vec::with_capacity(count + 1);
+    offsets.push(0);
+    for mask in masks {
+        for (word, &bits) in mask.iter().enumerate() {
+            let mut remaining = bits;
+            while remaining != 0 {
+                let bit = word * 64 + remaining.trailing_zeros() as usize;
+                let next = slots.len();
+                cards.push(*slots.entry(bit).or_insert(next));
+                remaining &= remaining - 1;
             }
-            cards
-        })
-        .collect();
-    (members, slots.len())
+        }
+        offsets.push(cards.len());
+    }
+    (Members { cards, offsets }, slots.len())
 }
 
 #[inline]
@@ -87,7 +144,7 @@ fn block_end(scores: &[BandScore], start: usize, prefix: BandScore, floor: BandS
 pub(super) fn enumerate<'a>(
     floor: BandScore,
     scores: &[[BandScore; 3]],
-    masks: impl Iterator<Item = &'a [u64]>,
+    masks: impl Iterator<Item = &'a [u64]> + Clone,
     mut visit: impl FnMut([usize; 3], BandScore) -> MedleyBandVisit,
 ) -> MedleyBandMetrics {
     // The bitmap implementation is portable scalar u64 code, including on WASM.
@@ -130,7 +187,7 @@ pub(super) fn enumerate<'a>(
             if end == start {
                 break;
             }
-            let mut js = second.exclude(&members[i], j_block, low_bits(end - start));
+            let mut js = second.exclude(members.get(i), j_block, low_bits(end - start));
             let mut counted_to = start;
             while js != 0 {
                 let j_pos = start + js.trailing_zeros() as usize;
@@ -156,11 +213,11 @@ pub(super) fn enumerate<'a>(
                     }
                     let k_end = block_end(&third_scores, k_start, score_ij, metrics.final_floor);
                     if k_block == built_third_blocks {
-                        third_without_i[k_block] = third.exclude(&members[i], k_block, u64::MAX);
+                        third_without_i[k_block] = third.exclude(members.get(i), k_block, u64::MAX);
                         built_third_blocks += 1;
                     }
                     let mut ks = third.exclude(
-                        &members[j],
+                        members.get(j),
                         k_block,
                         third_without_i[k_block] & low_bits(k_end - k_start),
                     );
@@ -209,6 +266,31 @@ pub(super) fn enumerate<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn production_bitmap_budget_rejects_large_and_wide_indexes() {
+        let mask = [31u64];
+        assert!(!within_budget(
+            255,
+            std::iter::repeat(mask.as_slice()).take(255)
+        ));
+        assert!(within_budget(
+            256,
+            std::iter::repeat(mask.as_slice()).take(256)
+        ));
+        assert!(!within_budget(
+            1_000_000,
+            std::iter::repeat(mask.as_slice()).take(1_000_000)
+        ));
+        assert!(!within_budget(
+            256,
+            std::iter::repeat([0u64; 5].as_slice()).take(256)
+        ));
+        assert!(!within_budget(
+            256,
+            std::iter::repeat([0u64].as_slice()).take(256)
+        ));
+    }
 
     fn compare(input: WideMedleyBandInput) {
         for mode in 0..3 {

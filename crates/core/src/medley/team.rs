@@ -119,7 +119,8 @@ pub(crate) fn build_team_candidates_with_current_best(
         current_best,
     )?;
 
-    compact_raw_candidate_masks(raw_candidates, cards, charts.len())
+    let card_powers = adjusted_card_stats(cards, area_item_percent, selected_items);
+    compact_raw_candidate_masks(raw_candidates, cards, &card_powers, charts.len())
 }
 
 pub(crate) fn build_raw_team_candidates_with_current_best(
@@ -305,7 +306,6 @@ fn build_raw_team_candidates_internal(
             candidate.ordered_raw_indices.hash(&mut hash);
             candidate.captain_raw_indices.hash(&mut hash);
             candidate.scores.hash(&mut hash);
-            candidate.stat.hash(&mut hash);
         }
         eprintln!(
             "raw candidate fingerprint: count={} hash={:016x}",

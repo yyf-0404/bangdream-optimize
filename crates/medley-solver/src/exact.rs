@@ -4,12 +4,15 @@ use crate::{
     MedleySolverQuality, Score, TeamMask, WideMedleyBandInput, WideMedleySolverInput,
 };
 
+#[path = "portable_reuse.rs"]
+mod portable_reuse;
+
 #[cfg(target_arch = "x86")]
 use std::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
-#[cfg(any(test, feature = "experimental-bitmap-band"))]
+#[cfg(any(test, feature = "experimental-bitmap-band", target_arch = "wasm32"))]
 #[path = "bitmap_band.rs"]
 mod bitmap_band;
 
@@ -283,7 +286,8 @@ pub(crate) fn solve_scalar(
     implementation: MedleySolverImplementation,
 ) -> Result<MedleySolverPlan, MedleySolverError> {
     let started = trace_start();
-    let outcome = solve_scalar_internal(input, implementation, WorkMeter::unlimited());
+    let masks: Vec<_> = input.team_masks.iter().map(|&mask| [mask]).collect();
+    let outcome = portable_reuse::solve(&input.scores, &masks, input.current_best, implementation);
     trace_exact_outcome("scalar", input.scores.len(), &outcome, started);
     outcome.into_plan(MedleySolverQuality::Exact)
 }
@@ -344,7 +348,7 @@ pub(crate) fn solve_wide_scalar(
     input: &WideMedleySolverInput,
 ) -> Result<MedleySolverPlan, MedleySolverError> {
     let started = trace_start();
-    let outcome = solve_wide_scalar_internal(input, WorkMeter::unlimited());
+    let outcome = portable_reuse::solve_wide(input);
     trace_exact_outcome("scalarWide", input.scores.len(), &outcome, started);
     outcome.into_plan(MedleySolverQuality::Exact)
 }
@@ -570,6 +574,18 @@ pub(crate) fn enumerate_band(
             visit,
         ));
     }
+    #[cfg(target_arch = "wasm32")]
+    if bitmap_band::within_budget(
+        input.scores.len(),
+        input.team_masks.iter().map(std::slice::from_ref),
+    ) {
+        return Ok(bitmap_band::enumerate(
+            input.floor,
+            &input.scores,
+            input.team_masks.iter().map(std::slice::from_ref),
+            visit,
+        ));
+    }
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
         if avx2_available() {
@@ -578,7 +594,14 @@ pub(crate) fn enumerate_band(
         }
     }
 
-    Ok(enumerate_band_scalar(input, visit))
+    let masks: Vec<_> = input.team_masks.iter().map(|&mask| [mask]).collect();
+    Ok(portable_reuse::enumerate(
+        input.floor,
+        &input.scores,
+        &masks,
+        MedleySolverImplementation::Scalar,
+        visit,
+    ))
 }
 
 pub(crate) fn enumerate_band_wide(
@@ -594,6 +617,20 @@ pub(crate) fn enumerate_band_wide(
             visit,
         ));
     }
+    #[cfg(target_arch = "wasm32")]
+    if bitmap_band::within_budget(
+        input.scores.len(),
+        input.team_masks.iter().map(Vec::as_slice),
+    ) {
+        let mut metrics = bitmap_band::enumerate(
+            input.floor,
+            &input.scores,
+            input.team_masks.iter().map(Vec::as_slice),
+            visit,
+        );
+        metrics.implementation = MedleySolverImplementation::ScalarWide;
+        return Ok(metrics);
+    }
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
         if avx2_available() {
@@ -603,7 +640,7 @@ pub(crate) fn enumerate_band_wide(
         }
     }
 
-    Ok(enumerate_band_wide_scalar(input, visit))
+    Ok(portable_reuse::enumerate_wide(input, visit))
 }
 
 fn enumerate_band_scalar(
@@ -754,6 +791,14 @@ unsafe fn enumerate_reuse_wide(
         Some(2) => run!(2),
         Some(3) => run!(3),
         Some(4) => run!(4),
+        #[cfg(feature = "experimental-maximize-reuse")]
+        Some(5) => run!(5),
+        #[cfg(feature = "experimental-maximize-reuse")]
+        Some(6) => run!(6),
+        #[cfg(feature = "experimental-maximize-reuse")]
+        Some(7) => run!(7),
+        #[cfg(feature = "experimental-maximize-reuse")]
+        Some(8) => run!(8),
         _ => enumerate_band_wide_avx2_impl::<0>(input, visit),
     }
 }
@@ -1439,6 +1484,71 @@ mod tests {
                 if avx2_available() {
                     assert_eq!(solve_avx2(&input).unwrap().score, brute_score);
                 }
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn wide_band_enumeration_matches_scalar_across_fallback_boundary() {
+        if !avx2_available() {
+            return;
+        }
+        let mut state = 0x7d6b_81c9_4ea2_f305u64;
+        let mut next = || {
+            state ^= state << 7;
+            state ^= state >> 9;
+            state
+        };
+
+        for words in [5, 6, 7, 8, 9, 12] {
+            for case in 0..12 {
+                let mut team_masks = Vec::new();
+                let mut scores = Vec::new();
+                for _ in 0..9 {
+                    let mut mask = vec![0; words];
+                    if case == 1 {
+                        mask[words - 1] = 1 << 63;
+                    } else if case != 0 {
+                        for _ in 0..3 {
+                            let bit = next() as usize % (words * 64);
+                            mask[bit / 64] |= 1 << (bit % 64);
+                        }
+                    }
+                    team_masks.push(mask);
+                    scores.push(std::array::from_fn(|_| {
+                        if case == 2 {
+                            100
+                        } else {
+                            (next() % 401) as BandScore
+                        }
+                    }));
+                }
+                let input = WideMedleyBandInput {
+                    floor: if case < 3 {
+                        0
+                    } else {
+                        (next() % 901) as BandScore
+                    },
+                    team_masks,
+                    scores,
+                };
+                let mut expected = std::collections::BTreeSet::new();
+                let scalar = enumerate_band_wide_scalar(&input, |indices, score| {
+                    expected.insert((indices, score));
+                    MedleyBandVisit::Continue { floor: input.floor }
+                });
+                let mut actual = std::collections::BTreeSet::new();
+                // SAFETY: runtime AVX2 support was checked above.
+                let reused = unsafe {
+                    enumerate_reuse_wide(&input, |indices, score| {
+                        actual.insert((indices, score));
+                        MedleyBandVisit::Continue { floor: input.floor }
+                    })
+                };
+                assert_eq!(actual, expected, "words={words}, case={case}");
+                assert_eq!(reused.compatible_triples, scalar.compatible_triples);
+                assert_eq!(reused.final_floor, scalar.final_floor);
             }
         }
     }

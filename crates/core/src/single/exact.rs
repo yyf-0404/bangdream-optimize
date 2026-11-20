@@ -1,4 +1,4 @@
-use super::{candidate::ResolvedSingleCard, SingleSongError, SingleSongResult};
+use super::{candidate::ResolvedSingleCard, SingleSongCandidate, SingleSongError};
 use crate::single::profile::skill_meta_profile_for_pool;
 use crate::timing::{optional_elapsed_ms, Timer};
 use crate::{
@@ -93,7 +93,7 @@ struct SearchContext<'a> {
     skills: &'a [TeamCardSkill],
     groups: &'a [Vec<ExactCard>],
     suffix: &'a [SuffixBound],
-    best: Option<SingleSongResult>,
+    best: Option<SingleSongCandidate>,
     score_cache: HashMap<(u32, [u16; SKILL_COUNT]), i32>,
     timeline_cache: HashMap<[u16; SKILL_COUNT], CompiledSixSkillScore>,
     power_cache: HashMap<[u32; 5], (crate::scoring::TeamPower, crate::scoring::TeamPowerGroups)>,
@@ -105,7 +105,7 @@ struct SearchContext<'a> {
 pub(super) fn solve(
     cards: &[ResolvedSingleCard],
     chart: &Chart,
-) -> Result<SingleSongResult, SingleSongError> {
+) -> Result<SingleSongCandidate, SingleSongError> {
     let trace = exact_profile_enabled();
     let prepare_start = trace.then(Timer::start);
     let (skills, groups, raw_cards, active_cards) = prepare_cards(cards, chart)?;
@@ -434,13 +434,6 @@ fn score_leaf(context: &mut SearchContext<'_>, state: &SearchState) -> Result<()
             .unwrap();
         let stat = group.power;
         let stat_key = stat.cache_key();
-        let layout = group
-            .layouts
-            .iter()
-            .map(|&i| &crate::skill_shuffle::tables().layouts[i])
-            .find(|l| l.cards[2] == captain && l.counts[order] != 0)
-            .unwrap();
-        let display_stat = power.score_attack_display_integer(layout.cards);
         let score_upper = integer_score_upper(
             f64::from(stat)
                 * (context.no_skill_meta + state.normal_meta + state.captain_meta[captain_idx]),
@@ -498,21 +491,28 @@ fn score_leaf(context: &mut SearchContext<'_>, state: &SearchState) -> Result<()
             score
         };
         context.profile.score_ms += optional_elapsed_ms(score_start);
-        let candidate = SingleSongResult {
-            score,
-            stat: display_stat,
-            team_card_ids: state.card_ids.to_vec(),
-            captain_card_id: state.card_ids[captain_idx],
-        };
         if context.best.as_ref().is_none_or(|old| {
-            candidate.score > old.score
-                || (candidate.score == old.score && candidate.stat > old.stat)
-                || (candidate.score == old.score
-                    && candidate.stat == old.stat
-                    && candidate.team_card_ids < old.team_card_ids)
+            score > old.score
+                || (score == old.score && stat > old.scoring)
+                || (score == old.score
+                    && stat == old.scoring
+                    && state.card_ids.as_slice() < old.team_card_ids.as_slice())
         }) {
+            let layout = group
+                .layouts
+                .iter()
+                .map(|&i| &crate::skill_shuffle::tables().layouts[i])
+                .find(|layout| layout.cards[2] == captain && layout.counts[order] != 0)
+                .unwrap();
             context.profile.incumbent_updates += 1;
-            context.best = Some(candidate);
+            context.best = Some(SingleSongCandidate {
+                score,
+                team_card_ids: state.card_ids.to_vec(),
+                captain_card_id: state.card_ids[captain_idx],
+                scoring: stat,
+                power: *power,
+                layout: layout.cards,
+            });
         }
     }
     Ok(())

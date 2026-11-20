@@ -145,9 +145,31 @@ pub fn search_medley_with_metrics(
             best = Some(candidate);
         }
     }
-    let result = best
+    let mut result = best
         .map(|plan| plan.result)
         .ok_or(PtMaximizeError::NoResult)?;
+    let display_values = std::array::from_fn(|song| -> Result<_, crate::ChartError> {
+        let team = &mut result.teams[song];
+        let ids = team.recommended_team_card_ids.unwrap_or_else(|| {
+            team.team_card_ids
+                .as_slice()
+                .try_into()
+                .expect("selected team has five cards")
+        });
+        let power = crate::scoring::DeckPower::from_selected_cards(
+            ids,
+            cards,
+            area_item_percent,
+            &team.items,
+        )?;
+        team.total_stat = power.display_integer()?;
+        Ok(power.display_unrounded())
+    })
+    .transpose_array()?;
+    result.total_stat = Some(
+        crate::scoring::DeckPower::display_total_values(display_values)
+            .map_err(crate::ChartError::from)?,
+    );
     search_metrics.total_elapsed_ms = total_start.elapsed_ms();
     Ok((result, search_metrics))
 }
@@ -1089,50 +1111,25 @@ fn medley_result_for_distributions(
             i128::from(histogram.score_sum) * i128::from(sample_count / histogram.sample_count)
         })
         .sum();
-    let display_values = std::array::from_fn(|song| {
-        let candidate = &candidates[candidate_indices[song]];
-        candidate.power.display_unrounded(
-            distributions[song]
-                .recommended_team_card_ids
-                .unwrap_or(candidate.skills.map(|s| s.card_id))
-                .map(|id| {
-                    candidate
-                        .skills
-                        .iter()
-                        .position(|skill| skill.card_id == id)
-                        .unwrap()
-                }),
-        )
-    });
     let teams = (0..SONG_COUNT)
         .map(|song| {
             let candidate = &candidates[candidate_indices[song]];
             PtMaximizeMedleyTeamResult {
-                recommended_team_card_ids: distributions[song].recommended_team_card_ids,
-                team_card_ids: candidate.card_ids.clone(),
-                captain_card_id: distributions[song].captain_card_id,
-                total_stat: candidate.power.display_unrounded(
+                recommended_team_card_ids: Some(
                     distributions[song]
                         .recommended_team_card_ids
-                        .unwrap_or(candidate.skills.map(|s| s.card_id))
-                        .map(|id| {
-                            candidate
-                                .skills
-                                .iter()
-                                .position(|skill| skill.card_id == id)
-                                .unwrap()
-                        }),
-                ) as i32,
+                        .unwrap_or_else(|| candidate.skills.map(|skill| skill.card_id)),
+                ),
+                team_card_ids: candidate.card_ids.clone(),
+                captain_card_id: distributions[song].captain_card_id,
+                total_stat: 0,
                 items: items.clone(),
                 score_distribution: distributions[song].distribution.clone(),
             }
         })
         .collect();
     Ok(PtMaximizeMedleyResult {
-        total_stat: Some(
-            crate::scoring::DeckPower::display_total_values(display_values)
-                .map_err(crate::ChartError::from)?,
-        ),
+        total_stat: None,
         teams,
         average_pt: AveragePt::new(pt_sum, sample_count)?,
         min_pt: medley_three_song_points(min_score),

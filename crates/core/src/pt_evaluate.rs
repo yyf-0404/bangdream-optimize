@@ -15,6 +15,8 @@ use crate::{
     PtMaximizeTeamResult, ScoreHistogram, SelectedAreaItems, SongMode, SongSelection, VersusInput,
 };
 
+use crate::scoring::{DeckPower, MemberPower, ScoringPower};
+
 pub const FIXED_CAPTAIN_INDEX: usize = 2;
 const TEAM_SIZE: usize = 5;
 const MEDLEY_SONG_COUNT: usize = 3;
@@ -240,15 +242,9 @@ pub fn evaluate_specified_teams(
                 request.items.magazine.as_str(),
             )
         });
-        let power = crate::scoring::DeckPower::from_members(&members)
-            .map_err(|error| PtMaximizeError::Chart(error.into()))?;
-        let total_stat =
-            if crate::pt_maximize::displays_score_attack_parameters(request.event_type) {
-                power.score_attack_display_integer()
-            } else {
-                power.display_integer()
-            }
-            .map_err(|error| PtMaximizeError::Chart(error.into()))?;
+        let scoring =
+            ScoringPower::from_member_parameters(&members.map(MemberPower::final_parameters))
+                .map_err(|error| PtMaximizeError::Chart(error.into()))?;
         let point_bonus_basis_points = if application == EventBonusApplication::PointMultiplier {
             point_bonus_basis_points(selected.iter().map(|card| {
                 point_bonus_micros
@@ -259,20 +255,23 @@ pub fn evaluate_specified_teams(
         } else {
             0
         };
-        resolved.push((skills, total_stat, point_bonus_basis_points, power));
+        resolved.push((skills, point_bonus_basis_points, members, scoring));
     }
 
     if request.live_variant != LiveVariant::Medley {
-        let (skills, total_stat, point_bonus_basis_points, power) = resolved[0];
+        let (skills, point_bonus_basis_points, members, scoring) = resolved[0];
         let scenario = single_scenario(request, point_bonus_basis_points)?;
         let distribution = fixed_captain_score_distribution(
             &charts[0],
             &skills,
-            power.scoring(),
+            scoring,
             false,
             FIXED_CAPTAIN_INDEX,
         )?;
         let evaluation = evaluate_fixed_distribution(distribution, scenario)?;
+        let total_stat = DeckPower::from_members(&members)
+            .and_then(|power| power.display_for_live(request.live_variant))
+            .map_err(|error| PtMaximizeError::Chart(error.into()))?;
         return Ok((
             Some(PtMaximizeTeamResult {
                 team_card_ids: request.teams[0].card_ids.to_vec(),
@@ -287,27 +286,32 @@ pub fn evaluate_specified_teams(
     }
 
     let mut team_results = Vec::with_capacity(MEDLEY_SONG_COUNT);
-    for song in 0..MEDLEY_SONG_COUNT {
-        let (skills, total_stat, _, power) = resolved[song];
+    let mut display_values = [0.0; MEDLEY_SONG_COUNT];
+    for (song, (skills, _, members, scoring)) in resolved.into_iter().enumerate() {
         let distribution = fixed_captain_score_distribution(
             &charts[song],
             &skills,
-            power.scoring(),
+            scoring,
             true,
             FIXED_CAPTAIN_INDEX,
         )?;
+        let power = DeckPower::from_members(&members)
+            .map_err(|error| PtMaximizeError::Chart(error.into()))?;
+        display_values[song] = power.display_unrounded();
         team_results.push(PtMaximizeMedleyTeamResult {
             recommended_team_card_ids: None,
             team_card_ids: request.teams[song].card_ids.to_vec(),
             captain_card_id: request.teams[song].captain_card_id,
-            total_stat,
+            total_stat: power
+                .display_integer()
+                .map_err(|error| PtMaximizeError::Chart(error.into()))?,
             items: request.items.clone(),
             score_distribution: distribution.distribution,
         });
     }
     let mut medley = fixed_medley_result(team_results)?;
     medley.total_stat = Some(
-        crate::scoring::DeckPower::medley_display(&std::array::from_fn(|i| resolved[i].3))
+        DeckPower::display_total_values(display_values)
             .map_err(|error| PtMaximizeError::Chart(error.into()))?,
     );
     Ok((None, Some(medley)))
