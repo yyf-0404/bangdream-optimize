@@ -1,17 +1,18 @@
+// The first variant is the default for profiles without a saved choice.
 const PT_MAXIMIZE_LIVE_VARIANTS_BY_EVENT_TYPE = {
-  mission_live: ['solo', 'cooperative'],
-  live_try: ['solo', 'cooperative'],
-  challenge: ['solo', 'cooperative', 'challenge_cp'],
-  versus: ['solo', 'versus'],
-  festival: ['solo', 'festival'],
+  mission_live: ['cooperative', 'solo'],
+  live_try: ['cooperative', 'solo'],
+  challenge: ['cooperative', 'challenge_cp', 'solo'],
+  versus: ['versus', 'solo'],
+  festival: ['festival', 'solo'],
   medley: ['medley'],
 };
 
 const PT_EVALUATE_LIVE_VARIANTS_BY_EVENT_TYPE = {
   mission_live: ['solo'],
   live_try: ['solo'],
-  challenge: ['solo', 'challenge_cp'],
-  versus: ['solo', 'versus'],
+  challenge: ['challenge_cp', 'solo'],
+  versus: ['versus', 'solo'],
   festival: ['solo'],
   medley: ['medley'],
 };

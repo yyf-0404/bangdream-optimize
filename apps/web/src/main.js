@@ -211,7 +211,6 @@ const {
   normalizedActivityMode,
   supportedEventTypeOrDefault,
 } = createEventModel({
-  getSongRecords: () => state.core?.songs,
   getEventCharacterParameterBonusFix: () => state.core?.eventCharacterParameterBonusFix,
   serverScopedValue,
   cloneJson,

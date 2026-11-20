@@ -81,6 +81,17 @@ export function eventTypeLabel(value) {
   }[value] ?? String(value ?? '-');
 }
 
+export function liveVariantLabel(value) {
+  return {
+    solo: '自由演出',
+    cooperative: '协力演出',
+    versus: '竞演演出',
+    medley: '巡回演出',
+    festival: '团队演出',
+    challenge_cp: '挑战演出',
+  }[value] ?? String(value ?? '-');
+}
+
 export function difficultyLabel(value) {
   return {
     0: 'Easy',

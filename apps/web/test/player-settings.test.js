@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   PLAYER_CONFIG_SCHEMA_VERSION,
+  allowedLiveVariants,
   createDefaultPtEvaluateConfig,
   createDefaultPtMaximizeConfig,
   createDefaultScoreRangeConfig,
@@ -23,6 +24,11 @@ test('sample config and persisted setting defaults share one source', () => {
   assert.deepEqual(sample.scoreRange, createDefaultScoreRangeConfig('cn'));
   assert.deepEqual(sample.ptMaximize, createDefaultPtMaximizeConfig());
   assert.deepEqual(sample.ptEvaluate, createDefaultPtEvaluateConfig('cn'));
+  for (const mode of ['ptMaximize', 'ptEvaluate']) {
+    for (const [eventType, liveVariant] of Object.entries(sample[mode].liveVariantByEventType)) {
+      assert.equal(liveVariant, allowedLiveVariants(eventType, mode)[0]);
+    }
+  }
   assert.equal(sample.server, 'cn');
   assert.equal(sample.calculationMode, 'ptMaximize');
   assert.equal(sample.currentEvent, undefined);
@@ -36,10 +42,10 @@ test('specified-team defaults and variants follow server and event type', () => 
   assert.equal(createDefaultPtEvaluateConfig('cn').autoBaseMultiplier, 0.5);
 
   let config = createDefaultPtEvaluateConfig('cn');
-  config = withPtEvaluateLiveVariant(config, 'challenge', 'challenge_cp', 'cn');
-  config = withPtEvaluateLiveVariant(config, 'versus', 'versus', 'cn');
   assert.equal(ptEvaluateLiveVariant(config, 'challenge'), 'challenge_cp');
   assert.equal(ptEvaluateLiveVariant(config, 'versus'), 'versus');
+  config = withPtEvaluateLiveVariant(config, 'challenge', 'solo', 'cn');
+  assert.equal(ptEvaluateLiveVariant(config, 'challenge'), 'solo');
   assert.equal(ptEvaluateLiveVariant(config, 'medley'), 'medley');
   assert.equal(ptEvaluateLiveVariant(config, 'festival'), 'solo');
 });
@@ -103,7 +109,7 @@ test('invalid persisted values fall back to stable settings', () => {
   });
 
   assert.equal('liveVariant' in normalized, false);
-  assert.equal(ptMaximizeLiveVariant(normalized, 'challenge'), 'solo');
+  assert.equal(ptMaximizeLiveVariant(normalized, 'challenge'), 'cooperative');
   assert.equal(ptMaximizeLiveVariant(normalized, 'festival'), 'festival');
   assert.equal(normalized.minimumPersonalStat, 290000);
   assert.equal(normalized.cooperativeLeaderMode, 'max_stat');
@@ -114,11 +120,11 @@ test('invalid persisted values fall back to stable settings', () => {
 test('last live variant is stored independently for each event type', () => {
   let config = createDefaultPtMaximizeConfig();
   config = withPtMaximizeLiveVariant(config, 'challenge', 'challenge_cp');
-  config = withPtMaximizeLiveVariant(config, 'festival', 'festival');
+  config = withPtMaximizeLiveVariant(config, 'festival', 'solo');
 
   assert.equal(ptMaximizeLiveVariant(config, 'challenge'), 'challenge_cp');
-  assert.equal(ptMaximizeLiveVariant(config, 'festival'), 'festival');
-  assert.equal(ptMaximizeLiveVariant(config, 'live_try'), 'solo');
+  assert.equal(ptMaximizeLiveVariant(config, 'festival'), 'solo');
+  assert.equal(ptMaximizeLiveVariant(config, 'live_try'), 'cooperative');
   assert.equal(ptMaximizeLiveVariant(config, 'medley'), 'medley');
 });
 

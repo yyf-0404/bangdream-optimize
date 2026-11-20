@@ -3,9 +3,12 @@ import { language } from '../../shared/preferences.js';
 import { defaultFilters, filterCards, groupCards, attributeNames, normalizeCardSort, cardReleaseOrder } from './rules.js';
 import { createFilterControls } from './filters.js';
 import { cardBriefMarkup, bindCardBrief } from './presentation.js';
+import { normalizeSkillBonusFilter } from './skill.js';
 import { assetImage, starIconUrls, attributeIconUrls, characterIconUrls } from '../../shared/assets.js';
 import { profilePreference, saveProfilePreference } from '../../shared/preferences.js';
 import { icon } from '../../shared/ui/icons.js';
+
+const CATEGORY_FILTER_VERSION = 1;
 
 export function toggleSelectionScope(selected, ids) {
   const next = new Set(selected), all = ids.length > 0 && ids.every(id=>next.has(id));
@@ -27,7 +30,7 @@ export function createCardCatalog({root,getCards,getCharacters,getProfileId,getS
   let profile,renderedLanguage,characters=[],filters,search='',group='rarity',sort='owned-release',sortDirection='desc',selected=new Set(),bulk=false,controls,observer,timer;
   let matched=[],groups=[];
   root.classList.add('card-catalog','shared-card-library');
-  mountCatalogTemplate(root);
+  mountCatalogTemplate(root, { showCategoryFilters: selectionMode === 'inventory' });
   const q=s=>root.querySelector(s);
   for(const [key,entries] of Object.entries(options))q(`[data-view=${key}]`).replaceChildren(...entries.map(([value,text])=>{const o=el('option','',text);o.value=value;return o;}));
   q('[data-show-results]').onclick=()=>q('.catalog-results').scrollIntoView({block:'start',behavior:'smooth'});
@@ -39,20 +42,40 @@ export function createCardCatalog({root,getCards,getCharacters,getProfileId,getS
   q('[data-sort-direction]').onclick=()=>{sortDirection=sortDirection==='desc'?'asc':'desc';refresh();};
   const viewKey=selectionMode==='team'?'pickerView':selectionMode==='bonus'?'bonusCardView':'cardView';
   function reset(){filters=defaultFilters(characters,getServer());if(selectionMode==='team')filters.server=null;search='';q('input[type=search]').value='';onReset?.();refresh();}
-  function save(){saveProfilePreference(profile,viewKey,{filters:Object.fromEntries(Object.entries(filters).map(([k,v])=>[k,v===null?null:[...v]])),search,group,sort,sortDirection});}
+  function save() {
+    saveProfilePreference(profile, viewKey, {
+      filters: Object.fromEntries(Object.entries(filters).map(([key, value]) => [key, value === null ? null : [...value]])),
+      categoryFilterVersion: CATEGORY_FILTER_VERSION,
+      search, group, sort, sortDirection,
+    });
+  }
   function init(){
     const changedProfile=profile!==getProfileId();profile=getProfileId();renderedLanguage=language();characters=getCharacters();
     filters=defaultFilters(characters,getServer());search='';group='rarity';sort='owned-release';sortDirection='desc';
     const saved=profilePreference(profile,viewKey,null);
-    if(saved){for(const [k,v] of Object.entries(saved.filters||{}))if(k in filters)filters[k]=v===null?null:new Set(v);search=saved.search||'';group=saved.group||'rarity';({sort,sortDirection}=normalizeCardSort(saved.sort,saved.sortDirection));}
+    if (saved) {
+      const legacyCategoryFilters = saved.categoryFilterVersion !== CATEGORY_FILTER_VERSION;
+      for (const [key, values] of Object.entries(saved.filters ?? {})) {
+        if (!Object.hasOwn(filters, key)) continue;
+        const selection = key === 'skillBonus' ? normalizeSkillBonusFilter(values) : values === null ? null : new Set(values);
+        const category = key === 'skillBonus' || key === 'cardType';
+        // Older empty category filters meant no restriction, represented by all options now.
+        if (category && (selection == null || (legacyCategoryFilters && !selection.size))) continue;
+        filters[key] = selection;
+      }
+      search = saved.search || '';
+      group = saved.group || 'rarity';
+      ({ sort, sortDirection } = normalizeCardSort(saved.sort, saved.sortDirection));
+    }
     if(selectionMode==='team'){filters.server=null;filters.ownership=new Set(['owned']);}
     if(changedProfile)selected=new Set();
-    for(const n of root.querySelectorAll('[data-host],[data-actions]'))n.replaceChildren();
     // Picker candidates may include any held card; release restriction is opt-in.
     const hosts=Object.fromEntries([...root.querySelectorAll('[data-host]')].map(n=>[n.dataset.host,n]));
     const locked=selectionMode==='team'?['server','ownership']:[];
     for(const key of locked){hosts[key].closest('.filter-row').hidden=true;delete hosts[key];}
     const actionHosts=Object.fromEntries([...root.querySelectorAll('[data-actions]')].filter(n=>!locked.includes(n.dataset.actions)).map(n=>[n.dataset.actions,n]));
+    // Actions live inside the option rows after mounting. Capture them before clearing those rows.
+    for(const n of root.querySelectorAll('[data-host],[data-actions]'))n.replaceChildren();
     controls=createFilterControls(q('.catalog-filters'),{characters,getFilters:()=>filters,onChange:refresh,onReset:reset,hosts,actionHosts});
     q('input[type=search]').value=search;
   }

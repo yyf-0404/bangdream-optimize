@@ -5,7 +5,18 @@ import {
   compactJoin,
   formatDateTime,
   formatInteger,
+  liveVariantLabel,
 } from '../../shared/utils.js';
+
+function historyLiveVariant(entry) {
+  const result = Array.isArray(entry.result) ? entry.result[0] : entry.result;
+  if (result?.liveVariant) return result.liveVariant;
+  if (entry.calculationMode === 'maximize') {
+    if (result?.eventType === 'challenge') return 'challenge_cp';
+    if (result?.eventType === 'versus') return 'versus';
+  }
+  return result?.eventType === 'medley' || entry.activityMode === 'medley' ? 'medley' : 'solo';
+}
 
 export function createResultCacheView({ elements, eventLabel }) {
   function renderResultCache(entries, { activeKey } = {}) {
@@ -36,8 +47,13 @@ export function createResultCacheView({ elements, eventLabel }) {
       const title = document.createElement('h3');
       title.className = 'result-cache-title';
       title.textContent = {maximize:'最高得分',ptMaximize:'最大平均 PT',ptEvaluate:'指定队伍',scoreRange:'控分'}[entry.calculationMode]||'最高得分';
-      const context=document.createElement('p');context.className='result-cache-context';
-      context.textContent=compactJoin([eventLabel?.(entry.eventId, entry.diagnostic?.player)||formatEventName(entry),entry.activityMode==='medley'?'巡回演出':'自由演出',serverNames[entry.server]||entry.server],' · ');
+      const context = document.createElement('p');
+      context.className = 'result-cache-context';
+      context.textContent = compactJoin([
+        eventLabel?.(entry.eventId, entry.diagnostic?.player) || formatEventName(entry),
+        liveVariantLabel(historyLiveVariant(entry)),
+        serverNames[entry.server] || entry.server,
+      ], ' · ');
 
       const stats = document.createElement('p');
       stats.className = 'result-cache-stats';

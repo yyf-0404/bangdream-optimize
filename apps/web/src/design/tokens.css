@@ -91,6 +91,20 @@
   --gradient-nav-active-icon: linear-gradient(165deg, #9978b1, #785993);   /* current page's icon tile */
   --color-nav-active-edge: #67477f;                                       /* its pressed bottom edge */
 
+  /* ---- Timing chart note types ---- */
+  --color-note-tap: #20bcd0;
+  --color-note-tap-edge: #167e9b;
+  --color-note-hold: #59c946;
+  --color-note-hold-edge: #2e8c3e;
+  --color-note-flick: #ed62b5;
+  --color-note-flick-edge: #a63379;
+  --color-note-left: #a681e8;
+  --color-note-left-edge: #7250ae;
+  --color-note-right: #f5ac70;
+  --color-note-right-edge: #b86a31;
+  --color-note-trigger: #ffcf4d;
+  --color-note-trigger-edge: #9f7622;
+
   /* ---- Game semantics (match the existing band / attribute / difficulty colours) ---- */
   --color-attr-powerful: #b43e63;
   --color-attr-cool: #4c69b4;
@@ -162,6 +176,7 @@
   --control-height-sm: 30px;
   --control-height-md: 36px;
   --control-height-lg: 40px;
+  --control-height-touch: 44px;
   --icon-size-sm: 14px;
   --icon-size-md: 16px;
 

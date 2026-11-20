@@ -1,8 +1,6 @@
-import {
-  numericStringSort,
-  positiveIntegerOrUndefined,
-} from '../shared/utils.js';
+import { positiveIntegerOrUndefined } from '../shared/utils.js';
 
+const DEFAULT_EVENT_SONG_ID = 306;
 const DEFAULT_EVENT_DIFFICULTY = 3;
 const CALCULATION_EVENT_TYPES = {
   maximize: {
@@ -32,7 +30,6 @@ export function isHiddenEventId(value) {
 }
 
 export function createEventModel({
-  getSongRecords,
   getEventCharacterParameterBonusFix,
   serverScopedValue,
   cloneJson,
@@ -89,25 +86,18 @@ export function createEventModel({
   }
 
   function fixedSongListForMode(cachedSongs, mode, event) {
-    const normalizedMode = normalizedActivityMode(mode);
-    const expected = requiredSongCountForMode(normalizedMode);
+    const expected = requiredSongCountForMode(mode);
     const cached = normalizedSongSelections(cachedSongs);
     if (cached.length > 0) {
       // Explicit empty slots are drafts, not a request to replace them with a preset.
       return Array.from({length:expected}, (_, index) => cached[index] ?? {songId:0,difficulty:DEFAULT_EVENT_DIFFICULTY});
     }
 
-    const preset = normalizedSongSelections(eventSongsFromPreset(event));
-    const source = preset.length > 0 ? preset : cached;
-    const result = [];
-    for (let index = 0; index < expected; index += 1) {
-      const fallback = source[index] ?? {};
-      result.push({
-        songId: positiveIntegerOrUndefined(fallback.songId) ?? firstSongId() ?? 0,
-        difficulty: parseDifficulty(fallback.difficulty) ?? DEFAULT_EVENT_DIFFICULTY,
-      });
-    }
-    return result;
+    const preset = eventSongsFromPreset(event);
+    return Array.from({ length: expected }, (_, index) => preset[index] ?? {
+      songId: DEFAULT_EVENT_SONG_ID,
+      difficulty: DEFAULT_EVENT_DIFFICULTY,
+    });
   }
 
   function normalizedSongSelections(songs = []) {
@@ -134,11 +124,6 @@ export function createEventModel({
       },
       limitBreaks: [],
     };
-  }
-
-  function firstSongId() {
-    const [first] = Object.keys(getSongRecords() ?? {}).sort(numericStringSort);
-    return first == null ? undefined : Number(first);
   }
 
   function serverScopedSongList(value) {

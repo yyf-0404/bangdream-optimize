@@ -1,8 +1,8 @@
 import { emptyMessage } from '../../shared/ui/dom.js';
-import { difficultyLabel,bandLabel } from '../../shared/utils.js';
+import { difficultyLabel } from '../../shared/utils.js';
 import { assetImage } from '../../shared/assets.js';
-import { bandNames, bandOrder, serverNames } from '../../components/cards/rules.js';
-import { compareSongRelease, compareEventSongOrder } from './song-rules.js';
+import { bandNames, serverNames } from '../../components/cards/rules.js';
+import { compareSongRelease, compareEventSongOrder, songBandCategory, songBandOrder } from './song-rules.js';
 const el=(tag,cls,text)=>{const n=document.createElement(tag);n.className=cls||'';if(text!==undefined)n.textContent=text;return n;};
 const btn=(text,fn,cls='')=>{const b=el('button',cls,text);b.type='button';b.onclick=fn;return b;};
 export function createSongView({rows,selectedEventId,editableEventSnapshot,getSongRecord,normalizedActivityMode,fixedSongListForMode,eventSongsFromPreset,updateSong,getCore,getProfileId,readPlayer,writePlayer,songLabel,songCoverUrls}){
@@ -27,9 +27,19 @@ export function createSongView({rows,selectedEventId,editableEventSnapshot,getSo
   activeDialog?.close();const origin=getProfileId(),player=readPlayer(),{event,eventId,songs}=current(player),draft=structuredClone(songs);let active=slot,query='',band='all',scope='all',page=1;
   const dialog=el('dialog');dialog.id='song-picker';dialog.setAttribute('aria-labelledby','song-picker-title');dialog.innerHTML='<header class="sp-header"><div><p class="sp-eyebrow">编辑活动曲位</p><h2 id="song-picker-title">选择活动歌曲</h2></div><button type="button" class="sp-close" aria-label="关闭歌曲选择">×</button></header><div class="sp-slots" role="group" aria-label="编辑曲位"></div><div class="sp-current"></div><div class="sp-filters"><div class="sp-search"><input type="search" placeholder="搜索歌名 / ID" aria-label="搜索歌曲名称或 ID"><select aria-label="歌曲演出乐队"></select></div><div class="sp-filter-row" role="group" aria-label="歌曲范围"></div></div><div class="sp-list" aria-label="歌曲列表"></div><footer class="sp-footer"><p></p><button type="button" data-cancel>取消</button><button type="button" class="sp-apply">应用选择</button></footer>';
   const q=s=>dialog.querySelector(s),close=()=>dialog.close();q('.sp-close').onclick=close;q('[data-cancel]').onclick=close;dialog.onclose=()=>{dialog.remove();if(activeDialog===dialog)activeDialog=null;};
-  const original=JSON.stringify(draft),records=Object.entries(getCore().songs||{}).map(([id,s])=>({id:Number(id),record:s})).sort((a,b)=>compareSongRelease(a,b,player.server)),presets=new Set(eventSongsFromPreset(event).map(s=>Number(s.songId??s)));
+  const original=JSON.stringify(draft),presets=new Set(eventSongsFromPreset(event).map(s=>Number(s.songId??s)));
+  const records = Object.entries(getCore().songs ?? {})
+   .map(([id, record]) => ({ id: Number(id), record, bandCategory: songBandCategory(record) }))
+   .sort((a, b) => compareSongRelease(a, b, player.server));
   scope=presets.size?'preset':'all';q('.sp-eyebrow').textContent=(serverNames[player.server]||player.server)+' · '+(draft.length===3?'巡回演出 · 三曲连续选择':'本次活动歌曲');
-  const select=q('select');select.add(new Option('全部乐队','all'));for(const id of bandOrder.filter(id=>records.some(s=>Number(s.record.bandId)===id)))select.add(new Option(bandNames[id],String(id)));select.add(new Option('其他 / 联合','other'));select.onchange=()=>{band=select.value;page=1;list();};
+  const select = q('select');
+  const availableBands = new Set(records.map(song => song.bandCategory));
+  select.add(new Option('全部乐队', 'all'));
+  for (const id of songBandOrder.map(String).filter(id => availableBands.has(id))) {
+   select.add(new Option(bandNames[id], id));
+  }
+  select.add(new Option('其他 / 联合', 'other'));
+  select.onchange=()=>{band=select.value;page=1;list();};
   q('input').oninput=e=>{query=e.target.value.toLowerCase();page=1;list();};
   const filters=q('.sp-filter-row');for(const [id,title]of[['all','全部歌曲'],['preset','活动曲'],['selected','本次已选']]){const b=btn(title,()=>{scope=id;page=1;list();});b.dataset.scope=id;filters.append(b);}filters.append(el('span','sp-count'));
   function renderDraft(){
@@ -38,10 +48,33 @@ export function createSongView({rows,selectedEventId,editableEventSnapshot,getSo
    q('.sp-footer p').textContent=`已选 ${draft.filter(s=>s.songId).length} / ${draft.length} 首${draft.some(s=>!s.songId)?' · 可先保存，计算前需补齐':''} · 应用后生效`;q('.sp-apply').disabled=JSON.stringify(draft)===original;
   }
   function list(){
-   const ids=new Set(draft.map(s=>s.songId)),matches=records.filter(s=>(band==='all'||(band==='other'?!bandNames[s.record.bandId]:String(s.record.bandId)===band))&&(scope!=='preset'||presets.has(s.id))&&(scope!=='selected'||ids.has(s.id))&&(!query||[s.id,...(s.record.musicTitle||[]),...(s.record.name||[]),songLabel(s.id)].join(' ').toLowerCase().includes(query)));
+   const ids=new Set(draft.map(s=>s.songId)),matches=records.filter(s=>(band==='all'||s.bandCategory===band)&&(scope!=='preset'||presets.has(s.id))&&(scope!=='selected'||ids.has(s.id))&&(!query||[s.id,...(s.record.musicTitle||[]),...(s.record.name||[]),songLabel(s.id)].join(' ').toLowerCase().includes(query)));
    if(scope==='preset')matches.sort((a,b)=>compareEventSongOrder(a,b,[...presets]));
    q('.sp-count').textContent=matches.length+(scope==='preset'?' 首 · 活动顺序':' 首 · 新到旧');for(const b of filters.querySelectorAll('[data-scope]'))b.setAttribute('aria-pressed',String(b.dataset.scope===scope));const host=q('.sp-list');host.replaceChildren();
-   for(const s of matches.slice((page-1)*40,page*40)){const b=btn('',()=>{const difficulties=Object.keys(s.record.difficulty||{}).map(Number);draft[active]={songId:s.id,difficulty:difficulties.includes(draft[active].difficulty)?draft[active].difficulty:difficulties.includes(3)?3:difficulties.at(-1)||0};renderDraft();list();},'sp-row');b.setAttribute('aria-pressed',String(draft[active].songId===s.id));b.append(cover(s.id));const name=el('span','sp-row-main');name.append(el('span','sp-row-title',songLabel(s.id)),el('span','sp-row-meta',`#${s.id} · ${bandNames[s.record.bandId]||'其他 / 联合演出'}`));b.append(name);const levels=renderDifficultyList(s.record,draft[active].songId===s.id?draft[active].difficulty:null);levels.classList.add('sp-levels');b.append(levels);host.append(b);}
+   for (const song of matches.slice((page - 1) * 40, page * 40)) {
+    const row = btn('', (event) => {
+     const clickedDifficulty = event.target.closest('[data-level-id]')?.dataset.levelId;
+     const preferredDifficulty = Number(clickedDifficulty ?? draft[active].difficulty);
+     const difficulties = Object.keys(song.record.difficulty ?? {}).map(Number);
+     const difficulty = difficulties.includes(preferredDifficulty)
+      ? preferredDifficulty
+      : difficulties.includes(3) ? 3 : difficulties.at(-1) || 0;
+     draft[active] = { songId: song.id, difficulty };
+     renderDraft();
+     list();
+    }, 'sp-row');
+    const selected = draft[active].songId === song.id;
+    row.setAttribute('aria-pressed', String(selected));
+    const name = el('span', 'sp-row-main');
+    name.append(
+     el('span', 'sp-row-title', songLabel(song.id)),
+     el('span', 'sp-row-meta', `#${song.id} · ${bandNames[song.bandCategory] ?? '其他 / 联合演出'}`),
+    );
+    const levels = renderDifficultyList(song.record, selected ? draft[active].difficulty : null);
+    levels.classList.add('sp-levels');
+    row.append(cover(song.id), name, levels);
+    host.append(row);
+   }
    const pages=Math.ceil(matches.length/40);if(pages>1){const pager=el('div','sp-pagination'),prev=btn('上一页',()=>{page--;list();host.scrollTop=0;}),next=btn('下一页',()=>{page++;list();host.scrollTop=0;});prev.disabled=page===1;next.disabled=page===pages;pager.append(prev,el('span','',`${page} / ${pages}`),next);host.append(pager);}if(!matches.length)host.append(el('div','sp-empty','没有找到匹配歌曲，试试其他名称、ID 或歌曲范围。'));
   }
   q('.sp-apply').onclick=()=>{if(origin!==getProfileId()||JSON.stringify(draft)===original)return;const latest=readPlayer();latest.eventSongs[String(eventId)]=draft;writePlayer(latest);renderSongs(latest);dialog.close();};
@@ -78,7 +111,7 @@ export function renderDifficultyList(songRecord, selectedDifficulty, onSelect) {
       item.type = 'button';
       item.addEventListener('click', () => onSelect(entry.difficulty));
     }
-    item.className = `activity-song-difficulty difficulty-${entry.difficulty} difficulty-badge preview-difficulty`;
+    item.className = `activity-song-difficulty difficulty-${entry.difficulty} ui-difficulty`;
     item.dataset.levelId=String(entry.difficulty);
     item.classList.toggle('is-selected', selectedDifficulty != null && entry.difficulty === Number(selectedDifficulty));
     item.setAttribute(

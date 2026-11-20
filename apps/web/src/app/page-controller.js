@@ -1,11 +1,14 @@
 import { itemArtUrls } from '../shared/assets.js';
 import { updateShell } from '../pages/shell/shell.js';
+import { isSupportedEventType } from '../domain/event.js';
 import {
+  allowedLiveVariants,
   ptEvaluateLiveVariant,
   ptEvaluateSupportsAuto,
   ptMaximizeLiveVariant,
 } from '../domain/player-settings.js';
 import { assetImage } from '../shared/assets.js';
+import { liveVariantLabel } from '../shared/utils.js';
 import { cardPreviewContent } from '../components/cards/preview.js';
 
 export function createPageController({
@@ -114,18 +117,11 @@ export function createPageController({
   }
 
   function renderPtMaximizeControls(player, event, active) {
-    const variantsByEvent = {
-      mission_live: [['solo', '自由演出'], ['cooperative', '协力演出']],
-      live_try: [['solo', '自由演出'], ['cooperative', '协力演出']],
-      challenge: [['solo', '自由演出'], ['cooperative', '协力演出'], ['challenge_cp', '挑战演出']],
-      versus: [['solo', '自由演出'], ['versus', '竞演演出']],
-      festival: [['solo', '自由演出'], ['festival', '团队演出']],
-      medley: [['medley', '巡回演出']],
-    };
-    const variants = variantsByEvent[event?.eventType] ?? [];
+    const variants = isSupportedEventType(event?.eventType, 'ptMaximize')
+      ? allowedLiveVariants(event.eventType, 'ptMaximize') : [];
     const request = player.ptMaximize ?? {};
     const selected = ptMaximizeLiveVariant(request, event?.eventType);
-    elements.ptMaximizeLiveVariant.replaceChildren(...variants.map(([value, text]) => {
+    elements.ptMaximizeLiveVariant.replaceChildren(...variants.map(value => {
       const label = document.createElement('label');
       const input = document.createElement('input');
       input.type = 'radio';
@@ -134,7 +130,7 @@ export function createPageController({
       input.checked = value === selected;
       input.disabled = !active;
       const span = document.createElement('span');
-      span.textContent = text;
+      span.textContent = liveVariantLabel(value);
       label.append(input, span);
       return label;
     }));
@@ -208,18 +204,11 @@ export function createPageController({
   }
 
   function renderPtEvaluateControls(player, event, active) {
-    const variantsByEvent = {
-      mission_live: [['solo', '自由演出']],
-      live_try: [['solo', '自由演出']],
-      challenge: [['solo', '自由演出'], ['challenge_cp', '挑战演出']],
-      versus: [['solo', '自由演出'], ['versus', '竞演演出']],
-      festival: [['solo', '自由演出']],
-      medley: [['medley', '巡回演出']],
-    };
     const config = player.ptEvaluate ?? {};
-    const variants = variantsByEvent[event?.eventType] ?? [];
+    const variants = isSupportedEventType(event?.eventType, 'ptEvaluate')
+      ? allowedLiveVariants(event.eventType, 'ptEvaluate') : [];
     const selected = ptEvaluateLiveVariant(config, event?.eventType);
-    elements.ptEvaluateLiveVariant.replaceChildren(...variants.map(([value, text]) => {
+    elements.ptEvaluateLiveVariant.replaceChildren(...variants.map(value => {
       const label = document.createElement('label');
       const input = document.createElement('input');
       input.type = 'radio';
@@ -228,7 +217,7 @@ export function createPageController({
       input.checked = value === selected;
       input.disabled = !active;
       const span = document.createElement('span');
-      span.textContent = text;
+      span.textContent = liveVariantLabel(value);
       label.append(input, span);
       return label;
     }));

@@ -71,7 +71,13 @@ export function mountShell(document) {
   resources.append(resourceActions, q('#desktop-downloads-dialog'));
   archive.append(resources, q('.log-panel'));
   const feedback=document.createElement('button');feedback.type='button';feedback.className='archive-feedback';feedback.textContent='反馈与问题报告';feedback.onclick=()=>q('#open-feedback').click();resourceActions.append(feedback);
-  q('#app-topbar').innerHTML = `<div class="workspace-context"><span>当前档案</span><button type="button" id="workspace-profile">加载中</button><span id="workspace-server"></span></div><label class="global-language">${icon('M3 5h12M9 3v2m-4 4 8 8M13 5c0 6-4 10-10 13m11 2 4-11 4 11m-6-4h4')}<span>文本语言</span><select id="global-language" aria-label="游戏文本语言"><option value="zh-CN">简体中文</option><option value="zh-TW">繁體中文</option><option value="ja">日本語</option><option value="en">English</option><option value="ko">한국어</option></select></label>`;
+  q('#app-topbar').innerHTML = `<div class="workspace-context"><span>当前档案</span><button type="button" id="workspace-profile">加载中</button><span id="workspace-server"><span class="workspace-server-flag" aria-hidden="true"></span></span></div><label class="global-language">${icon('M3 5h12M9 3v2m-4 4 8 8M13 5c0 6-4 10-10 13m11 2 4-11 4 11m-6-4h4')}<span>文本语言</span><select id="global-language" aria-label="游戏文本语言"><option value="zh-CN">简体中文</option><option value="zh-TW">繁體中文</option><option value="ja">日本語</option><option value="en">English</option><option value="ko">한국어</option></select></label>`;
+  const serverPicker = q('#player-server');
+  const previousServerField = serverPicker.closest('label');
+  serverPicker.setAttribute('aria-label', '切换当前档案的服务器');
+  serverPicker.disabled = true;
+  q('#workspace-server').append(serverPicker);
+  previousServerField.remove();
   q('#workspace-profile').onclick = () => nav.querySelector('[data-page=archive]').click();
   const quickImport = document.createElement('button');
   quickImport.type = 'button'; quickImport.id = 'quick-import-profile'; quickImport.disabled = true;
@@ -120,6 +126,6 @@ export function mountShell(document) {
 export function updateShell(player, profileName) {
   document.querySelector('#workspace-profile').textContent = profileName || '当前档案';
   document.querySelector('#quick-import-profile').disabled = false;
-  document.querySelector('#workspace-server').textContent = { cn: '国服', jp: '日服', en: '国际服', tw: '台服', kr: '韩服' }[player.server] || player.server;
+  document.querySelector('#player-server').disabled = false;
   updateAcceptedProfile(player);
 }

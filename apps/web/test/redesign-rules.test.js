@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {gameText,languageOrder,saveProfilePreference,profilePreference} from '../src/shared/preferences.js';
-import {defaultFilters,filterCards,cardMatchesReleaseFilter,resolveCardCover,comparator,normalizeCardSort,groupCards} from '../src/components/cards/rules.js';
+import {defaultFilters,filterCards,cardMatchesReleaseFilter,cardTypeFilterValue,cardTypeLabel,resolveCardCover,comparator,normalizeCardSort,groupCards} from '../src/components/cards/rules.js';
+import {cardSkillFilterValue, normalizeSkillBonusFilter} from '../src/components/cards/skill.js';
 import {toggleSelectionScope} from '../src/components/cards/catalog.js';
 import {planBulk} from '../src/components/cards/bulk.js';
 import {cardModel,cardConfig,catalogModels,allCardModels} from '../src/components/cards/model.js';
@@ -25,6 +26,60 @@ test('card release filter is inclusive at 168 hours and never borrows another se
   assert.equal(cardMatchesReleaseFilter({releaseDates:{cn:now+week}},'cn',now),true);
   assert.equal(cardMatchesReleaseFilter({releaseDates:{cn:now+week+1}},'cn',now),false);
   assert.equal(cardMatchesReleaseFilter({releaseDates:{jp:now-1}},'cn',now),false);
+});
+test('skill filtering groups maximum score bonuses, with PERFECT rate-up in the 100–125% group', () => {
+  const base = { characterId: 1, rarity: 4, attribute: 'pure', owned: true, skill: 1, releaseDates: { cn: now - week } };
+  const card = (id, skillId, activateEffectTypes, unificationActivateEffectValue) => ({
+    ...base, id, skillId, skillRecord: { activationEffect: { activateEffectTypes, unificationActivateEffectValue } },
+  });
+  const cards = [
+    card(1, 28, { score: { activateEffectValue: [100, 110] } }, 125),
+    card(2, 61, { score: { activateEffectValue: [100] }, score_rate_up_with_perfect: { activateEffectValue: [0] } }),
+    card(3, 8, { score: { activateEffectValue: [80, 100, 110] } }),
+    card(4, 1, { judge: { activateEffectValue: [120] } }),
+    { ...base, id: 5 },
+    card(6, 75, { score: { activateEffectValue: [150] } }),
+    card(7, 76, { score: { activateEffectValue: [145] } }),
+    card(8, 77, { score: { activateEffectValue: [100] } }),
+  ];
+  assert.deepEqual(cards.map(cardSkillFilterValue), ['100-125', '100-125', '100-125', 'under-100', undefined,
+    '150-plus', '130-145', '100-125']);
+  const filters = defaultFilters([{ id: 1 }], 'cn');
+  filters.server = null;
+  assert.equal(filters.skillBonus.size, 4);
+  assert.deepEqual(filterCards(cards, filters).map(card => card.id), [1, 2, 3, 4, 5, 6, 7, 8]);
+  filters.skillBonus = new Set(['150-plus', '130-145']);
+  assert.deepEqual(filterCards(cards, filters).map(card => card.id), [6, 7]);
+  filters.skillBonus = new Set(['100-125']);
+  assert.deepEqual(filterCards(cards, filters).map(card => card.id), [1, 2, 3, 8]);
+  filters.skillBonus.clear();
+  assert.deepEqual(filterCards(cards, filters), []);
+});
+test('saved exact skill bonuses and rate-up restore to their grouped filters', () => {
+  assert.deepEqual(normalizeSkillBonusFilter(new Set(['150', '135', '125', 'rateup', '80', '130-145'])),
+    new Set(['150-plus', '130-145', '100-125', 'under-100']));
+  assert.deepEqual(normalizeSkillBonusFilter(null), new Set());
+});
+test('card type filtering combines festival types and groups all remaining types as other', () => {
+  const types = ['dreamfes', 'kirafes', 'limited', 'permanent', 'birthday', 'event', 'initial', 'campaign',
+    'others', 'special', undefined, 'future'];
+  const cards = types.map((type, index) => ({ id: index + 1, characterId: 1, rarity: 4, attribute: 'pure',
+    owned: true, record: { type }, skillRecord: { activationEffect: { activateEffectTypes: {
+      score: { activateEffectValue: [index === 1 ? 150 : 120] },
+    } } } }));
+  assert.deepEqual(cards.map(cardTypeFilterValue), ['dreamfes', 'dreamfes', 'limited', 'permanent', 'birthday',
+    'event', ...Array(6).fill('other')]);
+  assert.deepEqual(cards.map(cardTypeLabel), ['梦限', '闪限', '普限', '常驻', '生日', '活动奖励',
+    '初始卡', '宣传／纪念发放', '其他', '特殊卡', '其他', '其他']);
+  const filters = defaultFilters([{ id: 1 }], 'cn');
+  filters.server = null;
+  assert.equal(filters.cardType.size, 6);
+  filters.cardType = new Set(['dreamfes', 'other']);
+  assert.deepEqual(filterCards(cards, filters).map(card => card.id), [1, 2, 7, 8, 9, 10, 11, 12]);
+  filters.skillBonus = new Set(['150-plus']);
+  assert.deepEqual(filterCards(cards, filters).map(card => card.id), [2]);
+  filters.cardType.clear();
+  assert.deepEqual(filterCards(cards, filters), []);
 });
 test('held cover ignores publication/server, skips 2 star only in auto mode',()=>{
   const cards=[{id:1,rarity:5,owned:true,releaseDates:{jp:now}},{id:2,rarity:2,owned:true,releaseDates:{jp:now+week}},{id:3,rarity:5,owned:false,releaseDates:{jp:now+week*2}}];

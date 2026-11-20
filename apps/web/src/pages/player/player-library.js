@@ -13,7 +13,7 @@ const tones={1:'var(--color-band-1)',2:'var(--color-band-2)',3:'var(--color-band
 const attributeTones={powerful:'var(--color-attr-powerful)',cool:'var(--color-attr-cool)',happy:'var(--color-attr-happy)',pure:'var(--color-attr-pure)'};
 function material(node,color='var(--color-text-subtle)',art){node.style.setProperty('--material-ink',color);if(art)node.style.setProperty('--material-mark',`url("${art}")`);}
 export function createPlayerView({elements,readPlayer,writePlayer,getProfileId,getCore,recordWithFix,serverScopedValue,areaItemGroups,areaItemGroupIconUrls,areaItemLabel,maxAreaItemLevel,formatAreaItemRate,normalizedCharacterBonus,maxCharacterBonusForPlayer,updateAreaItem}){
- let expanded=new Set(),profile,characterSearch='',characterBand='all';
+ let expanded=new Set(),profile,characterBand='all';
  const page=document.querySelector('#player-library');
  const areaSection=elements.areaItemRows.closest('.panel'),characterSection=elements.characterBonusRows.closest('.panel');
  areaSection.id='area-section';areaSection.className='page-section';characterSection.id='character-section';characterSection.className='page-section character-section';
@@ -68,9 +68,13 @@ export function createPlayerView({elements,readPlayer,writePlayer,getProfileId,g
  }
  function renderCharacterBonuses(player){
   prefs();const root=elements.characterBonusRows;root.className='accepted-character-library';const template=designFragment('player-characters');template.querySelector('.section-heading').remove();template.querySelector('.owned-toggle').remove();root.replaceChildren(...template.children);hydrateDesignIcons(root);
-  const search=root.querySelector('#character-search');search.value=characterSearch;
-  let timer;search.oninput=()=>{clearTimeout(timer);characterSearch=search.value;timer=setTimeout(()=>{const position=search.selectionStart;renderCharacterBonuses(readPlayer());const next=root.querySelector('input[type=search]');next.focus();next.setSelectionRange(position,position);},150);};
-  const records=getCore()?.characters||{},ownedIds=new Set([...Object.keys(player.cardList).map(id=>Number(getCore().cards[id]?.characterId)),...Object.values(player.customCards||{}).filter(c=>c.enabled).map(c=>c.definition.characterId)]),ids=Object.keys(records).filter(id=>(characterBand==='all'||Number(records[id].bandId)===Number(characterBand))&&(!characterSearch||[...(records[id].characterName||[]),...(records[id].nickname||[]),bandLabel(records[id].bandId),id].join(' ').toLowerCase().includes(characterSearch.toLowerCase())));
+  const core = getCore();
+  const records = core?.characters ?? {};
+  const ownedIds = new Set([
+   ...Object.keys(player.cardList).map(id => Number(core?.cards?.[id]?.characterId)),
+   ...Object.values(player.customCards ?? {}).filter(card => card.enabled).map(card => card.definition.characterId),
+  ]);
+  const ids = Object.keys(records).filter(id => characterBand === 'all' || Number(records[id].bandId) === Number(characterBand));
   nav.querySelector('[data-characters]').textContent=Object.keys(records).length;characterSection.querySelector('[data-progress]').textContent=`${ids.length} / ${Object.keys(records).length} 位角色`;
   const filter=root.querySelector('#character-bands');filter.setAttribute('role','group');filter.setAttribute('aria-label','角色乐队筛选');for(const band of ['all',...bandOrder.filter(band=>Object.values(records).some(c=>Number(c.bandId)===band))]){const b=btn(band==='all'?'全部':'',()=>{characterBand=String(band);renderCharacterBonuses(readPlayer());},'');if(band!=='all')b.append(assetImage(bandIconUrls(band),'',bandLabel(band))||el('span'));b.setAttribute('aria-pressed',String(String(band)===characterBand));filter.append(b);}
   for(const band of [...new Set([...bandOrder,...ids.map(id=>Number(records[id].bandId))])]){
@@ -87,7 +91,7 @@ export function createPlayerView({elements,readPlayer,writePlayer,getProfileId,g
    }row.append(host);root.querySelector('#character-groups').append(row);
   }
   root.querySelector('#character-empty').hidden=ids.length>0;
-  root.querySelector('#reset-character-filter').type='button';root.querySelector('#reset-character-filter').onclick=()=>{characterSearch='';characterBand='all';renderCharacterBonuses(readPlayer());};
+  root.querySelector('#reset-character-filter').onclick=()=>{characterBand='all';renderCharacterBonuses(readPlayer());};
 
  }
  function editCharacter(id){

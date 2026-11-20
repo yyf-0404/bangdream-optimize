@@ -259,6 +259,67 @@
 .ui-tag--warning { background: var(--color-warning-surface); color: var(--color-warning); }
 .ui-tag--danger { background: var(--color-danger-surface); color: var(--color-danger-strong); }
 
+/* Song difficulty in the activity page, song picker and results. */
+.ui-difficulty {
+  --diff: var(--color-border-strong);
+  --diff-ink: var(--color-text-subtle);
+  --badge-fill: var(--color-surface);
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  inline-size: 44px;
+  block-size: 24px;
+  min-block-size: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--diff-ink) 62%, var(--color-surface));
+  border-radius: var(--radius-pill);
+  color: var(--diff-ink);
+  background: var(--badge-fill);
+  vertical-align: middle;
+  line-height: 1;
+  white-space: nowrap;
+  text-shadow: none;
+}
+.ui-difficulty[data-level-id="0"] {
+  --diff: var(--color-difficulty-easy-marker);
+  --diff-ink: var(--color-difficulty-easy);
+}
+.ui-difficulty[data-level-id="1"] {
+  --diff: var(--color-difficulty-normal-marker);
+  --diff-ink: var(--color-difficulty-normal);
+}
+.ui-difficulty[data-level-id="2"] {
+  --diff: var(--color-difficulty-hard-marker);
+  --diff-ink: var(--color-difficulty-hard);
+}
+.ui-difficulty[data-level-id="3"] {
+  --diff: var(--color-difficulty-expert-marker);
+  --diff-ink: var(--color-difficulty-expert);
+}
+.ui-difficulty[data-level-id="4"] {
+  --diff: var(--color-difficulty-special-marker);
+  --diff-ink: var(--color-difficulty-special);
+}
+.ui-difficulty .difficulty-name {
+  font: var(--weight-semibold) 9px / 1 var(--font-sans);
+  letter-spacing: 0;
+}
+.ui-difficulty .difficulty-number {
+  font: var(--weight-semibold) var(--text-md) / 1 var(--font-sans);
+  letter-spacing: -0.4px;
+  font-variant-numeric: tabular-nums;
+}
+.ui-difficulty[data-selected="true"] {
+  --badge-fill: var(--diff-ink);
+  border-color: var(--diff-ink);
+  color: var(--color-text-inverse);
+}
+.ui-difficulty:is(button, button *):hover:not([data-selected="true"]) {
+  --badge-fill: color-mix(in srgb, var(--diff-ink) 12%, var(--color-surface));
+}
+
 /* --------------------------------------------------------------- Switch */
 /* <label class="ui-switch"><input type="checkbox" role="switch"><span class="ui-switch__track"></span>文字</label> */
 .ui-switch { display: inline-flex; align-items: center; gap: var(--space-10); color: var(--color-text); font-size: var(--text-md); cursor: pointer; }

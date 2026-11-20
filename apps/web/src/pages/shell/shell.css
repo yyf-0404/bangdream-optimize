@@ -1,9 +1,48 @@
+#workspace-server { position: relative; display: inline-flex; flex: none; }
+.workspace-server-flag {
+  position: absolute;
+  inset-inline-start: var(--space-6);
+  inset-block-start: 50%;
+  z-index: 1;
+  display: flex;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.workspace-server-flag img { width: var(--icon-size-md); height: var(--icon-size-md); }
+#workspace-server :is(select, .bo-select-trigger) {
+  min-height: var(--control-height-sm);
+  padding-block: var(--space-2);
+  padding-inline-start: var(--space-28);
+  border-color: transparent;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-sunken);
+  color: var(--color-text-secondary);
+}
+#workspace-server select { padding-inline-end: var(--space-24); }
+#workspace-server .bo-select-trigger { padding-inline-end: var(--space-6); }
+#workspace-server .bo-select-trigger::after { content: none; }
+#workspace-server :is(select, .bo-select-trigger):hover:not(:disabled) { background-color: var(--color-surface-accent); }
+#workspace-server :is(select, .bo-select-trigger):is(:focus-visible, [aria-expanded=true]) {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline-offset: var(--focus-ring-offset);
+  box-shadow: none;
+}
+
 /* Shell additions: the bottom dock shown on narrow screens, where the sidebar is hidden.
    It holds the run status and the floating calculate button, a .ui-button--cta like the
    sidebar 计算 button. The page keeps the dock's height free at its bottom so the last
    row of every page can scroll clear of it. */
 .mobile-dock { display: none; }
 @media (max-width: 680px) {
+  .accepted-profile {
+    display: grid;
+    grid-template-columns: minmax(0, max-content) max-content minmax(max-content, 1fr);
+  }
+  .accepted-profile > span:first-child { grid-column: 1 / -1; }
+  .accepted-profile #workspace-profile { max-width: 100%; }
+  .accepted-profile #quick-import-profile { justify-self: end; }
+  #workspace-server :is(select, .bo-select-trigger) { min-height: var(--control-height-touch); }
+
   .mobile-dock {
     --mobile-dock-height: 44px;
     position: fixed;

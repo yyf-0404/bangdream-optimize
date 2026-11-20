@@ -5,6 +5,7 @@ import {itemArtUrls} from '../../shared/assets.js';
 import {cardModel} from '../../components/cards/model.js';
 import {icon} from '../../shared/ui/icons.js';
 import {designFragment} from '../../design/approved/templates.js';
+import {archiveIcon} from '../../design/approved/archive-flows.js';
 import {hydrateDesignIcons} from '../../design/controls.js';
 
 const el=(tag,cls,text)=>{const n=document.createElement(tag);n.className=cls||'';if(text!==undefined)n.textContent=text;return n;};
@@ -36,6 +37,13 @@ export function createArchiveUI({state,elements,readPlayer,writePlayer,refreshPr
   let selectedId,shownActive,sequence=0,draft,dirty=false,lastSource='',search='',profileInfo=new Map();
   const list=directory.querySelector('.profile-list'),q=s=>detail.querySelector(s);
   const create=directory.querySelector('[data-create]');create.textContent='＋ 新建档案';create.className='secondary archive-create';document.querySelector('#archive-design .page-hero').append(create);create.onclick=()=>elements.newPlayerProfile.click();elements.newPlayerProfile.hidden=true;
+  const createFromList = el('button', 'profile-entry profile-list-create');
+  createFromList.type = 'button';
+  createFromList.setAttribute('aria-label', '新建档案');
+  createFromList.title = '新建档案';
+  createFromList.innerHTML = archiveIcon('plus');
+  createFromList.onclick = create.onclick;
+  list.after(createFromList);
   directory.querySelector('input').oninput=e=>{search=e.target.value;paintDirectory();};
   detail.querySelectorAll('input,select').forEach(n=>n.oninput=()=>{dirty=true;q('[data-save]').disabled=false;q('.archive-save small').textContent='有未保存的资料';});
   function paintDirectory(){
@@ -87,8 +95,18 @@ export function createArchiveUI({state,elements,readPlayer,writePlayer,refreshPr
     renderResources();
     const active=state.activePlayerProfileId;if(!active)return;
     if(shownActive!==active||!state.playerProfiles.some(p=>p.id===selectedId)){shownActive=active;void show(active);return;}
+    const latest=readPlayer();
+    profileInfo.set(active,latest);
+    if(selectedId===active){
+      if(!dirty&&JSON.stringify(latest)!==lastSource){draft=latest;paint();return;}
+      // Refresh an untouched server field without discarding in-progress profile edits.
+      if(dirty&&draft&&draft.server!==latest.server){
+        const selectedServer=q('[name=archive-server]:checked');
+        if(selectedServer?.value===draft.server)q(`[name=archive-server][value=${latest.server}]`).checked=true;
+        draft.server=latest.server;
+      }
+    }
     paintDirectory();
-    if(selectedId===active&&!dirty){const next=readPlayer();if(JSON.stringify(next)!==lastSource){draft=next;paint();}}
   }
   document.addEventListener('profile-content-changed',e=>{profileInfo.delete(e.detail.id);if(selectedId===e.detail.id)void show(selectedId);});
   document.querySelector('#workspace-profile').onclick=()=>{

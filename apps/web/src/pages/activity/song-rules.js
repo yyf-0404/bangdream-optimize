@@ -1,3 +1,11 @@
+// Song and character catalogs assign band IDs independently.
+export const songBandOrder = [1, 2, 4, 5, 3, 21, 18, 45];
+
+export function songBandCategory(song) {
+  const bandId = Number(song?.bandId);
+  return songBandOrder.includes(bandId) ? String(bandId) : 'other';
+}
+
 export function compareSongRelease(a, b, server) {
   const index = {jp:0,en:1,tw:2,cn:3,kr:4}[server] ?? 3;
   const time = song => {

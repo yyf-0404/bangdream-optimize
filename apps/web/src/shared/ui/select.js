@@ -69,7 +69,8 @@ export function installSelects(root=document){
  }
  function open(control,typed=''){
   if(control.button.disabled)return;close(false);update(control);
-  const searchable=control.options.filter(o=>!o.hidden).length>8||control.select.dataset.searchable==='true';
+  const searchMode=control.select.dataset.searchable;
+  const searchable=searchMode==='true'||(searchMode!=='false'&&control.options.filter(o=>!o.hidden).length>8);
   const popup=document.createElement('div');popup.className='bo-select-popup';popup.popover='manual';popup.id=`${control.id}-popup`;
   const list=document.createElement('div');list.className='bo-select-list';list.id=`${control.id}-list`;list.setAttribute('role','listbox');list.setAttribute('aria-label',control.name);
   const status=document.createElement('div');status.className='bo-select-status';status.setAttribute('role','status');status.setAttribute('aria-live','polite');

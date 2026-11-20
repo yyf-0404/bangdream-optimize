@@ -4,11 +4,11 @@ import { designIcon } from '../../design/fidelity.js';
 import { itemArtUrls } from '../../shared/assets.js';
 import {
   attributeLabel,
-  bandLabel,
   compactJoin,
   fireCostForMultiplier,
   formatInteger,
   formatMs,
+  liveVariantLabel,
   magazineLabel,
   selectedBandLabel,
   totalFireCost,
@@ -19,8 +19,10 @@ import {
   bandIconUrls,
 } from '../../shared/assets.js';
 import { cardPreviewItem } from '../../components/cards/preview.js';
+import { bandNames } from '../../components/cards/rules.js';
 import { emptyMessage } from '../../shared/ui/dom.js';
 import { renderDifficultyList } from '../activity/song-view.js';
+import { songBandCategory } from '../activity/song-rules.js';
 import { scoreRangeEmptyExplanation } from '../../data/calculation-errors.js';
 import {equipmentBonusText, resultCharacterBonuses, statFields} from '../../domain/result-bonuses.js';
 import {formatCompactPercentNumber} from '../../shared/utils.js';
@@ -436,7 +438,7 @@ function renderPtScenario(result) {
   title.textContent = '计算场景';
   const details = document.createElement('dl');
   details.className = 'result-diagnostic-grid result-scenario-grid';
-  details.append(diagnosticItem('演出模式', ptLiveVariantLabel(result.liveVariant)));
+  details.append(diagnosticItem('演出模式', liveVariantLabel(result.liveVariant)));
   if (scenario.versus) {
     details.append(diagnosticItem(
       '排名',
@@ -454,17 +456,6 @@ function renderPtScenario(result) {
   }
   section.append(title, details);
   return section;
-}
-
-function ptLiveVariantLabel(value) {
-  return {
-    solo: '自由演出',
-    cooperative: '协力演出',
-    versus: '竞演演出',
-    medley: '巡回演出',
-    festival: '团队演出',
-    challenge_cp: '挑战演出',
-  }[value] ?? String(value ?? '-');
 }
 
 function renderPtMaximizeSongSection(songs, teams, deps, { detailedScore = false } = {}) {
@@ -711,6 +702,8 @@ function renderScoreRangeTeam(cardIds, deps) {
 }
 
 function renderScoreRangePlay(play, deps) {
+  const song = deps.getSongRecord?.(play.songId);
+  const songName = deps.songLabel(play.songId);
   const row = document.createElement('article');
   row.className = 'play-row score-range-play';
   const header = document.createElement('div');
@@ -718,25 +711,23 @@ function renderScoreRangePlay(play, deps) {
   const cover = assetImage(
     deps.songCoverUrls(play.songId),
     'song-cover',
-    deps.songLabel(play.songId),
+    songName,
   );
   const content = document.createElement('div');
   content.className = 'result-song-content';
   const title = document.createElement('div');
   title.className = 'result-song-title';
   const name = document.createElement('strong');
-  name.textContent = deps.songLabel(play.songId);
+  name.textContent = songName;
   const meta = document.createElement('small');
   meta.className = 'result-song-meta';
   meta.textContent = compactJoin([
     `ID ${play.songId}`,
+    bandNames[songBandCategory(song)] ?? '其他',
     `${fireCostForMultiplier(play.fireMultiplier)} 火`,
   ], ' · ');
   title.append(name, meta);
-  const difficulties = renderPlayedDifficulty(
-    deps.getSongRecord?.(play.songId),
-    play.difficulty,
-  );
+  const difficulties = renderPlayedDifficulty(song, play.difficulty);
   difficulties.classList.add('result-song-difficulty-list');
   content.append(title, difficulties);
   if (cover) {

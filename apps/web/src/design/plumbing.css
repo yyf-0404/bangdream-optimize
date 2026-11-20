@@ -165,12 +165,8 @@ body{overflow-x:clip}
 #result-design .song-details-identity .activity-song-difficulty-list{display:flex;flex-wrap:wrap;gap:6px}
 @media(max-width:480px){#result-design .song-details-body{grid-template-columns:1fr;gap:16px}#result-design .song-details-body>img{width:96px;height:96px}}
 /* Runtime difficulty buttons and jacket wrappers must survive the approved button reset. */
-#aurora-soft-study #song-picker .sp-current button.preview-difficulty{display:inline-flex;align-items:center;justify-content:center;width:54px;height:29px;min-height:29px;padding:0 2px;gap:5px;border:1px solid color-mix(in srgb,var(--diff-ink) 62%,var(--color-surface));border-radius:var(--radius-pill);background:var(--color-surface);color:var(--diff-ink)}
-#aurora-soft-study #song-picker .sp-current button.preview-difficulty[data-selected=true]{background:var(--diff-ink);border-color:var(--diff-ink);color:var(--color-text-inverse)}
-#aurora-soft-study #song-picker .sp-current button.preview-difficulty:not([data-selected=true]):hover{background:color-mix(in srgb,var(--diff-ink) 12%,var(--color-surface))}
 #aurora-soft-study #song-picker .sp-slot .sp-jacket{width:34px;height:34px}
 @media(max-width:600px){#aurora-soft-study #song-picker .sp-slot .sp-jacket{width:24px;height:24px}}
-@media(max-width:400px){#aurora-soft-study #song-picker .sp-current button.preview-difficulty{width:48px}}
 /* Clip only the artwork, so result actions can extend below the hero. */
 #result-design .page-hero{overflow:visible}
 #result-design .page-hero .hero-visual{overflow:hidden}

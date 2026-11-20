@@ -103,9 +103,10 @@
 :is(#card-library-unified,.accepted-card-picker) .filter-option:hover{ border-color:var(--color-danger-strong); }
 :is(#card-library-unified,.accepted-card-picker) .filter-option[data-key=rarity] img{ width:30px; height:27px; }
 :is(#card-library-unified,.accepted-card-picker) .filter-option[data-key=server] img{ width:25px; height:20px; }
-:is(#card-library-unified,.accepted-card-picker) .filter-option[data-key=ownership]{ min-width:90px; padding:5px 10px; color:var(--muted); }
-:is(#card-library-unified,.accepted-card-picker) .filter-option[data-key=ownership][aria-checked=true]{ color:var(--brand); }
-:is(#card-library-unified,.accepted-card-picker) .filter-option[data-key=ownership][aria-checked=false] .ownership-indicator{ color:var(--color-text-secondary); }
+:is(#card-library-unified,.accepted-card-picker) .filter-option.filter-option--text{ padding:5px var(--space-10); color:var(--muted); white-space:nowrap; }
+:is(#card-library-unified,.accepted-card-picker) .filter-option--text[aria-checked=true]{ color:var(--brand); }
+:is(#card-library-unified,.accepted-card-picker) .filter-option--text[aria-checked=false] .filter-option-indicator{ color:var(--color-text-secondary); }
+:is(#card-library-unified,.accepted-card-picker) .filter-option-indicator{ inline-size:var(--icon-size-sm); flex:none; text-align:center; }
 :is(#card-library-unified,.accepted-card-picker) .card-group{ scroll-margin-top:76px; padding-top:15px; }
 :is(#card-library-unified,.accepted-card-picker) .group-heading{ display:flex; align-items:center; gap:9px; border-bottom:1px solid var(--line); margin-bottom:13px; padding-bottom:9px; }
 :is(#card-library-unified,.accepted-card-picker) .group-heading img{ width:30px; height:28px; object-fit:contain; }
@@ -126,7 +127,6 @@
 :is(#card-library-unified,.accepted-card-picker) .skill.max{ color:var(--color-heading); }
 :is(#card-library-unified,.accepted-card-picker) .card[data-owned=false] .card-stats{ color:var(--color-text-secondary); font-size:var(--text-2xs); }
 :is(#card-library-unified,.accepted-card-picker) .image-fallback{ position:absolute; inset:0; display:grid; place-items:center; padding:4px; text-align:center; font-size:var(--text-2xs); color:var(--color-text-subtle); }
-:is(#card-library-unified,.accepted-card-picker) .ownership-indicator svg{width:16px;height:16px}
 :is(#card-library-unified,.accepted-card-picker) .image-fallback[hidden]{display:none}
 :is(#card-library-unified,.accepted-card-picker) .card-art[hidden]{display:none}
 :is(#card-library-unified,.accepted-card-picker) .shared-card-library .card-picture-label{position:absolute;right:3px;bottom:3px;display:grid;place-items:center;min-width:15px;height:15px;padding:0 2px;background:color-mix(in srgb,var(--color-text) 58%,transparent);color:var(--color-text-inverse);font:9px/1 var(--font-sans);border-radius:var(--radius-xs)}
@@ -204,10 +204,11 @@
 :is(#card-library-unified,.accepted-card-picker) .character-head p{ font-size:var(--text-xs); color:var(--muted); }
 :is(#card-library-unified,.accepted-card-picker) .row-actions{ display:flex; align-items:center; gap:14px; margin-left:auto; }
 :is(#card-library-unified,.accepted-card-picker) .character-filters{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:24px; row-gap:6px; margin-bottom:16px; }
-:is(#card-library-unified,.accepted-card-picker) .filter-matrix{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:24px; padding:8px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+:is(#card-library-unified,.accepted-card-picker) .filter-matrix{ display:flex; flex-wrap:wrap; column-gap:var(--space-24); padding:var(--space-8) 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+:is(#card-library-unified,.accepted-card-picker) .filter-matrix>.filter-row{ flex:1 0 max-content; min-inline-size:calc((100% - var(--space-24))/2); max-inline-size:100%; }
 :is(#card-library-unified,.accepted-card-picker) .filter-row{ display:flex; align-items:center; gap:9px; min-height:49px; min-width:0; }
-:is(#card-library-unified,.accepted-card-picker) .filter-row h3{ width:43px; color:var(--color-text-secondary); }
-:is(#card-library-unified,.accepted-card-picker) .options{ display:flex; align-items:center; gap:5px; flex:1; min-width:0; }
+:is(#card-library-unified,.accepted-card-picker) .filter-row h3{ inline-size:4em; white-space:nowrap; color:var(--color-text-secondary); }
+:is(#card-library-unified,.accepted-card-picker) .options{ display:flex; align-items:center; flex-wrap:wrap; gap:5px; flex:1; min-width:0; }
 :is(#card-library-unified,.accepted-card-picker) .row-all{ font-size:var(--text-xs); }
 :is(#card-library-unified,.accepted-card-picker) .filter-footer{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 0 13px; font-size:var(--text-xs); color:var(--muted); }
 :is(#card-library-unified,.accepted-card-picker) .filter-footer a{ display:flex; align-items:center; gap:3px; text-decoration:none; white-space:nowrap; }
@@ -323,7 +324,8 @@
 :is(#card-library-unified,.accepted-card-picker) .results-count{ width:100%; }
 :is(#card-library-unified,.accepted-card-picker) .band-button{ width:76px; }
 :is(#card-library-unified,.accepted-card-picker) .band-button img{ width:60px; }
-:is(#card-library-unified,.accepted-card-picker) .character-filters,:is(#card-library-unified,.accepted-card-picker) .filter-matrix{ column-gap:18px; }
+:is(#card-library-unified,.accepted-card-picker) .character-filters{ column-gap:18px; }
+:is(#card-library-unified,.accepted-card-picker) .filter-matrix>.filter-row{ min-inline-size:100%; }
 :is(#card-library-unified,.accepted-card-picker) .members{ gap:1px; }
 :is(#card-library-unified,.accepted-card-picker) .filter-option{ min-width:36px; }
 :is(#card-library-unified,.accepted-card-picker) .filter-row{ gap:6px; }
@@ -340,8 +342,6 @@
 :is(#card-library-unified,.accepted-card-picker) .band-button{ width:100px; }
 :is(#card-library-unified,.accepted-card-picker) .band-button img{ width:78px; }
 :is(#card-library-unified,.accepted-card-picker) .members{ max-width:360px; }
-:is(#card-library-unified,.accepted-card-picker) .filter-matrix{ grid-template-columns:1fr; }
-:is(#card-library-unified,.accepted-card-picker) .filter-row h3{ width:50px; }
 :is(#card-library-unified,.accepted-card-picker) .filter-option{ min-width:44px; height:40px; }
 :is(#card-library-unified,.accepted-card-picker) .options{ gap:9px; }
 :is(#card-library-unified,.accepted-card-picker) .row-all{ margin-left:auto; }}
@@ -367,11 +367,9 @@
 :is(#card-library-unified,.accepted-card-picker) .band-button img{ width:62px; }
 :is(#card-library-unified,.accepted-card-picker) .members{ max-width:none; gap:0; }
 :is(#card-library-unified,.accepted-card-picker) .character-button{ width:42px; height:44px; padding:3px 2px; }
-:is(#card-library-unified,.accepted-card-picker) .filter-row h3{ width:41px; }
 :is(#card-library-unified,.accepted-card-picker) .filter-row{ gap:5px; min-height:49px; }
 :is(#card-library-unified,.accepted-card-picker) .options{ gap:4px; }
 :is(#card-library-unified,.accepted-card-picker) .filter-option{ min-width:40px; height:40px; }
-:is(#card-library-unified,.accepted-card-picker) .filter-option[data-key=ownership]{ min-width:88px; }
 :is(#card-library-unified,.accepted-card-picker) .filter-footer{ align-items:flex-start; }
 :is(#card-library-unified,.accepted-card-picker) .filter-footer>span{ max-width:76%; }
 :is(#card-library-unified,.accepted-card-picker) .results-toolbar{ gap:9px; padding:10px 0; }

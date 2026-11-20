@@ -36,6 +36,11 @@ export function mountAcceptedShell(document){
 }
 
 export function updateAcceptedProfile(player){
- const host=document.querySelector('#workspace-server');if(!host)return;host.prepend(assetImage(serverIconUrls(player.server),'','')||document.createTextNode(''));
+ const flag = document.querySelector('.workspace-server-flag');
+ if (flag && flag.dataset.server !== player.server) {
+  const image = assetImage(serverIconUrls(player.server), '', '');
+  flag.replaceChildren(...(image ? [image] : []));
+  flag.dataset.server = player.server;
+ }
  const page=document.querySelector('[data-page-panel]:not([hidden])')?.dataset.pagePanel;document.querySelector('#page-breadcrumb').textContent=names[page]||names.activity;
 }

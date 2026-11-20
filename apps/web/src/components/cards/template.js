@@ -2,11 +2,21 @@ import {designFragment} from '../../design/approved/templates.js';
 import {hydrateDesignIcons} from '../../design/controls.js';
 import {designIcon} from '../../design/fidelity.js';
 
-export function mountCatalogTemplate(root){
+export function mountCatalogTemplate(root, { showCategoryFilters = false } = {}) {
  const filters=designFragment('card-filters'),results=designFragment('card-results');
  root.replaceChildren(filters,results);
  const q=s=>root.querySelector(s);
  filters.classList.add('catalog-filters');results.classList.add('catalog-results');
+ if (showCategoryFilters) {
+  q('#server-options').closest('.filter-row').insertAdjacentHTML('beforebegin', `
+    <div class="filter-row" role="group" aria-label="技能加成筛选">
+      <h3>技能加成</h3><div class="options" data-host="skillBonus"></div><div data-actions="skillBonus"></div>
+    </div>
+    <div class="filter-row" role="group" aria-label="卡牌类型筛选">
+      <h3>卡牌类型</h3><div class="options" data-host="cardType"></div><div data-actions="cardType"></div>
+    </div>
+  `);
+ }
  const classes={'#search':'catalog-search-input','.search':'catalog-search','#match-count':'catalog-count match-count','#match-detail':'match-detail','.results-dock':'catalog-sticky','.results-toolbar':'catalog-toolbar','.view-controls':'catalog-view-controls','#group-jumps':'catalog-jumps','#groups':'catalog-groups'};
  for(const [selector,names]of Object.entries(classes))q(selector)?.classList.add(...names.split(' '));
  for(const [key,id]of Object.entries({character:'character-filters',attribute:'attribute-options',rarity:'rarity-options',server:'server-options',ownership:'ownership-options'})){q('#'+id).dataset.host=key;q('#'+key+'-actions').dataset.actions=key;}

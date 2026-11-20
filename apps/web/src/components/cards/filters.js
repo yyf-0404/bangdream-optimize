@@ -1,15 +1,26 @@
-import {bandOrder,bandNames,attributeNames,serverNames,bandSelection,toggleBand,filterAllSelected,toggleFilterSelection} from './rules.js';
+import {bandOrder,bandNames,attributeNames,serverNames,bandSelection,toggleBand,filterAllSelected,toggleFilterSelection,cardTypeFilterLabels} from './rules.js';
+import {skillBonusFilterLabels} from './skill.js';
 import {assetOriginUrl} from '../../shared/assets.js';
 const iconOrigin=assetOriginUrl()+'/res/icon/';
 const ownershipNames={owned:'已持有',missing:'未持有'};
+const textFilterLabels = { ownership: ownershipNames, skillBonus: skillBonusFilterLabels, cardType: cardTypeFilterLabels };
 function sharedEl(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}
 function sharedImg(src,cls,alt=''){const n=sharedEl('img',cls);n.src=src;n.alt=alt;n.loading='lazy';n.onerror=()=>{n.style.visibility='hidden';};return n;}
-function ownershipIcon(name){const span=sharedEl('span','ownership-indicator');span.textContent=name==='check'?'✓':'○';span.setAttribute('aria-hidden','true');return span;}
-export function filterValues(characters){return {character:characters.map(c=>String(c.id)),attribute:Object.keys(attributeNames),rarity:['5','4','3','2','1'],server:Object.keys(serverNames),ownership:['owned','missing']};}
+export function filterValues(characters) {
+  return {
+    character: characters.map(c => String(c.id)),
+    attribute: Object.keys(attributeNames),
+    rarity: ['5', '4', '3', '2', '1'],
+    server: Object.keys(serverNames),
+    ownership: ['owned', 'missing'],
+    skillBonus: Object.keys(skillBonusFilterLabels),
+    cardType: Object.keys(cardTypeFilterLabels),
+  };
+}
 export function createFilterControls(root,{characters,getFilters,onChange,onReset,hosts,actionHosts={}}){
  root._filtersController?.abort();root._filtersController=new AbortController();
  const allValues=filterValues(characters);
- const labels={character:'角色',attribute:'属性',rarity:'稀有度',server:'服务器',ownership:'持有状态'};
+ const labels={character:'角色',attribute:'属性',rarity:'稀有度',server:'服务器',ownership:'持有状态',skillBonus:'技能加成',cardType:'卡牌类型'};
 function checkboxButton(label,cls){
   const b=sharedEl('button',cls);b.type='button';b.role='checkbox';b.setAttribute('aria-label',label);b.title=label;return b;
 }
@@ -29,13 +40,23 @@ function build(){
     });
     row.append(band,host);hosts.character.append(row);
   });
-  for(const key of ['attribute','rarity','server','ownership']){
+  for(const key of ['attribute','rarity','server','ownership','skillBonus','cardType']){
     if(!hosts[key])continue;
+    const textLabels = textFilterLabels[key];
     allValues[key].forEach(value=>{
-      const label=key==='rarity'?`${value} 星`:key==='attribute'?attributeNames[value]:key==='server'?serverNames[value]:ownershipNames[value];
+      const label=textLabels?.[value]??(key==='rarity'?`${value} 星`:key==='attribute'?attributeNames[value]:serverNames[value]);
       const b=checkboxButton(label,'filter-option');b.dataset.key=key;b.dataset.value=value;
-      if(key==='ownership'){const icon=ownershipIcon(value==='owned'?'check':'circle');icon.classList.add('ownership-indicator');b.append(icon,sharedEl('span','',label));}
-      else b.append(sharedImg(iconOrigin+(key==='rarity'?`star_${value}.png`:`${value}.svg`)));
+      if (textLabels) {
+        b.classList.add('filter-option--text');
+        if (key === 'ownership') {
+          const marker = sharedEl('span', 'filter-option-indicator', value === 'owned' ? '✓' : '○');
+          marker.setAttribute('aria-hidden', 'true');
+          b.append(marker);
+        }
+        b.append(sharedEl('span', 'filter-option-label', label));
+      } else {
+        b.append(sharedImg(iconOrigin+(key==='rarity'?`star_${value}.png`:`${value}.svg`)));
+      }
       b.addEventListener('click',()=>toggleOption(key,value));hosts[key].append(b);
     });
   }

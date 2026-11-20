@@ -4,6 +4,53 @@ import {customSkillInfo} from '../../domain/custom-cards.js';
 // Categories follow the user-supplied tsugu drawCardIconSkill reference.
 // https://github.com/yyf-0404/tsugu-bangdream-bot/blob/medley/backend/src/components/skill.ts
 const percent=value=>Number(Number(value).toFixed(4));
+const rateUpEffect = 'score_rate_up_with_perfect';
+
+export const skillBonusFilterLabels = Object.freeze({
+  '150-plus': '150% 及以上',
+  '130-145': '130%～145%',
+  '100-125': '100%～125%',
+  'under-100': '低于 100%',
+});
+
+function skillBonusGroup(bonus) {
+  if (bonus >= 150) return '150-plus';
+  if (bonus >= 130) return '130-145';
+  if (bonus >= 100) return '100-125';
+  return 'under-100';
+}
+
+export function normalizeSkillBonusFilter(values) {
+  const groups = new Set();
+  for (const value of values ?? []) {
+    if (Object.hasOwn(skillBonusFilterLabels, value)) groups.add(value);
+    else if (value === 'rateup') groups.add('100-125');
+    else if (value != null && value !== '' && Number.isFinite(Number(value))) {
+      groups.add(skillBonusGroup(Number(value)));
+    }
+  }
+  return groups;
+}
+
+function scoreEffectValues(effects) {
+  return Object.entries(effects)
+    .filter(([type]) => type.startsWith('score'))
+    .map(([, effect]) => effect?.activateEffectValue);
+}
+
+export function cardSkillFilterValue(card) {
+  const skill = card.skillRecord;
+  if (!skill) return undefined;
+  const activation = skill.activationEffect;
+  const effects = activation?.activateEffectTypes ?? {};
+  if (Object.hasOwn(effects, rateUpEffect)) return '100-125';
+  const bonuses = scoreEffectValues(effects).flat().filter(Number.isFinite);
+  if (Number.isFinite(activation?.unificationActivateEffectValue)) {
+    bonuses.push(activation.unificationActivateEffectValue);
+  }
+  return skillBonusGroup(Math.max(0, ...bonuses));
+}
+
 function conditionalScore(base,unified,suffix,teamCards,bandId,attribute){
  const constrained=bandId!=null||attribute!=null;
  if(!constrained)return {score:unified,value:`${unified}%`,notation:`${unified}${suffix}`};
@@ -31,19 +78,19 @@ export function cardSkillInfo(card){
  const effects=s.activationEffect?.activateEffectTypes||{},types=new Set(Object.keys(effects));
  if(effects.score?.activateCondition==='perfect')types.add('score_perfect');
  if(s.onceEffect?.onceEffectType)types.add(s.onceEffect.onceEffectType);
- const scores=Object.entries(effects).filter(([type])=>type.startsWith('score')).map(([,e])=>atLevel(e.activateEffectValue)).filter(v=>typeof v==='number'&&Number.isFinite(v));
+ const scores=scoreEffectValues(effects).map(atLevel).filter(Number.isFinite);
  const base=scores.length?Math.max(...scores):0,unified=s.activationEffect?.unificationActivateEffectValue;
  const value=typeof unified==='number'?Math.max(base,unified):base;
  let suffix='';
  if(types.has('score_continued_note_judge'))suffix='G';
  else if(types.has('score_over_life'))suffix=types.has('score_under_life')?'L':'/';
  else if(types.has('score_under_great_half')||types.has('score_perfect'))suffix='P';
- else if(types.has('score_rate_up_with_perfect'))suffix='+0.5*P';
+ else if(types.has(rateUpEffect))suffix='+0.5*P';
  let short='分数',category='分数提升';
  if(types.has('score_continued_note_judge')){short='G';category='G 型 · GREAT 以下后降档';}
  else if(types.has('score_over_life')){short=types.has('score_under_life')?'L':'满血';category=types.has('score_under_life')?'L 型 · 按生命值分档':'生命值条件加分';}
  else if(types.has('score_under_great_half')||types.has('score_perfect')){short='P';category='P 型 · PERFECT 条件加分';}
- else if(types.has('score_rate_up_with_perfect')){short='递增';category='PERFECT 递增加分';}
+ else if(types.has(rateUpEffect)){short='递增';category='PERFECT 递增加分';}
  else if(s.activationEffect?.unificationActivateEffectValue!=null){short='组队';category='同属性／乐队条件加分';}
  const extras=['judge','life','damage'].filter(t=>types.has(t));
  const names={judge:'判定',life:'回复',damage:'伤害'};

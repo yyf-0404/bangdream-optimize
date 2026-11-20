@@ -1,5 +1,6 @@
 import {attributeLabel} from '../../shared/utils.js';
 import {cardReleaseOrder, datePriority, releaseTimestamp} from './release-order.js';
+import {cardSkillFilterValue,skillBonusFilterLabels} from './skill.js';
 export {cardReleaseOrder, datePriority} from './release-order.js';
 
 export const bandOrder = [1, 2, 4, 5, 3, 21, 18, 45,50];
@@ -9,13 +10,45 @@ export const attributeNames = Object.freeze(Object.fromEntries(['powerful','cool
 export const serverNames = {jp:'日服', cn:'国服', en:'国际服', tw:'台服', kr:'韩服'};
 export const normalize = value => String(value).toLowerCase().replace(/\s/g, '');
 
+export const cardTypeFilterLabels = Object.freeze({
+  dreamfes: '梦限／闪限',
+  limited: '普限',
+  permanent: '常驻',
+  birthday: '生日',
+  event: '活动奖励',
+  other: '其他',
+});
+
+const cardTypeDetailLabels = {
+  ...cardTypeFilterLabels,
+  dreamfes: '梦限',
+  kirafes: '闪限',
+  initial: '初始卡',
+  campaign: '宣传／纪念发放',
+  special: '特殊卡',
+};
+
+export function cardTypeLabel(card) {
+  if (card.custom) return '自定义';
+  const type = card.record?.type;
+  return Object.hasOwn(cardTypeDetailLabels, type) ? cardTypeDetailLabels[type] : cardTypeFilterLabels.other;
+}
+
+export function cardTypeFilterValue(card) {
+  const type = card.record?.type;
+  if (type === 'kirafes') return 'dreamfes';
+  return Object.hasOwn(cardTypeFilterLabels, type) ? type : 'other';
+}
+
 export function defaultFilters(characters, server) {
   return {
     character: new Set(characters.map(c => String(c.id))),
     attribute: new Set(Object.keys(attributeNames)),
     rarity: new Set(['5', '4', '3', '2', '1']),
     ownership: new Set(['owned']),
-    server: new Set([server])
+    server: new Set([server]),
+    skillBonus: new Set(Object.keys(skillBonusFilterLabels)),
+    cardType: new Set(Object.keys(cardTypeFilterLabels)),
   };
 }
 
@@ -114,11 +147,15 @@ export function cardMatchesReleaseFilter(card,server,now=Date.now()){
 
 export function filterCards(cards, filters, search = '') {
   const term = normalize(search), now = Date.now();
+  const restrictSkillBonus = filters.skillBonus != null
+    && !filterAllSelected(filters.skillBonus, Object.keys(skillBonusFilterLabels));
   return cards.filter(c => filters.character.has(String(c.characterId))
     && filters.attribute.has(c.attribute)
     && filters.rarity.has(String(c.rarity))
     && filters.ownership.has(c.owned ? 'owned' : 'missing')
     && (c.custom || filters.server===null || [...filters.server].some(s => cardMatchesReleaseFilter(c,s,now)))
+    && (!restrictSkillBonus || filters.skillBonus.has(cardSkillFilterValue(c)))
+    && (filters.cardType == null || filters.cardType.has(cardTypeFilterValue(c)))
     && (!term || normalize(c.id+' '+c.name+' '+c.title+' '+(c.searchText||'')).includes(term)));
 }
 

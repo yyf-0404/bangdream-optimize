@@ -50,13 +50,27 @@ export function mountDesignControls({root,parameters,legacy,getPlayer,writePlaye
   const config=player.ptEvaluate,variant=ptEvaluateLiveVariant(config,event.eventType),auto=ptEvaluateSupportsAuto(variant);
   const a={liveVariant:variant,scoreMode:auto?config.scoreMode:'manual',autoSupported:auto};
   const next=JSON.stringify([config,event.eventType,player.server]);
-  if(signature!==next){signature=next;const view=liveMarkup({a,allowed:allowedLiveVariants(event.eventType,'ptEvaluate'),config,profile:player,eventType:()=>event.eventType,R:{liveNames:names}});if(document.activeElement?.id!=='pc-support')live.querySelector('#pc-live-fields').innerHTML=view.fields;live.querySelector('#pc-score-note').textContent=view.note;}
+  if(signature!==next){
+   signature=next;
+   const allowed=allowedLiveVariants(event.eventType,'ptEvaluate');
+   const view=liveMarkup({a,allowed,config,profile:player,eventType:()=>event.eventType,R:{liveNames:names}});
+   if(document.activeElement?.id!=='pc-support')live.querySelector('#pc-live-fields').innerHTML=view.fields;
+   live.querySelector('#pc-score-note').textContent=view.note;
+  }
   live.querySelector('#pc-live-summary').textContent=variant==='medley'?'三曲共用演出设置':'本次指定队伍';
   const m=player.calculationMode,t=event.eventType;
   const nextCalc=JSON.stringify([m,t,player.server,player.ptMaximize,player.scoreRange]);
   const p=player.ptMaximize,shape=JSON.stringify([m,t,player.server,p.liveVariantByEventType,p.teammateMode,p.cooperativeLeaderMode]);
   const editing=parameters.contains(document.activeElement)&&document.activeElement.type==='number';
-  if(calcSignature!==nextCalc){calcSignature=nextCalc;parameters.hidden=!['ptMaximize','scoreRange'].includes(m);if(!editing||calcShape!==shape)parameters.innerHTML=parameters.hidden?'':calculationMarkup({state:player,server:player.server,m,t,l:ptMaximizeLiveVariant(p,t),R:{variants:{[t]:allowedLiveVariants(t,'ptMaximize')},names}});calcShape=shape;}
+  if(calcSignature!==nextCalc){
+   calcSignature=nextCalc;
+   parameters.hidden=!['ptMaximize','scoreRange'].includes(m);
+   if(!editing||calcShape!==shape){
+    const variants=allowedLiveVariants(t,'ptMaximize');
+    parameters.innerHTML=parameters.hidden?'':calculationMarkup({state:player,server:player.server,m,t,l:ptMaximizeLiveVariant(p,t),R:{variants:{[t]:variants},names}});
+   }
+   calcShape=shape;
+  }
   const delta=parameters.querySelector('.calc-delta');if(delta){const n=player.scoreRange.targetTotalPt-player.scoreRange.currentPt;delta.textContent=n>0?'还需 '+n.toLocaleString('zh-CN')+' PT':'';}
  }
  return {live,render};

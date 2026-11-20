@@ -1,0 +1,12 @@
+#archive-design .profile-list-create {
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  min-height: var(--control-height-sm);
+  padding-block: var(--space-4);
+}
+
+#archive-design .profile-list-create > [data-icon] { display: flex; }
+
+@media (pointer: coarse) {
+  #archive-design .profile-list-create { min-height: var(--control-height-touch); }
+}

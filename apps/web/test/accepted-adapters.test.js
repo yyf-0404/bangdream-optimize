@@ -11,8 +11,8 @@ test('equipment rejects missing required levels while keeping the two optional c
   assert.equal(equipmentAvailable(undefined,player),false);
 });
 test('bonus editor activity and performance choices respect calculation capabilities',()=>{
-  assert.deepEqual(allowedLiveVariants('challenge','ptEvaluate'),['solo','challenge_cp']);
-  assert.deepEqual(allowedLiveVariants('challenge','ptMaximize'),['solo','cooperative','challenge_cp']);
+  assert.deepEqual(allowedLiveVariants('challenge','ptEvaluate'),['challenge_cp','solo']);
+  assert.deepEqual(allowedLiveVariants('challenge','ptMaximize'),['cooperative','challenge_cp','solo']);
   assert.deepEqual(allowedLiveVariants('medley','ptEvaluate'),['medley']);
   assert.equal(bonusApplication('challenge','ptEvaluate','solo'),'point');
   assert.equal(bonusApplication('challenge','ptEvaluate','challenge_cp'),'stat');

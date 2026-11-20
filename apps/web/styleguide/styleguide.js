@@ -5,7 +5,8 @@ import { enter, flash, flip, prefersReducedMotion, removeWithMotion, setOpen } f
 const TOKEN_FILE = new URL('../src/design/tokens.css', import.meta.url);
 const GROUP_TITLES = {
   Text: '文字', 'Brand and accents': '品牌与强调色', Status: '状态', Surfaces: '背景', Borders: '边框',
-  Gradients: '渐变', Navigation: '导航（侧栏）', Typography: '字体', Sizing: '尺寸', Radius: '圆角', Elevation: '阴影', Focus: '焦点', Motion: '动效',
+  Gradients: '渐变', Navigation: '导航（侧栏）', 'Timing chart note types': '谱面键型', Typography: '字体',
+  Sizing: '尺寸', Radius: '圆角', Elevation: '阴影', Focus: '焦点', Motion: '动效',
 };
 const groupTitle = (title) => GROUP_TITLES[title]
   ?? (title.startsWith('Game semantics') ? '游戏语义色（乐队 / 属性 / 难度）' : title.startsWith('Spacing') ? '间距（数字即像素）' : title);
