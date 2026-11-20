@@ -94,6 +94,7 @@ test('0.4.3 schema-8 history loads intact, and invalidation survives a storage r
   const storage=createResultCacheStorage();
   const loaded=await storage.loadResultCache();
   assert.equal(loaded.length,2);
+  assert.ok(loaded.every(entry => entry.accessedAt === entry.createdAt));
   assert.ok(loaded.every(entry=>entry.reusable===false));
   assert.ok(loaded.every(entry=>entry.cacheVersion===8));
   assert.deepEqual(loaded.find(entry=>entry.profileId==='A').result,entries()[0].result);

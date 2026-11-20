@@ -506,6 +506,7 @@ const calculationActions = createCalculationActions({
   buildDiagnostic,
   diagnosticFileName,
   activatePage: deferred.activatePage,
+  getActivePage: () => pageController.activePage(),
   setStatus: status.setStatus,
   setError: status.setError,
   eventLabel,

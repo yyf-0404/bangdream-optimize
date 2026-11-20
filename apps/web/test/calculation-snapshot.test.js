@@ -6,19 +6,20 @@ import {createCalculationActions} from '../src/app/calculation-actions.js';
 import {timingResult} from './fixtures/timing-result.js';
 
 function gate(){let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};}
-function harness({ensureCore=async()=>({}),calculate=async()=>({scoringRevision:SCORING_REVISION,totalScore:42}),getActivePage=()=>undefined,hasOpenDialog=()=>false,calculateButtons=[],initialPlayer={},eventRecord={eventType:'versus'}}={}){
+function harness({ensureCore=async()=>({}),calculate=async()=>({scoringRevision:SCORING_REVISION,totalScore:42}),getActivePage=()=>undefined,hasOpenDialog=()=>false,calculateButtons=[],initialPlayer={},eventRecord={eventType:'versus'},persistResultCache=async()=>{}}={}){
   let player={currentEvent:0,server:'cn',calculationMode:'maximize',activityMode:'single',cardList:{1:{skillLevel:5,illustTrainingStatus:true}},...initialPlayer};
   const state={activePlayerProfileId:'A',runtime:{calculate,ptMaximize:calculate},resultCache:[]};
   const writes=[],renders=[],errors=[],navigations=[];
   const field={value:'',checked:false,disabled:false,required:false,querySelector:()=>null,querySelectorAll:()=>[]};
   const elements=new Proxy({eventId:{value:String(player.currentEvent)},scoreRangeAutoBaseMultiplier:{value:'0.5'},result:{},calculateButtons},{get:(o,k)=>k in o?o[k]:k==='calculateButton'?null:field});
   const noop=()=>{};
-  const actions=createCalculationActions({state,elements,readPlayer:()=>structuredClone(player),writePlayer:p=>{writes.push(p);player=structuredClone(p);},savePlayerNow:async()=>{},readOptionalInteger:v=>v===''?undefined:Number(v),parseEntityId:v=>Number(v),applyEventInputToPlayer:noop,editableEventSnapshot:()=>eventRecord,normalizeCurrentActivityForMode:noop,ensureOwnedCardCharacterBonuses:noop,ensureCore,renderConfigForms:noop,renderResultSummary:r=>renders.push(r),renderMetrics:noop,buildDiagnostic:async data=>data,activatePage:p=>navigations.push(p),getActivePage,hasOpenDialog,setStatus:noop,setError:e=>errors.push(e),eventLabel:()=> '活动',normalizedPlayer:p=>p,persistResultCache:async()=>{},yieldForPaint:async()=>{}});
+  const actions=createCalculationActions({state,elements,readPlayer:()=>structuredClone(player),writePlayer:p=>{writes.push(p);player=structuredClone(p);},savePlayerNow:async()=>{},readOptionalInteger:v=>v===''?undefined:Number(v),parseEntityId:v=>Number(v),applyEventInputToPlayer:noop,editableEventSnapshot:()=>eventRecord,normalizeCurrentActivityForMode:noop,ensureOwnedCardCharacterBonuses:noop,ensureCore,renderConfigForms:noop,renderResultSummary:r=>renders.push(r),renderMetrics:noop,buildDiagnostic:async data=>data,activatePage:p=>navigations.push(p),getActivePage,hasOpenDialog,setStatus:noop,setError:e=>errors.push(e),eventLabel:()=> '活动',normalizedPlayer:p=>p,persistResultCache,yieldForPaint:async()=>{}});
   return {state,elements,actions,writes,renders,errors,navigations,getPlayer:()=>player,setScope:value=>{player.eventAvailableCardsOnly=value;},setTiming:value=>{player.hitTiming=value;},edit:()=>{player.cardList[1].skillLevel=2;}};
 }
 
 test('timing and ordinary Medley calculations use separate caches and submit the effective option',async()=>{
-  const calls=[],h=harness({eventRecord:{eventType:'medley'},initialPlayer:{activityMode:'medley'},calculate:async input=>{calls.push(input);return input.options?.hitTiming?timingResult(calls.length):{scoringRevision:SCORING_REVISION,totalScore:calls.length};}});
+  let dialogOpen = false;
+  const calls=[],h=harness({hasOpenDialog:()=>dialogOpen,eventRecord:{eventType:'medley'},initialPlayer:{activityMode:'medley'},calculate:async input=>{calls.push(input);return input.options?.hitTiming?timingResult(calls.length):{scoringRevision:SCORING_REVISION,totalScore:calls.length};}});
   await h.actions.handleCalculate({preventDefault(){}});
   const ordinaryKey=h.state.resultCache[0].key;
   assert.deepEqual(calls[0].options,{});
@@ -26,10 +27,13 @@ test('timing and ordinary Medley calculations use separate caches and submit the
   assert.deepEqual(calls[1].options,{hitTiming:true});
   assert.notEqual(h.state.resultCache[0].key,ordinaryKey);
   assert.equal(h.state.lastDiagnostic.calculationRequest.hitTiming,true);
+  dialogOpen = true;
   h.setTiming(false);await h.actions.handleCalculate({preventDefault(){}});
   assert.equal(calls.length,2);
   assert.equal(h.state.activeResultCacheKey,ordinaryKey);
   assert.equal(h.state.lastDiagnostic.result.totalScore,1);
+  assert.ok(h.state.resultCache.find(entry => entry.key === ordinaryKey).accessedAt > h.state.resultCache[0].accessedAt);
+  assert.equal(h.navigations.length, 2);
   assert.deepEqual(h.errors,[]);
 });
 
@@ -153,11 +157,62 @@ test('late calculation returns to its originating history without replacing anot
 
 test('a completed calculation saves the result without interrupting navigation or an open editor',async()=>{
  for(const modal of [false,true]){
-  let page='#activity';const ready=gate(),entered=gate();
+  let page='activity';const ready=gate(),entered=gate();
   const h=harness({getActivePage:()=>page,hasOpenDialog:()=>modal,calculate:async()=>{entered.resolve();return ready.promise;}});
-  const run=h.actions.handleCalculate({preventDefault(){}});await entered.promise;if(!modal)page='#archive';ready.resolve({scoringRevision:SCORING_REVISION,totalScore:42});await run;
+  const previousViewed = Date.now();
+  h.state.resultCache = [{ key: 'previous', profileId: 'A', createdAt: previousViewed - 1000, accessedAt: previousViewed, result: { totalScore: 24 } }];
+  const run=h.actions.handleCalculate({preventDefault(){}});await entered.promise;if(!modal)page='archive';ready.resolve({scoringRevision:SCORING_REVISION,totalScore:42});await run;
   assert.deepEqual(h.errors,[]);assert.equal(h.renders.length,1);assert.deepEqual(h.navigations,[]);assert.equal(h.state.profileDiagnostics.A.result.totalScore,42);
+  assert.ok(h.state.resultCache[0].accessedAt > previousViewed);
+  const reopened = harness({ getActivePage: () => 'result' });
+  reopened.state.resultCache = h.state.resultCache;
+  reopened.actions.syncProfileResult();
+  assert.equal(reopened.renders.at(-1).totalScore, 42);
  }
+});
+
+test('the result page restores the last viewed history and persists a manual selection per profile', async () => {
+  let page = 'activity';
+  let persisted;
+  const h = harness({
+    getActivePage: () => page,
+    persistResultCache: async entries => { persisted = structuredClone(entries); },
+  });
+  h.state.resultCache = [
+    { key: 'other-profile', profileId: 'B', createdAt: 40, accessedAt: 40, result: { totalScore: 40 } },
+    { key: 'newest', profileId: 'A', createdAt: 30, accessedAt: 30, result: { totalScore: 30 } },
+    { key: 'last-viewed', profileId: 'A', createdAt: 20, accessedAt: 50, result: { totalScore: 20 } },
+    { key: 'oldest', profileId: 'A', createdAt: 10, accessedAt: 45, result: { totalScore: 10 } },
+  ];
+  h.actions.syncProfileResult();
+  assert.equal(h.state.activeResultCacheKey, null);
+  page = 'result';
+  h.actions.syncProfileResult();
+  assert.equal(h.state.activeResultCacheKey, 'last-viewed');
+  assert.deepEqual(h.renders.at(-1), { totalScore: 20 });
+  assert.deepEqual(h.navigations, []);
+
+  await h.actions.handleResultCacheAction({
+    preventDefault() {},
+    target: { closest: () => ({ dataset: { resultCacheAction: 'restore', resultCacheKey: 'oldest' } }) },
+  });
+  assert.ok(persisted.find(entry => entry.key === 'oldest').accessedAt > 50);
+  assert.deepEqual(persisted.map(entry => entry.createdAt), [40, 30, 20, 10]);
+
+  const reopened = harness({ getActivePage: () => 'result' });
+  reopened.state.resultCache = persisted;
+  reopened.actions.syncProfileResult();
+  assert.equal(reopened.state.activeResultCacheKey, 'oldest');
+
+  reopened.state.activePlayerProfileId = 'B';
+  reopened.actions.syncProfileResult();
+  assert.equal(reopened.state.activeResultCacheKey, 'other-profile');
+  assert.deepEqual(reopened.renders.at(-1), { totalScore: 40 });
+
+  reopened.state.activePlayerProfileId = 'C';
+  reopened.actions.syncProfileResult();
+  assert.equal(reopened.state.activeResultCacheKey, null);
+  assert.equal(reopened.renders.at(-1), null);
 });
 test('main band import validates player ID before requesting account data',async()=>{
  const h=harness();let called=false;h.state.runtime.importBestdoriPlayerProfile=async()=>{called=true;};

@@ -41,7 +41,7 @@ export function createCalculationActions({
   buildDiagnostic,
   diagnosticFileName,
   activatePage,
-  getActivePage = () => globalThis.location?.hash,
+  getActivePage = () => globalThis.location?.hash.slice(1),
   hasOpenDialog = () => !!globalThis.document?.querySelector?.('dialog[open]'),
   setStatus,
   setError,
@@ -120,15 +120,24 @@ export function createCalculationActions({
   }
 
   function getCachedResult(cacheKey) {
-    const cache = state.resultCache || [];
-    const index = cache.findIndex((entry) => entry.key === cacheKey && entry.profileId === state.activePlayerProfileId);
-    if (index < 0) {
-      return undefined;
-    }
-    return cache[index];
+    return (state.resultCache || []).find((entry) => entry.key === cacheKey && entry.profileId === state.activePlayerProfileId);
   }
 
-  async function setCachedResult(cacheKey, {
+  function getLatestResultCache(profileId = state.activePlayerProfileId) {
+    return (state.resultCache || [])
+      .filter(entry => entry.profileId === profileId && entry.result != null)
+      .sort((a, b) => b.accessedAt - a.accessedAt || b.createdAt - a.createdAt)[0];
+  }
+
+  function recordResultView(cached) {
+    const latest = getLatestResultCache(cached.profileId);
+    if (cached === latest) return false;
+    const accessedAt = Math.max(Date.now(), (latest?.accessedAt ?? 0) + 1);
+    state.resultCache = state.resultCache.map(entry => entry === cached ? { ...entry, accessedAt } : entry);
+    return true;
+  }
+
+  function setCachedResult(cacheKey, {
     player,
     eventId,
     result,
@@ -138,6 +147,8 @@ export function createCalculationActions({
   }) {
     const cache = state.resultCache || [];
     const nextCache = cache.filter((entry) => entry.key !== cacheKey);
+    const createdAt = Date.now();
+    const latest = getLatestResultCache(profileId);
     nextCache.unshift({
       cacheVersion: RESULT_CACHE_SCHEMA_VERSION,
       scoringRevision: result?.scoringRevision ?? result?.[0]?.scoringRevision,
@@ -148,8 +159,8 @@ export function createCalculationActions({
       eventId,
       result: cloneJson(result),
       diagnostic: cloneJson(diagnostic),
-      createdAt: Date.now(),
-      accessedAt: Date.now(),
+      createdAt,
+      accessedAt: Math.max(createdAt, (latest?.accessedAt ?? 0) + 1),
       server: player.server,
       calculationMode: player.calculationMode,
       activityMode: player.activityMode,
@@ -172,6 +183,9 @@ export function createCalculationActions({
     });
     let profileCount = 0;
     state.resultCache = nextCache.filter(entry => entry.profileId !== profileId || ++profileCount <= cacheLimit);
+  }
+
+  async function saveResultCache() {
     try {
       await persistResultCacheState();
       return true;
@@ -181,11 +195,11 @@ export function createCalculationActions({
     }
   }
 
-  async function persistResultCacheState(activeKey = state.activeResultCacheKey) {
+  async function persistResultCacheState() {
     try {
       await persistCache(state.resultCache || []);
     } finally {
-      renderResultCachePanel(activeKey);
+      renderResultCachePanel();
     }
   }
 
@@ -193,6 +207,14 @@ export function createCalculationActions({
     if (typeof renderResultCache === 'function') {
       renderResultCache((state.resultCache || []).filter(entry=>entry.profileId===state.activePlayerProfileId), { activeKey });
     }
+  }
+
+  async function showCachedResult(cached, reveal = true) {
+    const viewed = recordResultView(cached);
+    applyResult(cached.result, cached.diagnostic, cached.key, cached.profileId, reveal);
+    if (viewed) return saveResultCache();
+    renderResultCachePanel();
+    return true;
   }
 
   function applyResult(result, diagnostic, cacheKey, profileId = state.activePlayerProfileId, reveal = true, timingPlanElement) {
@@ -264,7 +286,7 @@ export function createCalculationActions({
     const requestProfileId = state.activePlayerProfileId;
     const requestCacheGeneration = state.resultCacheGeneration ?? 0;
     const requestPage = getActivePage();
-    const revealResult = () => !hasOpenDialog() && (getActivePage() === requestPage || getActivePage() === '#result');
+    const revealResult = () => !hasOpenDialog() && (getActivePage() === requestPage || getActivePage() === 'result');
     const requestPlayer = readPlayer();
     const originalPlayerText = JSON.stringify(requestPlayer);
     isCalculating = true;
@@ -301,14 +323,12 @@ export function createCalculationActions({
         player, eventSnapshot, {...core?.cardsFix, ...core?.cards},
       );
       const cacheKey = makeResultCacheKey(player, eventId, requestProfileId);
-      state.activeResultCacheKey = cacheKey;
       const cached = getCachedResult(cacheKey);
       if (cached?.result != null && !resultCacheInvalidationReason(cached)
         && (!timingActive || isCompleteTimingResult(cached.result))
         && (!restriction || JSON.stringify(cached.diagnostic?.cardAvailability) === JSON.stringify(restriction))) {
-        applyResult(cached.result, cached.diagnostic, cacheKey, requestProfileId, revealResult());
-        renderResultCachePanel(cacheKey);
-        setStatus('完成（缓存）');
+        const viewSaved = await showCachedResult(cached, revealResult());
+        setStatus(viewSaved ? '完成（缓存）' : '完成（查看记录保存失败）');
         return;
       }
 
@@ -376,7 +396,7 @@ export function createCalculationActions({
         result,
         calculationRequest,
       });
-      const resultCacheSaved = await setCachedResult(cacheKey, {
+      setCachedResult(cacheKey, {
         player,
         eventId,
         result,
@@ -385,6 +405,7 @@ export function createCalculationActions({
         reusable: requestCacheGeneration === (state.resultCacheGeneration ?? 0),
       });
       applyResult(result, diagnostic, cacheKey, requestProfileId, revealResult());
+      const resultCacheSaved = await saveResultCache();
       setStatus(resultCacheSaved ? '完成' : '完成（结果缓存保存失败）');
     } catch (error) {
       revealValidationError(error, {activatePage});
@@ -935,15 +956,13 @@ export function createCalculationActions({
 
   async function handleRestoreResultCache(cacheKey) {
     try {
-      state.activeResultCacheKey = cacheKey;
       const cached = getCachedResult(cacheKey);
-      if (!cached) {
+      if (cached?.result == null) {
         setStatus('结果缓存未找到');
         return;
       }
-      applyResult(cached.result, cached.diagnostic, cacheKey);
-      renderResultCachePanel(cacheKey);
-      setStatus('已恢复结果缓存');
+      const viewSaved = await showCachedResult(cached);
+      setStatus(viewSaved ? '已恢复结果缓存' : '已恢复结果缓存（查看记录保存失败）');
     } catch (error) {
       revealValidationError(error, {activatePage});
       setError(error);
@@ -974,7 +993,7 @@ export function createCalculationActions({
         state.activeResultCacheKey = null;
       }
       try {
-        await persistResultCacheState(state.activeResultCacheKey);
+        await persistResultCacheState();
       } catch (error) {
         state.resultCache = previousCache;
         state.activeResultCacheKey = previousActiveKey;
@@ -1171,13 +1190,22 @@ export function createCalculationActions({
   }
 
   function syncProfileResult() {
-    if (state.displayedResultProfileId !== state.activePlayerProfileId) {
-      state.displayedResultProfileId = state.activePlayerProfileId;
-      const saved = state.profileDiagnostics?.[state.activePlayerProfileId];
-      state.lastDiagnostic = saved?.diagnostic ?? null;
-      state.activeResultCacheKey = saved?.cacheKey ?? null;
-      renderResultSummary(saved?.result, {diagnostic:saved?.diagnostic});
-      renderMetrics(saved?.result?.metrics);
+    const profileId = state.activePlayerProfileId;
+    const saved = state.profileDiagnostics?.[profileId];
+    const resultPageActive = getActivePage() === 'result';
+    const cached = resultPageActive && profileId && !saved ? getLatestResultCache() : undefined;
+    if (cached || state.displayedResultProfileId !== profileId) {
+      state.displayedResultProfileId = profileId;
+      if (saved?.result) {
+        applyResult(saved.result, saved.diagnostic, saved.cacheKey, profileId, false);
+      } else if (cached) {
+        applyResult(cached.result, cached.diagnostic, cached.key, profileId, false);
+      } else {
+        state.lastDiagnostic = saved?.diagnostic ?? null;
+        state.activeResultCacheKey = null;
+        renderResultSummary(null, { diagnostic: saved?.diagnostic });
+        renderMetrics(null);
+      }
     }
     renderResultCachePanel();
     updateResultStaleNotice();

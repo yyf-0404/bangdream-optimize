@@ -117,6 +117,7 @@ function normalizeEntry(entry) {
     ? entry.calculationMode
     : 'maximize';
   const result = cloneJson(entry.result);
+  const createdAt = safeNumber(entry.createdAt, Date.now());
   return {
     cacheVersion,
     scoringRevision: entry.scoringRevision ?? result?.scoringRevision ?? result?.[0]?.scoringRevision,
@@ -138,8 +139,8 @@ function normalizeEntry(entry) {
       ?? (calculationMode === 'scoreRange' ? totalFireCost(result?.[0]?.plays) : undefined),
     averagePt: safeNumber(entry.averagePt) ?? averagePtFromResult(result),
     averageScore: safeNumber(entry.averageScore) ?? averageScoreFromResult(result),
-    createdAt: safeNumber(entry.createdAt, Date.now()),
-    accessedAt: safeNumber(entry.accessedAt, Date.now()),
+    createdAt,
+    accessedAt: Math.max(createdAt, safeNumber(entry.accessedAt, createdAt)),
     result,
     diagnostic: cloneJson(entry.diagnostic),
   };
