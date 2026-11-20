@@ -81,6 +81,8 @@ pub struct BestdoriCachedFilesystemCalculationInputBuilder {
     config: BestdoriStaticMirrorConfig,
     client: Client,
     calculator: Arc<Mutex<Option<BestdoriFilesystemCalculationInputBuilder>>>,
+    card_repairs: Option<Arc<Value>>,
+    area_item_repairs: Option<Arc<Value>>,
 }
 
 impl BestdoriCachedFilesystemCalculationInputBuilder {
@@ -96,7 +98,35 @@ impl BestdoriCachedFilesystemCalculationInputBuilder {
             config,
             client,
             calculator: Arc::new(Mutex::new(None)),
+            card_repairs: None,
+            area_item_repairs: None,
         })
+    }
+
+    /// Apply immutable application corrections after every remote catalogue
+    /// load. A mirror refresh cannot restore an obsolete correction table.
+    pub fn with_card_repairs(mut self, repairs: Value) -> Result<Self, DataError> {
+        if !repairs.is_object() {
+            return Err(DataError::InvalidField {
+                field: "cardsCNfix", value: "expected object".to_owned(),
+            });
+        }
+        self.card_repairs = Some(Arc::new(repairs));
+        // Changing a cloned builder's source contract detaches its loaded cache.
+        self.calculator = Arc::new(Mutex::new(None));
+        Ok(self)
+    }
+
+    /// Keep application item corrections authoritative after remote refreshes.
+    pub fn with_area_item_repairs(mut self, repairs: Value) -> Result<Self, DataError> {
+        if !repairs.is_object() {
+            return Err(DataError::InvalidField {
+                field: "areaItemFix", value: "expected object".to_owned(),
+            });
+        }
+        self.area_item_repairs = Some(Arc::new(repairs));
+        self.calculator = Arc::new(Mutex::new(None));
+        Ok(self)
     }
 
     pub fn maximize_sync(
@@ -284,7 +314,13 @@ impl BestdoriCachedFilesystemCalculationInputBuilder {
         };
 
         if let Some(player) = player {
-            let cards = self.read_json("api/cards/all.5.json")?;
+            let mut cards = self.read_json("api/cards/all.5.json")?;
+            if let Some(repairs) = &self.card_repairs {
+                let cards = cards.as_object_mut().ok_or(DataError::MissingField { field: "cards" })?;
+                for (id, card) in repairs.as_object().expect("validated card repairs") {
+                    cards.insert(id.clone(), card.clone());
+                }
+            }
             for path in card_detail_paths_for_player(player, &cards)? {
                 changed |= self.sync_remote_file(&path, false)?;
             }
@@ -637,9 +673,7 @@ impl BestdoriCachedFilesystemCalculationInputBuilder {
     ) -> Result<BuildResult, DataError> {
         let mut calculator = self.calculator_lock()?;
         if calculator.is_none() {
-            *calculator = Some(BestdoriFilesystemCalculationInputBuilder::load(
-                BestdoriFilesystemConfig::from_bestdori_api_root(self.config.cache_root.clone()),
-            )?);
+            *calculator = Some(self.load_calculator()?);
         }
         calculator
             .as_ref()
@@ -656,9 +690,7 @@ impl BestdoriCachedFilesystemCalculationInputBuilder {
     ) -> Result<Vec<ScoreRangeResult>, DataError> {
         let mut calculator = self.calculator_lock()?;
         if calculator.is_none() {
-            *calculator = Some(BestdoriFilesystemCalculationInputBuilder::load(
-                BestdoriFilesystemConfig::from_bestdori_api_root(self.config.cache_root.clone()),
-            )?);
+            *calculator = Some(self.load_calculator()?);
         }
         calculator
             .as_ref()
@@ -675,9 +707,7 @@ impl BestdoriCachedFilesystemCalculationInputBuilder {
     ) -> Result<PtMaximizeResult, DataError> {
         let mut calculator = self.calculator_lock()?;
         if calculator.is_none() {
-            *calculator = Some(BestdoriFilesystemCalculationInputBuilder::load(
-                BestdoriFilesystemConfig::from_bestdori_api_root(self.config.cache_root.clone()),
-            )?);
+            *calculator = Some(self.load_calculator()?);
         }
         calculator
             .as_ref()
@@ -694,14 +724,25 @@ impl BestdoriCachedFilesystemCalculationInputBuilder {
     ) -> Result<PtEvaluateResult, DataError> {
         let mut calculator = self.calculator_lock()?;
         if calculator.is_none() {
-            *calculator = Some(BestdoriFilesystemCalculationInputBuilder::load(
-                BestdoriFilesystemConfig::from_bestdori_api_root(self.config.cache_root.clone()),
-            )?);
+            *calculator = Some(self.load_calculator()?);
         }
         calculator
             .as_ref()
             .expect("calculator was loaded")
             .pt_evaluate_sync(player, server, event_id, request)
+    }
+
+    fn load_calculator(&self) -> Result<BestdoriFilesystemCalculationInputBuilder, DataError> {
+        let mut calculator = BestdoriFilesystemCalculationInputBuilder::load(
+            BestdoriFilesystemConfig::from_bestdori_api_root(self.config.cache_root.clone()),
+        )?;
+        if let Some(repairs) = &self.card_repairs {
+            calculator.apply_card_repairs(repairs)?;
+        }
+        if let Some(repairs) = &self.area_item_repairs {
+            calculator.apply_area_item_repairs(repairs)?;
+        }
+        Ok(calculator)
     }
 
     fn calculator_lock(
@@ -1038,6 +1079,79 @@ fn temp_output_path(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn application_card_and_item_repairs_survive_reloads_and_detach_cloned_contexts() {
+        let root = std::env::temp_dir().join(format!(
+            "bangdream-optimize-card-overlay-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
+        ));
+        let old_card = serde_json::json!({"characterId":16,"rarity":2,"attribute":"powerful",
+            "skillId":5,"stat":{"15":{"performance":1,"technique":2,"visual":3}}});
+        let skill = |value| serde_json::json!({"duration":[5,5,5,5,5],
+            "activationEffect":{"activateEffectTypes":{"score":{"activateEffectValue":[value]}}}});
+        for (path, value) in [
+            ("api/cards/all.5.json", serde_json::json!({"10005":old_card.clone()})),
+            ("api/characters/main.3.json", serde_json::json!({"16":{"bandId":4}})),
+            ("api/skills/all.10.json", serde_json::json!({"5":skill(5),"8":skill(8)})),
+            ("api/areaItems/main.5.json", serde_json::json!({})),
+            ("api/events/all.6.json", serde_json::json!({"1":{
+                "eventType":"medley", "attributes":[], "characters":[],
+            }})),
+            ("api/songs/all.7.json", serde_json::json!({})),
+        ] {
+            let path = root.join(path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, serde_json::to_vec(&value).unwrap()).unwrap();
+        }
+        let original = BestdoriCachedFilesystemCalculationInputBuilder::new(
+            BestdoriStaticMirrorConfig::new(&root, "https://unused.invalid"),
+        ).unwrap();
+        let mut player: PlayerConfig = serde_json::from_value(serde_json::json!({"playerId":0})).unwrap();
+        player.card_list.insert("10005".to_owned(), serde_json::from_value(serde_json::json!({
+            "level":15,"training":false,"episodes":[false,false],"limitBreakRank":0,"skillLevel":5,
+        })).unwrap());
+        for id in [59, 68, 72] {
+            player.area_item.insert(id.to_string(), serde_json::from_value(serde_json::json!({"level":5})).unwrap());
+        }
+        let item_repairs: Value = serde_json::from_str(include_str!("../../../var/game-data/areaItemFix.json")).unwrap();
+        let mut obsolete_items = item_repairs.clone();
+        for item in obsolete_items.as_object_mut().unwrap().values_mut() {
+            item["targetBandIds"] = serde_json::json!([1]);
+        }
+        fs::write(root.join("areaItemFix.json"), serde_json::to_vec(&obsolete_items).unwrap()).unwrap();
+        *original.calculator_lock().unwrap() = Some(original.load_calculator().unwrap());
+        let repairs = serde_json::from_str(include_str!("../../../var/game-data/cardsCNfix.json")).unwrap();
+        let corrected = original.clone().with_card_repairs(repairs).unwrap()
+            .with_area_item_repairs(item_repairs).unwrap();
+        assert!(!Arc::ptr_eq(&original.calculator, &corrected.calculator));
+        assert!(original.calculator_lock().unwrap().is_some());
+        assert!(corrected.calculator_lock().unwrap().is_none());
+        // A refreshed mirror writes an obsolete correction, before the loader
+        // installs the application's immutable source overlay.
+        fs::write(root.join("cardsCNfix.json"), serde_json::to_vec(
+            &serde_json::json!({"10005":old_card}),
+        ).unwrap()).unwrap();
+        for _ in 0..2 {
+            let loaded = corrected.load_calculator().unwrap();
+            let definitions = loaded.card_definitions(&player).unwrap();
+            let card = &definitions[&10005];
+            assert_eq!(card.level_stats[&15].performance, 2935);
+            assert_eq!(card.level_stats[&15].technique, 3421);
+            assert_eq!(card.skill.score_up.default, 0.08);
+            let snapshot = loaded.snapshot_for(&player, 1, &[], Server::Cn).unwrap();
+            for id in [59, 68, 72] {
+                assert!(snapshot.area_item_definitions[&id].target_band_ids.contains(&45));
+            }
+        }
+        let original_guard = original.calculator_lock().unwrap();
+        assert_eq!(original_guard.as_ref().unwrap().card_definitions(&player).unwrap()[&10005]
+            .level_stats[&15].performance, 1);
+        let old_snapshot = original_guard.as_ref().unwrap().snapshot_for(&player, 1, &[], Server::Cn).unwrap();
+        assert!(!old_snapshot.area_item_definitions[&59].target_band_ids.contains(&45));
+        drop(original_guard);
+        fs::remove_dir_all(&root).unwrap();
+    }
     use std::{
         io::{Read, Write},
         net::TcpListener,

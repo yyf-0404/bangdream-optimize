@@ -189,6 +189,16 @@ pub struct BestdoriFilesystemCalculationInputBuilder {
 }
 
 impl BestdoriFilesystemCalculationInputBuilder {
+    #[cfg(feature = "native-cache")]
+    pub(crate) fn apply_card_repairs(&mut self, repairs: &Value) -> Result<(), DataError> {
+        self.game_data.apply_repairs(Some(repairs.clone()), None, None)
+    }
+
+    #[cfg(feature = "native-cache")]
+    pub(crate) fn apply_area_item_repairs(&mut self, repairs: &Value) -> Result<(), DataError> {
+        self.game_data.apply_repairs(None, None, Some(repairs.clone()))
+    }
+
     pub fn load(config: BestdoriFilesystemConfig) -> Result<Self, DataError> {
         let cards = read_json(&config.cards_path)?;
         let characters = read_json(&config.characters_path)?;
@@ -1148,6 +1158,54 @@ mod tests {
 
         assert_eq!(result.event_id, 100);
 
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn complete_cn_repair_levels_take_precedence_over_cached_card_details() {
+        let root = temp_root();
+        fs::create_dir_all(root.join("cards")).unwrap();
+        let repairs: Value = serde_json::from_str(include_str!("../../../var/game-data/cardsCNfix.json")).unwrap();
+        let mut characters = serde_json::Map::new();
+        let mut skills = serde_json::Map::new();
+        for (id, card) in repairs.as_object().unwrap() {
+            characters.insert(card["characterId"].to_string(), json!({"bandId": 1}));
+            skills.insert(card["skillId"].to_string(), json!({
+                "duration": [5, 5, 5, 5, 5],
+                "activationEffect": {"activateEffectTypes": {
+                    "score": {"activateEffectValue": [100]}
+                }}
+            }));
+            // A stale same-ID detail must never replace a repaired CN level.
+            write_json(root.join("cards").join(format!("{id}.json")), json!({
+                "stat": {"15": {"performance": 999999, "technique": 999999, "visual": 999999}}
+            }));
+        }
+        write_json(root.join("cards.json"), json!({}));
+        write_json(root.join("characters.json"), Value::Object(characters));
+        write_json(root.join("skills.json"), Value::Object(skills));
+        write_json(root.join("cardsCNfix.json"), repairs.clone());
+        for file in ["areaItems.json", "events.json", "songs.json"] {
+            write_json(root.join(file), json!({}));
+        }
+        let builder = BestdoriFilesystemCalculationInputBuilder::load(
+            BestdoriFilesystemConfig::from_root(&root),
+        ).unwrap();
+        let mut config = player().card_list["1"].clone();
+        let mut checked = 0;
+        for (id, card) in repairs.as_object().unwrap() {
+            for (level, expected) in card["stat"].as_object().unwrap() {
+                let Ok(level) = level.parse::<u8>() else { continue; };
+                config.level = level;
+                let definition = builder.card_definition(id.parse().unwrap(), &config).unwrap();
+                let actual = definition.level_stats[&level];
+                assert_eq!(actual.performance as i64, expected["performance"].as_i64().unwrap());
+                assert_eq!(actual.technique as i64, expected["technique"].as_i64().unwrap());
+                assert_eq!(actual.visual as i64, expected["visual"].as_i64().unwrap());
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 480);
         fs::remove_dir_all(root).unwrap();
     }
 

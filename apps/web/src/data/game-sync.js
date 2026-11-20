@@ -126,7 +126,7 @@ export class GameDataClient {
     }
 
     const core = preloadedCore ?? await this.syncCore({ refreshManifest: true });
-    const cards = await this.cardsWithRequestedDetails(core.cards, player);
+    const cards = await this.cardsWithRequestedDetails(core.cards, player, core.cardsFix);
     const event = await this.calculationEvent(
       selectedEventId,
       player,
@@ -168,7 +168,7 @@ export class GameDataClient {
 
     const core = preloadedCore ?? await this.syncCore({ refreshManifest: true });
     const [cards, event, scoreRangeChartMeta] = await Promise.all([
-      this.cardsWithRequestedDetails(core.cards, player),
+      this.cardsWithRequestedDetails(core.cards, player, core.cardsFix),
       this.calculationEvent(selectedEventId, player, core),
       this.syncScoreRangeChartMeta(),
     ]);
@@ -199,7 +199,7 @@ export class GameDataClient {
 
     const core = preloadedCore ?? await this.syncCore({ refreshManifest: true });
     const [cards, event] = await Promise.all([
-      this.cardsWithRequestedDetails(core.cards, player),
+      this.cardsWithRequestedDetails(core.cards, player, core.cardsFix),
       this.calculationEvent(selectedEventId, player, core),
     ]);
     const songs = selectSongs(core.songs, request.songs ?? []);
@@ -249,11 +249,11 @@ export class GameDataClient {
     return applyEventOverride(base, override);
   }
 
-  async cardsWithRequestedDetails(coreCards, player) {
+  async cardsWithRequestedDetails(coreCards, player, cardsFix) {
     let cards = coreCards;
     for (const [cardId, config] of Object.entries(player.cardList ?? {})) {
       const level = Number.parseInt(config?.level ?? 0, 10);
-      if (!level || cardHasLevel(coreCards?.[cardId], level)) {
+      if (!level || cardHasLevel(cardsFix?.[cardId], level) || cardHasLevel(coreCards?.[cardId], level)) {
         continue;
       }
 

@@ -27,6 +27,146 @@
                 "technique": 2502,
                 "visual": 1698
             },
+            "2": {
+                "performance": 1368,
+                "technique": 2570,
+                "visual": 1744
+            },
+            "3": {
+                "performance": 1407,
+                "technique": 2643,
+                "visual": 1793
+            },
+            "4": {
+                "performance": 1448,
+                "technique": 2720,
+                "visual": 1846
+            },
+            "5": {
+                "performance": 1492,
+                "technique": 2802,
+                "visual": 1902
+            },
+            "6": {
+                "performance": 1538,
+                "technique": 2889,
+                "visual": 1961
+            },
+            "7": {
+                "performance": 1586,
+                "technique": 2980,
+                "visual": 2023
+            },
+            "8": {
+                "performance": 1637,
+                "technique": 3076,
+                "visual": 2088
+            },
+            "9": {
+                "performance": 1690,
+                "technique": 3176,
+                "visual": 2156
+            },
+            "10": {
+                "performance": 1746,
+                "technique": 3281,
+                "visual": 2227
+            },
+            "11": {
+                "performance": 1804,
+                "technique": 3390,
+                "visual": 2301
+            },
+            "12": {
+                "performance": 1865,
+                "technique": 3504,
+                "visual": 2378
+            },
+            "13": {
+                "performance": 1928,
+                "technique": 3622,
+                "visual": 2458
+            },
+            "14": {
+                "performance": 1993,
+                "technique": 3745,
+                "visual": 2541
+            },
+            "15": {
+                "performance": 2061,
+                "technique": 3872,
+                "visual": 2628
+            },
+            "16": {
+                "performance": 2131,
+                "technique": 4004,
+                "visual": 2718
+            },
+            "17": {
+                "performance": 2204,
+                "technique": 4141,
+                "visual": 2811
+            },
+            "18": {
+                "performance": 2279,
+                "technique": 4282,
+                "visual": 2907
+            },
+            "19": {
+                "performance": 2357,
+                "technique": 4428,
+                "visual": 3006
+            },
+            "20": {
+                "performance": 2437,
+                "technique": 4578,
+                "visual": 3108
+            },
+            "21": {
+                "performance": 2519,
+                "technique": 4733,
+                "visual": 3213
+            },
+            "22": {
+                "performance": 2604,
+                "technique": 4892,
+                "visual": 3321
+            },
+            "23": {
+                "performance": 2691,
+                "technique": 5056,
+                "visual": 3432
+            },
+            "24": {
+                "performance": 2781,
+                "technique": 5224,
+                "visual": 3546
+            },
+            "25": {
+                "performance": 2873,
+                "technique": 5397,
+                "visual": 3663
+            },
+            "26": {
+                "performance": 2967,
+                "technique": 5574,
+                "visual": 3783
+            },
+            "27": {
+                "performance": 3064,
+                "technique": 5756,
+                "visual": 3907
+            },
+            "28": {
+                "performance": 3163,
+                "technique": 5943,
+                "visual": 4034
+            },
+            "29": {
+                "performance": 3265,
+                "technique": 6134,
+                "visual": 4164
+            },
             "30": {
                 "performance": 3369,
                 "technique": 6330,
@@ -58,15 +198,156 @@
         "type": "campaign",
         "stat": {
             "1": {
-                "performance": 1835,
-                "technique": 2785,
-                "visual": 1373
+                "performance": 1512,
+                "technique": 1842,
+                "visual": 2358
+            },
+            "2": {
+                "performance": 1553,
+                "technique": 1892,
+                "visual": 2422
+            },
+            "3": {
+                "performance": 1596,
+                "technique": 1945,
+                "visual": 2490
+            },
+            "4": {
+                "performance": 1642,
+                "technique": 2001,
+                "visual": 2562
+            },
+            "5": {
+                "performance": 1691,
+                "technique": 2061,
+                "visual": 2638
+            },
+            "6": {
+                "performance": 1743,
+                "technique": 2124,
+                "visual": 2718
+            },
+            "7": {
+                "performance": 1797,
+                "technique": 2190,
+                "visual": 2803
+            },
+            "8": {
+                "performance": 1854,
+                "technique": 2259,
+                "visual": 2892
+            },
+            "9": {
+                "performance": 1914,
+                "technique": 2332,
+                "visual": 2985
+            },
+            "10": {
+                "performance": 1976,
+                "technique": 2408,
+                "visual": 3082
+            },
+            "11": {
+                "performance": 2041,
+                "technique": 2487,
+                "visual": 3184
+            },
+            "12": {
+                "performance": 2109,
+                "technique": 2570,
+                "visual": 3290
+            },
+            "13": {
+                "performance": 2180,
+                "technique": 2656,
+                "visual": 3400
+            },
+            "14": {
+                "performance": 2253,
+                "technique": 2745,
+                "visual": 3514
+            },
+            "15": {
+                "performance": 2329,
+                "technique": 2838,
+                "visual": 3633
+            },
+            "16": {
+                "performance": 2408,
+                "technique": 2934,
+                "visual": 3756
+            },
+            "17": {
+                "performance": 2489,
+                "technique": 3033,
+                "visual": 3883
+            },
+            "18": {
+                "performance": 2573,
+                "technique": 3136,
+                "visual": 4014
+            },
+            "19": {
+                "performance": 2660,
+                "technique": 3242,
+                "visual": 4149
+            },
+            "20": {
+                "performance": 2750,
+                "technique": 3351,
+                "visual": 4289
+            },
+            "21": {
+                "performance": 2842,
+                "technique": 3463,
+                "visual": 4433
+            },
+            "22": {
+                "performance": 2937,
+                "technique": 3579,
+                "visual": 4581
+            },
+            "23": {
+                "performance": 3035,
+                "technique": 3698,
+                "visual": 4733
+            },
+            "24": {
+                "performance": 3135,
+                "technique": 3820,
+                "visual": 4890
+            },
+            "25": {
+                "performance": 3238,
+                "technique": 3946,
+                "visual": 5051
+            },
+            "26": {
+                "performance": 3344,
+                "technique": 4075,
+                "visual": 5216
+            },
+            "27": {
+                "performance": 3453,
+                "technique": 4207,
+                "visual": 5385
+            },
+            "28": {
+                "performance": 3564,
+                "technique": 4343,
+                "visual": 5559
+            },
+            "29": {
+                "performance": 3678,
+                "technique": 4482,
+                "visual": 5737
             },
             "30": {
-                "performance": 4642,
-                "technique": 7046,
-                "visual": 3470
-            }
+                "performance": 3795,
+                "technique": 4624,
+                "visual": 5919
+            },
+            "episodes": []
         }
     },
     "10002": {
@@ -93,15 +374,156 @@
         "type": "campaign",
         "stat": {
             "1": {
-                "performance": 1973,
-                "technique": 1716,
-                "visual": 2574
+                "performance": 1940,
+                "technique": 2515,
+                "visual": 2211
+            },
+            "2": {
+                "performance": 1992,
+                "technique": 2582,
+                "visual": 2270
+            },
+            "3": {
+                "performance": 2047,
+                "technique": 2653,
+                "visual": 2333
+            },
+            "4": {
+                "performance": 2105,
+                "technique": 2729,
+                "visual": 2400
+            },
+            "5": {
+                "performance": 2167,
+                "technique": 2809,
+                "visual": 2471
+            },
+            "6": {
+                "performance": 2232,
+                "technique": 2894,
+                "visual": 2545
+            },
+            "7": {
+                "performance": 2301,
+                "technique": 2983,
+                "visual": 2623
+            },
+            "8": {
+                "performance": 2373,
+                "technique": 3077,
+                "visual": 2705
+            },
+            "9": {
+                "performance": 2449,
+                "technique": 3175,
+                "visual": 2791
+            },
+            "10": {
+                "performance": 2528,
+                "technique": 3278,
+                "visual": 2881
+            },
+            "11": {
+                "performance": 2611,
+                "technique": 3385,
+                "visual": 2975
+            },
+            "12": {
+                "performance": 2697,
+                "technique": 3496,
+                "visual": 3073
+            },
+            "13": {
+                "performance": 2786,
+                "technique": 3612,
+                "visual": 3175
+            },
+            "14": {
+                "performance": 2879,
+                "technique": 3732,
+                "visual": 3281
+            },
+            "15": {
+                "performance": 2975,
+                "technique": 3857,
+                "visual": 3391
+            },
+            "16": {
+                "performance": 3075,
+                "technique": 3986,
+                "visual": 3505
+            },
+            "17": {
+                "performance": 3178,
+                "technique": 4120,
+                "visual": 3622
+            },
+            "18": {
+                "performance": 3285,
+                "technique": 4258,
+                "visual": 3743
+            },
+            "19": {
+                "performance": 3395,
+                "technique": 4401,
+                "visual": 3868
+            },
+            "20": {
+                "performance": 3508,
+                "technique": 4548,
+                "visual": 3997
+            },
+            "21": {
+                "performance": 3625,
+                "technique": 4699,
+                "visual": 4130
+            },
+            "22": {
+                "performance": 3745,
+                "technique": 4855,
+                "visual": 4267
+            },
+            "23": {
+                "performance": 3869,
+                "technique": 5015,
+                "visual": 4408
+            },
+            "24": {
+                "performance": 3996,
+                "technique": 5180,
+                "visual": 4553
+            },
+            "25": {
+                "performance": 4127,
+                "technique": 5349,
+                "visual": 4702
+            },
+            "26": {
+                "performance": 4261,
+                "technique": 5523,
+                "visual": 4855
+            },
+            "27": {
+                "performance": 4398,
+                "technique": 5701,
+                "visual": 5012
+            },
+            "28": {
+                "performance": 4539,
+                "technique": 5884,
+                "visual": 5173
+            },
+            "29": {
+                "performance": 4683,
+                "technique": 6071,
+                "visual": 5337
             },
             "30": {
-                "performance": 4951,
-                "technique": 4305,
-                "visual": 6461
-            }
+                "performance": 4831,
+                "technique": 6263,
+                "visual": 5505
+            },
+            "episodes": []
         }
     },
     "10003": {
@@ -128,15 +550,156 @@
         "type": "campaign",
         "stat": {
             "1": {
-                "performance": 1716,
-                "technique": 2125,
-                "visual": 2627
+                "performance": 2607,
+                "technique": 1650,
+                "visual": 2013
+            },
+            "2": {
+                "performance": 2677,
+                "technique": 1694,
+                "visual": 2067
+            },
+            "3": {
+                "performance": 2752,
+                "technique": 1741,
+                "visual": 2125
+            },
+            "4": {
+                "performance": 2832,
+                "technique": 1791,
+                "visual": 2186
+            },
+            "5": {
+                "performance": 2916,
+                "technique": 1844,
+                "visual": 2251
+            },
+            "6": {
+                "performance": 3005,
+                "technique": 1900,
+                "visual": 2320
+            },
+            "7": {
+                "performance": 3099,
+                "technique": 1959,
+                "visual": 2392
+            },
+            "8": {
+                "performance": 3197,
+                "technique": 2021,
+                "visual": 2468
+            },
+            "9": {
+                "performance": 3300,
+                "technique": 2086,
+                "visual": 2548
+            },
+            "10": {
+                "performance": 3408,
+                "technique": 2154,
+                "visual": 2631
+            },
+            "11": {
+                "performance": 3520,
+                "technique": 2225,
+                "visual": 2718
+            },
+            "12": {
+                "performance": 3637,
+                "technique": 2299,
+                "visual": 2808
+            },
+            "13": {
+                "performance": 3759,
+                "technique": 2376,
+                "visual": 2902
+            },
+            "14": {
+                "performance": 3885,
+                "technique": 2456,
+                "visual": 3000
+            },
+            "15": {
+                "performance": 4016,
+                "technique": 2539,
+                "visual": 3101
+            },
+            "16": {
+                "performance": 4152,
+                "technique": 2625,
+                "visual": 3206
+            },
+            "17": {
+                "performance": 4292,
+                "technique": 2714,
+                "visual": 3314
+            },
+            "18": {
+                "performance": 4437,
+                "technique": 2806,
+                "visual": 3426
+            },
+            "19": {
+                "performance": 4587,
+                "technique": 2901,
+                "visual": 3542
+            },
+            "20": {
+                "performance": 4741,
+                "technique": 2999,
+                "visual": 3661
+            },
+            "21": {
+                "performance": 4900,
+                "technique": 3100,
+                "visual": 3784
+            },
+            "22": {
+                "performance": 5064,
+                "technique": 3204,
+                "visual": 3910
+            },
+            "23": {
+                "performance": 5232,
+                "technique": 3311,
+                "visual": 4040
+            },
+            "24": {
+                "performance": 5405,
+                "technique": 3421,
+                "visual": 4174
+            },
+            "25": {
+                "performance": 5583,
+                "technique": 3534,
+                "visual": 4311
+            },
+            "26": {
+                "performance": 5766,
+                "technique": 3650,
+                "visual": 4452
+            },
+            "27": {
+                "performance": 5953,
+                "technique": 3768,
+                "visual": 4597
+            },
+            "28": {
+                "performance": 6145,
+                "technique": 3889,
+                "visual": 4745
+            },
+            "29": {
+                "performance": 6342,
+                "technique": 4013,
+                "visual": 4897
             },
             "30": {
-                "performance": 4305,
-                "technique": 5334,
-                "visual": 6595
-            }
+                "performance": 6543,
+                "technique": 4140,
+                "visual": 5052
+            },
+            "episodes": []
         }
     },
     "10004": {
@@ -163,15 +726,156 @@
         "type": "campaign",
         "stat": {
             "1": {
-                "performance": 1762,
-                "technique": 2554,
-                "visual": 1947
+                "performance": 2092,
+                "technique": 1729,
+                "visual": 2647
+            },
+            "2": {
+                "performance": 2148,
+                "technique": 1776,
+                "visual": 2718
+            },
+            "3": {
+                "performance": 2208,
+                "technique": 1826,
+                "visual": 2794
+            },
+            "4": {
+                "performance": 2272,
+                "technique": 1879,
+                "visual": 2875
+            },
+            "5": {
+                "performance": 2340,
+                "technique": 1935,
+                "visual": 2961
+            },
+            "6": {
+                "performance": 2411,
+                "technique": 1994,
+                "visual": 3051
+            },
+            "7": {
+                "performance": 2486,
+                "technique": 2056,
+                "visual": 3146
+            },
+            "8": {
+                "performance": 2565,
+                "technique": 2121,
+                "visual": 3246
+            },
+            "9": {
+                "performance": 2648,
+                "technique": 2189,
+                "visual": 3351
+            },
+            "10": {
+                "performance": 2734,
+                "technique": 2260,
+                "visual": 3460
+            },
+            "11": {
+                "performance": 2824,
+                "technique": 2335,
+                "visual": 3574
+            },
+            "12": {
+                "performance": 2918,
+                "technique": 2413,
+                "visual": 3693
+            },
+            "13": {
+                "performance": 3016,
+                "technique": 2494,
+                "visual": 3817
+            },
+            "14": {
+                "performance": 3117,
+                "technique": 2578,
+                "visual": 3945
+            },
+            "15": {
+                "performance": 3222,
+                "technique": 2665,
+                "visual": 4078
+            },
+            "16": {
+                "performance": 3331,
+                "technique": 2755,
+                "visual": 4216
+            },
+            "17": {
+                "performance": 3444,
+                "technique": 2848,
+                "visual": 4359
+            },
+            "18": {
+                "performance": 3560,
+                "technique": 2944,
+                "visual": 4506
+            },
+            "19": {
+                "performance": 3680,
+                "technique": 3043,
+                "visual": 4658
+            },
+            "20": {
+                "performance": 3804,
+                "technique": 3145,
+                "visual": 4815
+            },
+            "21": {
+                "performance": 3932,
+                "technique": 3251,
+                "visual": 4977
+            },
+            "22": {
+                "performance": 4063,
+                "technique": 3360,
+                "visual": 5143
+            },
+            "23": {
+                "performance": 4198,
+                "technique": 3472,
+                "visual": 5314
+            },
+            "24": {
+                "performance": 4337,
+                "technique": 3587,
+                "visual": 5490
+            },
+            "25": {
+                "performance": 4480,
+                "technique": 3705,
+                "visual": 5671
+            },
+            "26": {
+                "performance": 4626,
+                "technique": 3826,
+                "visual": 5856
+            },
+            "27": {
+                "performance": 4776,
+                "technique": 3950,
+                "visual": 6046
+            },
+            "28": {
+                "performance": 4930,
+                "technique": 4077,
+                "visual": 6241
+            },
+            "29": {
+                "performance": 5088,
+                "technique": 4207,
+                "visual": 6441
             },
             "30": {
-                "performance": 4424,
-                "technique": 6411,
-                "visual": 4883
-            }
+                "performance": 5249,
+                "technique": 4340,
+                "visual": 6645
+            },
+            "episodes": []
         }
     },
     "10005": {
@@ -194,19 +898,160 @@
             "1581138000000",
             null
         ],
-        "skillId": 5,
+        "skillId": 8,
         "type": "campaign",
         "stat": {
             "1": {
-                "performance": 2468,
-                "technique": 1848,
-                "visual": 2145
+                "performance": 1914,
+                "technique": 2231,
+                "visual": 2521
+            },
+            "2": {
+                "performance": 1965,
+                "technique": 2290,
+                "visual": 2588
+            },
+            "3": {
+                "performance": 2019,
+                "technique": 2353,
+                "visual": 2660
+            },
+            "4": {
+                "performance": 2077,
+                "technique": 2420,
+                "visual": 2736
+            },
+            "5": {
+                "performance": 2138,
+                "technique": 2491,
+                "visual": 2816
+            },
+            "6": {
+                "performance": 2202,
+                "technique": 2566,
+                "visual": 2901
+            },
+            "7": {
+                "performance": 2270,
+                "technique": 2645,
+                "visual": 2990
+            },
+            "8": {
+                "performance": 2341,
+                "technique": 2728,
+                "visual": 3084
+            },
+            "9": {
+                "performance": 2416,
+                "technique": 2815,
+                "visual": 3182
+            },
+            "10": {
+                "performance": 2494,
+                "technique": 2906,
+                "visual": 3285
+            },
+            "11": {
+                "performance": 2575,
+                "technique": 3001,
+                "visual": 3392
+            },
+            "12": {
+                "performance": 2660,
+                "technique": 3100,
+                "visual": 3504
+            },
+            "13": {
+                "performance": 2748,
+                "technique": 3203,
+                "visual": 3620
+            },
+            "14": {
+                "performance": 2840,
+                "technique": 3310,
+                "visual": 3741
+            },
+            "15": {
+                "performance": 2935,
+                "technique": 3421,
+                "visual": 3866
+            },
+            "16": {
+                "performance": 3033,
+                "technique": 3536,
+                "visual": 3996
+            },
+            "17": {
+                "performance": 3135,
+                "technique": 3655,
+                "visual": 4130
+            },
+            "18": {
+                "performance": 3240,
+                "technique": 3778,
+                "visual": 4268
+            },
+            "19": {
+                "performance": 3349,
+                "technique": 3904,
+                "visual": 4411
+            },
+            "20": {
+                "performance": 3461,
+                "technique": 4034,
+                "visual": 4558
+            },
+            "21": {
+                "performance": 3576,
+                "technique": 4168,
+                "visual": 4710
+            },
+            "22": {
+                "performance": 3695,
+                "technique": 4306,
+                "visual": 4866
+            },
+            "23": {
+                "performance": 3817,
+                "technique": 4448,
+                "visual": 5027
+            },
+            "24": {
+                "performance": 3942,
+                "technique": 4594,
+                "visual": 5192
+            },
+            "25": {
+                "performance": 4071,
+                "technique": 4744,
+                "visual": 5362
+            },
+            "26": {
+                "performance": 4203,
+                "technique": 4898,
+                "visual": 5536
+            },
+            "27": {
+                "performance": 4339,
+                "technique": 5056,
+                "visual": 5715
+            },
+            "28": {
+                "performance": 4478,
+                "technique": 5218,
+                "visual": 5898
+            },
+            "29": {
+                "performance": 4620,
+                "technique": 5384,
+                "visual": 6086
             },
             "30": {
-                "performance": 6145,
-                "technique": 4602,
-                "visual": 5341
-            }
+                "performance": 4766,
+                "technique": 5554,
+                "visual": 6278
+            },
+            "episodes": []
         }
     },
     "10006": {
@@ -233,15 +1078,156 @@
         "type": "campaign",
         "stat": {
             "1": {
-                "performance": 2171,
-                "technique": 2303,
-                "visual": 2185
+                "performance": 2640,
+                "technique": 2125,
+                "visual": 1703
+            },
+            "2": {
+                "performance": 2711,
+                "technique": 2182,
+                "visual": 1749
+            },
+            "3": {
+                "performance": 2787,
+                "technique": 2243,
+                "visual": 1798
+            },
+            "4": {
+                "performance": 2868,
+                "technique": 2308,
+                "visual": 1850
+            },
+            "5": {
+                "performance": 2953,
+                "technique": 2377,
+                "visual": 1905
+            },
+            "6": {
+                "performance": 3043,
+                "technique": 2450,
+                "visual": 1963
+            },
+            "7": {
+                "performance": 3138,
+                "technique": 2526,
+                "visual": 2024
+            },
+            "8": {
+                "performance": 3238,
+                "technique": 2606,
+                "visual": 2088
+            },
+            "9": {
+                "performance": 3342,
+                "technique": 2690,
+                "visual": 2155
+            },
+            "10": {
+                "performance": 3451,
+                "technique": 2778,
+                "visual": 2225
+            },
+            "11": {
+                "performance": 3565,
+                "technique": 2870,
+                "visual": 2298
+            },
+            "12": {
+                "performance": 3684,
+                "technique": 2965,
+                "visual": 2374
+            },
+            "13": {
+                "performance": 3807,
+                "technique": 3064,
+                "visual": 2454
+            },
+            "14": {
+                "performance": 3935,
+                "technique": 3167,
+                "visual": 2537
+            },
+            "15": {
+                "performance": 4068,
+                "technique": 3274,
+                "visual": 2623
+            },
+            "16": {
+                "performance": 4205,
+                "technique": 3385,
+                "visual": 2712
+            },
+            "17": {
+                "performance": 4347,
+                "technique": 3499,
+                "visual": 2804
+            },
+            "18": {
+                "performance": 4494,
+                "technique": 3617,
+                "visual": 2899
+            },
+            "19": {
+                "performance": 4646,
+                "technique": 3739,
+                "visual": 2997
+            },
+            "20": {
+                "performance": 4802,
+                "technique": 3865,
+                "visual": 3098
+            },
+            "21": {
+                "performance": 4963,
+                "technique": 3995,
+                "visual": 3202
+            },
+            "22": {
+                "performance": 5129,
+                "technique": 4129,
+                "visual": 3309
+            },
+            "23": {
+                "performance": 5300,
+                "technique": 4266,
+                "visual": 3419
+            },
+            "24": {
+                "performance": 5475,
+                "technique": 4407,
+                "visual": 3532
+            },
+            "25": {
+                "performance": 5655,
+                "technique": 4552,
+                "visual": 3648
+            },
+            "26": {
+                "performance": 5840,
+                "technique": 4701,
+                "visual": 3767
+            },
+            "27": {
+                "performance": 6030,
+                "technique": 4854,
+                "visual": 3889
+            },
+            "28": {
+                "performance": 6224,
+                "technique": 5010,
+                "visual": 4014
+            },
+            "29": {
+                "performance": 6423,
+                "technique": 5170,
+                "visual": 4142
             },
             "30": {
-                "performance": 5363,
-                "technique": 5692,
-                "visual": 5396
-            }
+                "performance": 6627,
+                "technique": 5334,
+                "visual": 4273
+            },
+            "episodes": []
         }
     },
     "10007": {
@@ -268,15 +1254,156 @@
         "type": "campaign",
         "stat": {
             "1": {
-                "performance": 1855,
-                "technique": 2699,
-                "visual": 1511
+                "performance": 1920,
+                "technique": 2394,
+                "visual": 1566
+            },
+            "2": {
+                "performance": 1972,
+                "technique": 2459,
+                "visual": 1608
+            },
+            "3": {
+                "performance": 2027,
+                "technique": 2528,
+                "visual": 1653
+            },
+            "4": {
+                "performance": 2086,
+                "technique": 2601,
+                "visual": 1701
+            },
+            "5": {
+                "performance": 2148,
+                "technique": 2678,
+                "visual": 1752
+            },
+            "6": {
+                "performance": 2214,
+                "technique": 2760,
+                "visual": 1805
+            },
+            "7": {
+                "performance": 2283,
+                "technique": 2846,
+                "visual": 1861
+            },
+            "8": {
+                "performance": 2355,
+                "technique": 2936,
+                "visual": 1920
+            },
+            "9": {
+                "performance": 2431,
+                "technique": 3031,
+                "visual": 1982
+            },
+            "10": {
+                "performance": 2510,
+                "technique": 3130,
+                "visual": 2047
+            },
+            "11": {
+                "performance": 2593,
+                "technique": 3233,
+                "visual": 2115
+            },
+            "12": {
+                "performance": 2679,
+                "technique": 3340,
+                "visual": 2185
+            },
+            "13": {
+                "performance": 2769,
+                "technique": 3452,
+                "visual": 2258
+            },
+            "14": {
+                "performance": 2862,
+                "technique": 3568,
+                "visual": 2334
+            },
+            "15": {
+                "performance": 2959,
+                "technique": 3688,
+                "visual": 2413
+            },
+            "16": {
+                "performance": 3059,
+                "technique": 3813,
+                "visual": 2495
+            },
+            "17": {
+                "performance": 3162,
+                "technique": 3942,
+                "visual": 2579
+            },
+            "18": {
+                "performance": 3269,
+                "technique": 4075,
+                "visual": 2666
+            },
+            "19": {
+                "performance": 3379,
+                "technique": 4213,
+                "visual": 2756
+            },
+            "20": {
+                "performance": 3493,
+                "technique": 4355,
+                "visual": 2849
+            },
+            "21": {
+                "performance": 3610,
+                "technique": 4501,
+                "visual": 2945
+            },
+            "22": {
+                "performance": 3731,
+                "technique": 4651,
+                "visual": 3043
+            },
+            "23": {
+                "performance": 3855,
+                "technique": 4806,
+                "visual": 3144
+            },
+            "24": {
+                "performance": 3983,
+                "technique": 4965,
+                "visual": 3248
+            },
+            "25": {
+                "performance": 4114,
+                "technique": 5128,
+                "visual": 3355
+            },
+            "26": {
+                "performance": 4248,
+                "technique": 5296,
+                "visual": 3465
+            },
+            "27": {
+                "performance": 4386,
+                "technique": 5468,
+                "visual": 3577
+            },
+            "28": {
+                "performance": 4527,
+                "technique": 5644,
+                "visual": 3692
+            },
+            "29": {
+                "performance": 4672,
+                "technique": 5824,
+                "visual": 3810
             },
             "30": {
-                "performance": 4693,
-                "technique": 6828,
-                "visual": 3822
-            }
+                "performance": 4820,
+                "technique": 6009,
+                "visual": 3931
+            },
+            "episodes": []
         }
     },
     "10008": {
@@ -303,15 +1430,156 @@
         "type": "campaign",
         "stat": {
             "1": {
-                "performance": 1736,
-                "technique": 1696,
-                "visual": 2633
+                "performance": 1940,
+                "technique": 2515,
+                "visual": 2211
+            },
+            "2": {
+                "performance": 1992,
+                "technique": 2582,
+                "visual": 2270
+            },
+            "3": {
+                "performance": 2047,
+                "technique": 2653,
+                "visual": 2333
+            },
+            "4": {
+                "performance": 2105,
+                "technique": 2729,
+                "visual": 2400
+            },
+            "5": {
+                "performance": 2167,
+                "technique": 2809,
+                "visual": 2471
+            },
+            "6": {
+                "performance": 2232,
+                "technique": 2894,
+                "visual": 2545
+            },
+            "7": {
+                "performance": 2301,
+                "technique": 2983,
+                "visual": 2623
+            },
+            "8": {
+                "performance": 2373,
+                "technique": 3077,
+                "visual": 2705
+            },
+            "9": {
+                "performance": 2449,
+                "technique": 3175,
+                "visual": 2791
+            },
+            "10": {
+                "performance": 2528,
+                "technique": 3278,
+                "visual": 2881
+            },
+            "11": {
+                "performance": 2611,
+                "technique": 3385,
+                "visual": 2975
+            },
+            "12": {
+                "performance": 2697,
+                "technique": 3496,
+                "visual": 3073
+            },
+            "13": {
+                "performance": 2786,
+                "technique": 3612,
+                "visual": 3175
+            },
+            "14": {
+                "performance": 2879,
+                "technique": 3732,
+                "visual": 3281
+            },
+            "15": {
+                "performance": 2975,
+                "technique": 3857,
+                "visual": 3391
+            },
+            "16": {
+                "performance": 3075,
+                "technique": 3986,
+                "visual": 3505
+            },
+            "17": {
+                "performance": 3178,
+                "technique": 4120,
+                "visual": 3622
+            },
+            "18": {
+                "performance": 3285,
+                "technique": 4258,
+                "visual": 3743
+            },
+            "19": {
+                "performance": 3395,
+                "technique": 4401,
+                "visual": 3868
+            },
+            "20": {
+                "performance": 3508,
+                "technique": 4548,
+                "visual": 3997
+            },
+            "21": {
+                "performance": 3625,
+                "technique": 4699,
+                "visual": 4130
+            },
+            "22": {
+                "performance": 3745,
+                "technique": 4855,
+                "visual": 4267
+            },
+            "23": {
+                "performance": 3869,
+                "technique": 5015,
+                "visual": 4408
+            },
+            "24": {
+                "performance": 3996,
+                "technique": 5180,
+                "visual": 4553
+            },
+            "25": {
+                "performance": 4127,
+                "technique": 5349,
+                "visual": 4702
+            },
+            "26": {
+                "performance": 4261,
+                "technique": 5523,
+                "visual": 4855
+            },
+            "27": {
+                "performance": 4398,
+                "technique": 5701,
+                "visual": 5012
+            },
+            "28": {
+                "performance": 4539,
+                "technique": 5884,
+                "visual": 5173
+            },
+            "29": {
+                "performance": 4683,
+                "technique": 6071,
+                "visual": 5337
             },
             "30": {
-                "performance": 4393,
-                "technique": 4290,
-                "visual": 6661
-            }
+                "performance": 4831,
+                "technique": 6263,
+                "visual": 5505
+            },
+            "episodes": []
         }
     },
     "10009": {
@@ -338,15 +1606,156 @@
         "type": "campaign",
         "stat": {
             "1": {
-                "performance": 1808,
-                "technique": 2251,
-                "visual": 2402
+                "performance": 1740,
+                "technique": 2028,
+                "visual": 2292
+            },
+            "2": {
+                "performance": 1786,
+                "technique": 2082,
+                "visual": 2353
+            },
+            "3": {
+                "performance": 1835,
+                "technique": 2140,
+                "visual": 2418
+            },
+            "4": {
+                "performance": 1887,
+                "technique": 2201,
+                "visual": 2487
+            },
+            "5": {
+                "performance": 1943,
+                "technique": 2266,
+                "visual": 2560
+            },
+            "6": {
+                "performance": 2002,
+                "technique": 2334,
+                "visual": 2637
+            },
+            "7": {
+                "performance": 2064,
+                "technique": 2406,
+                "visual": 2718
+            },
+            "8": {
+                "performance": 2129,
+                "technique": 2481,
+                "visual": 2803
+            },
+            "9": {
+                "performance": 2197,
+                "technique": 2560,
+                "visual": 2892
+            },
+            "10": {
+                "performance": 2268,
+                "technique": 2643,
+                "visual": 2985
+            },
+            "11": {
+                "performance": 2342,
+                "technique": 2729,
+                "visual": 3082
+            },
+            "12": {
+                "performance": 2419,
+                "technique": 2819,
+                "visual": 3184
+            },
+            "13": {
+                "performance": 2499,
+                "technique": 2912,
+                "visual": 3290
+            },
+            "14": {
+                "performance": 2582,
+                "technique": 3009,
+                "visual": 3400
+            },
+            "15": {
+                "performance": 2668,
+                "technique": 3110,
+                "visual": 3514
+            },
+            "16": {
+                "performance": 2757,
+                "technique": 3214,
+                "visual": 3632
+            },
+            "17": {
+                "performance": 2849,
+                "technique": 3322,
+                "visual": 3754
+            },
+            "18": {
+                "performance": 2945,
+                "technique": 3433,
+                "visual": 3880
+            },
+            "19": {
+                "performance": 3044,
+                "technique": 3548,
+                "visual": 4010
+            },
+            "20": {
+                "performance": 3146,
+                "technique": 3667,
+                "visual": 4144
+            },
+            "21": {
+                "performance": 3251,
+                "technique": 3789,
+                "visual": 4282
+            },
+            "22": {
+                "performance": 3359,
+                "technique": 3915,
+                "visual": 4424
+            },
+            "23": {
+                "performance": 3470,
+                "technique": 4044,
+                "visual": 4570
+            },
+            "24": {
+                "performance": 3584,
+                "technique": 4177,
+                "visual": 4720
+            },
+            "25": {
+                "performance": 3701,
+                "technique": 4314,
+                "visual": 4874
+            },
+            "26": {
+                "performance": 3821,
+                "technique": 4454,
+                "visual": 5032
+            },
+            "27": {
+                "performance": 3944,
+                "technique": 4598,
+                "visual": 5194
+            },
+            "28": {
+                "performance": 4070,
+                "technique": 4745,
+                "visual": 5360
+            },
+            "29": {
+                "performance": 4199,
+                "technique": 4896,
+                "visual": 5530
             },
             "30": {
-                "performance": 4499,
-                "technique": 5610,
-                "visual": 5980
-            }
+                "performance": 4332,
+                "technique": 5050,
+                "visual": 5705
+            },
+            "episodes": []
         }
     },
     "10010": {
@@ -373,15 +1782,156 @@
         "type": "campaign",
         "stat": {
             "1": {
-                "performance": 2310,
-                "technique": 2251,
-                "visual": 2099
+                "performance": 1980,
+                "technique": 1788,
+                "visual": 2292
+            },
+            "2": {
+                "performance": 2033,
+                "technique": 1836,
+                "visual": 2353
+            },
+            "3": {
+                "performance": 2089,
+                "technique": 1887,
+                "visual": 2418
+            },
+            "4": {
+                "performance": 2149,
+                "technique": 1941,
+                "visual": 2487
+            },
+            "5": {
+                "performance": 2212,
+                "technique": 1998,
+                "visual": 2560
+            },
+            "6": {
+                "performance": 2279,
+                "technique": 2058,
+                "visual": 2637
+            },
+            "7": {
+                "performance": 2349,
+                "technique": 2121,
+                "visual": 2718
+            },
+            "8": {
+                "performance": 2423,
+                "technique": 2188,
+                "visual": 2803
+            },
+            "9": {
+                "performance": 2500,
+                "technique": 2258,
+                "visual": 2892
+            },
+            "10": {
+                "performance": 2581,
+                "technique": 2331,
+                "visual": 2985
+            },
+            "11": {
+                "performance": 2665,
+                "technique": 2407,
+                "visual": 3082
+            },
+            "12": {
+                "performance": 2753,
+                "technique": 2486,
+                "visual": 3184
+            },
+            "13": {
+                "performance": 2844,
+                "technique": 2568,
+                "visual": 3290
+            },
+            "14": {
+                "performance": 2939,
+                "technique": 2654,
+                "visual": 3400
+            },
+            "15": {
+                "performance": 3037,
+                "technique": 2743,
+                "visual": 3514
+            },
+            "16": {
+                "performance": 3139,
+                "technique": 2835,
+                "visual": 3632
+            },
+            "17": {
+                "performance": 3244,
+                "technique": 2930,
+                "visual": 3754
+            },
+            "18": {
+                "performance": 3353,
+                "technique": 3028,
+                "visual": 3880
+            },
+            "19": {
+                "performance": 3465,
+                "technique": 3129,
+                "visual": 4010
+            },
+            "20": {
+                "performance": 3581,
+                "technique": 3234,
+                "visual": 4144
+            },
+            "21": {
+                "performance": 3700,
+                "technique": 3342,
+                "visual": 4282
+            },
+            "22": {
+                "performance": 3823,
+                "technique": 3453,
+                "visual": 4424
+            },
+            "23": {
+                "performance": 3949,
+                "technique": 3567,
+                "visual": 4570
+            },
+            "24": {
+                "performance": 4079,
+                "technique": 3684,
+                "visual": 4720
+            },
+            "25": {
+                "performance": 4212,
+                "technique": 3804,
+                "visual": 4874
+            },
+            "26": {
+                "performance": 4349,
+                "technique": 3928,
+                "visual": 5032
+            },
+            "27": {
+                "performance": 4489,
+                "technique": 4055,
+                "visual": 5194
+            },
+            "28": {
+                "performance": 4633,
+                "technique": 4185,
+                "visual": 5360
+            },
+            "29": {
+                "performance": 4780,
+                "technique": 4318,
+                "visual": 5530
             },
             "30": {
-                "performance": 5706,
-                "technique": 5560,
-                "visual": 5183
-            }
+                "performance": 4931,
+                "technique": 4454,
+                "visual": 5705
+            },
+            "episodes": []
         }
     },
     "10011": {
@@ -411,6 +1961,146 @@
                 "performance": 1740,
                 "technique": 2028,
                 "visual": 2292
+            },
+            "2": {
+                "performance": 1786,
+                "technique": 2082,
+                "visual": 2353
+            },
+            "3": {
+                "performance": 1835,
+                "technique": 2140,
+                "visual": 2418
+            },
+            "4": {
+                "performance": 1887,
+                "technique": 2201,
+                "visual": 2487
+            },
+            "5": {
+                "performance": 1943,
+                "technique": 2266,
+                "visual": 2560
+            },
+            "6": {
+                "performance": 2002,
+                "technique": 2334,
+                "visual": 2637
+            },
+            "7": {
+                "performance": 2064,
+                "technique": 2406,
+                "visual": 2718
+            },
+            "8": {
+                "performance": 2129,
+                "technique": 2481,
+                "visual": 2803
+            },
+            "9": {
+                "performance": 2197,
+                "technique": 2560,
+                "visual": 2892
+            },
+            "10": {
+                "performance": 2268,
+                "technique": 2643,
+                "visual": 2985
+            },
+            "11": {
+                "performance": 2342,
+                "technique": 2729,
+                "visual": 3082
+            },
+            "12": {
+                "performance": 2419,
+                "technique": 2819,
+                "visual": 3184
+            },
+            "13": {
+                "performance": 2499,
+                "technique": 2912,
+                "visual": 3290
+            },
+            "14": {
+                "performance": 2582,
+                "technique": 3009,
+                "visual": 3400
+            },
+            "15": {
+                "performance": 2668,
+                "technique": 3110,
+                "visual": 3514
+            },
+            "16": {
+                "performance": 2757,
+                "technique": 3214,
+                "visual": 3632
+            },
+            "17": {
+                "performance": 2849,
+                "technique": 3322,
+                "visual": 3754
+            },
+            "18": {
+                "performance": 2945,
+                "technique": 3433,
+                "visual": 3880
+            },
+            "19": {
+                "performance": 3044,
+                "technique": 3548,
+                "visual": 4010
+            },
+            "20": {
+                "performance": 3146,
+                "technique": 3667,
+                "visual": 4144
+            },
+            "21": {
+                "performance": 3251,
+                "technique": 3789,
+                "visual": 4282
+            },
+            "22": {
+                "performance": 3359,
+                "technique": 3915,
+                "visual": 4424
+            },
+            "23": {
+                "performance": 3470,
+                "technique": 4044,
+                "visual": 4570
+            },
+            "24": {
+                "performance": 3584,
+                "technique": 4177,
+                "visual": 4720
+            },
+            "25": {
+                "performance": 3701,
+                "technique": 4314,
+                "visual": 4874
+            },
+            "26": {
+                "performance": 3821,
+                "technique": 4454,
+                "visual": 5032
+            },
+            "27": {
+                "performance": 3944,
+                "technique": 4598,
+                "visual": 5194
+            },
+            "28": {
+                "performance": 4070,
+                "technique": 4745,
+                "visual": 5360
+            },
+            "29": {
+                "performance": 4199,
+                "technique": 4896,
+                "visual": 5530
             },
             "30": {
                 "performance": 4332,
@@ -447,6 +2137,146 @@
                 "technique": 1920,
                 "visual": 2238
             },
+            "2": {
+                "performance": 1953,
+                "technique": 1971,
+                "visual": 2298
+            },
+            "3": {
+                "performance": 2007,
+                "technique": 2025,
+                "visual": 2362
+            },
+            "4": {
+                "performance": 2064,
+                "technique": 2083,
+                "visual": 2429
+            },
+            "5": {
+                "performance": 2125,
+                "technique": 2144,
+                "visual": 2500
+            },
+            "6": {
+                "performance": 2189,
+                "technique": 2209,
+                "visual": 2575
+            },
+            "7": {
+                "performance": 2256,
+                "technique": 2277,
+                "visual": 2654
+            },
+            "8": {
+                "performance": 2327,
+                "technique": 2348,
+                "visual": 2737
+            },
+            "9": {
+                "performance": 2401,
+                "technique": 2423,
+                "visual": 2824
+            },
+            "10": {
+                "performance": 2479,
+                "technique": 2501,
+                "visual": 2915
+            },
+            "11": {
+                "performance": 2560,
+                "technique": 2583,
+                "visual": 3010
+            },
+            "12": {
+                "performance": 2644,
+                "technique": 2668,
+                "visual": 3109
+            },
+            "13": {
+                "performance": 2732,
+                "technique": 2756,
+                "visual": 3212
+            },
+            "14": {
+                "performance": 2823,
+                "technique": 2848,
+                "visual": 3319
+            },
+            "15": {
+                "performance": 2917,
+                "technique": 2943,
+                "visual": 3430
+            },
+            "16": {
+                "performance": 3015,
+                "technique": 3042,
+                "visual": 3545
+            },
+            "17": {
+                "performance": 3116,
+                "technique": 3144,
+                "visual": 3664
+            },
+            "18": {
+                "performance": 3220,
+                "technique": 3249,
+                "visual": 3787
+            },
+            "19": {
+                "performance": 3328,
+                "technique": 3358,
+                "visual": 3914
+            },
+            "20": {
+                "performance": 3439,
+                "technique": 3470,
+                "visual": 4045
+            },
+            "21": {
+                "performance": 3554,
+                "technique": 3586,
+                "visual": 4180
+            },
+            "22": {
+                "performance": 3672,
+                "technique": 3705,
+                "visual": 4319
+            },
+            "23": {
+                "performance": 3793,
+                "technique": 3827,
+                "visual": 4462
+            },
+            "24": {
+                "performance": 3918,
+                "technique": 3953,
+                "visual": 4609
+            },
+            "25": {
+                "performance": 4046,
+                "technique": 4082,
+                "visual": 4760
+            },
+            "26": {
+                "performance": 4177,
+                "technique": 4215,
+                "visual": 4915
+            },
+            "27": {
+                "performance": 4312,
+                "technique": 4351,
+                "visual": 5074
+            },
+            "28": {
+                "performance": 4450,
+                "technique": 4490,
+                "visual": 5237
+            },
+            "29": {
+                "performance": 4591,
+                "technique": 4633,
+                "visual": 5403
+            },
             "30": {
                 "performance": 4736,
                 "technique": 4779,
@@ -482,11 +2312,494 @@
                 "technique": 1860,
                 "visual": 2070
             },
+            "2": {
+                "performance": 2186,
+                "technique": 1909,
+                "visual": 2124
+            },
+            "3": {
+                "performance": 2246,
+                "technique": 1961,
+                "visual": 2182
+            },
+            "4": {
+                "performance": 2309,
+                "technique": 2016,
+                "visual": 2244
+            },
+            "5": {
+                "performance": 2376,
+                "technique": 2075,
+                "visual": 2309
+            },
+            "6": {
+                "performance": 2447,
+                "technique": 2137,
+                "visual": 2378
+            },
+            "7": {
+                "performance": 2521,
+                "technique": 2202,
+                "visual": 2450
+            },
+            "8": {
+                "performance": 2599,
+                "technique": 2270,
+                "visual": 2526
+            },
+            "9": {
+                "performance": 2681,
+                "technique": 2342,
+                "visual": 2606
+            },
+            "10": {
+                "performance": 2767,
+                "technique": 2417,
+                "visual": 2689
+            },
+            "11": {
+                "performance": 2856,
+                "technique": 2495,
+                "visual": 2776
+            },
+            "12": {
+                "performance": 2949,
+                "technique": 2576,
+                "visual": 2866
+            },
+            "13": {
+                "performance": 3046,
+                "technique": 2661,
+                "visual": 2960
+            },
+            "14": {
+                "performance": 3147,
+                "technique": 2749,
+                "visual": 3058
+            },
+            "15": {
+                "performance": 3251,
+                "technique": 2840,
+                "visual": 3159
+            },
+            "16": {
+                "performance": 3359,
+                "technique": 2934,
+                "visual": 3264
+            },
+            "17": {
+                "performance": 3471,
+                "technique": 3032,
+                "visual": 3373
+            },
+            "18": {
+                "performance": 3586,
+                "technique": 3133,
+                "visual": 3485
+            },
+            "19": {
+                "performance": 3705,
+                "technique": 3237,
+                "visual": 3601
+            },
+            "20": {
+                "performance": 3828,
+                "technique": 3344,
+                "visual": 3720
+            },
+            "21": {
+                "performance": 3955,
+                "technique": 3455,
+                "visual": 3843
+            },
+            "22": {
+                "performance": 4085,
+                "technique": 3569,
+                "visual": 3970
+            },
+            "23": {
+                "performance": 4219,
+                "technique": 3686,
+                "visual": 4100
+            },
+            "24": {
+                "performance": 4357,
+                "technique": 3806,
+                "visual": 4234
+            },
+            "25": {
+                "performance": 4498,
+                "technique": 3930,
+                "visual": 4371
+            },
+            "26": {
+                "performance": 4643,
+                "technique": 4057,
+                "visual": 4512
+            },
+            "27": {
+                "performance": 4792,
+                "technique": 4187,
+                "visual": 4657
+            },
+            "28": {
+                "performance": 4945,
+                "technique": 4320,
+                "visual": 4805
+            },
+            "29": {
+                "performance": 5101,
+                "technique": 4456,
+                "visual": 4957
+            },
             "30": {
                 "performance": 5261,
                 "technique": 4596,
                 "visual": 5113
             }
+        }
+    },
+    "10029": {
+        "characterId": 16,
+        "rarity": 4,
+        "attribute": "powerful",
+        "levelLimit": 50,
+        "resourceSetName": "bili_res016001",
+        "prefix": [
+            null,
+            null,
+            null,
+            "彩彩小豆泥",
+            null
+        ],
+        "releasedAt": [
+            null,
+            null,
+            null,
+            "1738126800000",
+            null
+        ],
+        "skillId": 45,
+        "type": "limited",
+        "stat": {
+            "1": {
+                "performance": 3286,
+                "technique": 3377,
+                "visual": 3518
+            },
+            "2": {
+                "performance": 3320,
+                "technique": 3412,
+                "visual": 3554
+            },
+            "3": {
+                "performance": 3355,
+                "technique": 3448,
+                "visual": 3592
+            },
+            "4": {
+                "performance": 3392,
+                "technique": 3486,
+                "visual": 3631
+            },
+            "5": {
+                "performance": 3430,
+                "technique": 3525,
+                "visual": 3672
+            },
+            "6": {
+                "performance": 3469,
+                "technique": 3565,
+                "visual": 3714
+            },
+            "7": {
+                "performance": 3510,
+                "technique": 3607,
+                "visual": 3758
+            },
+            "8": {
+                "performance": 3552,
+                "technique": 3650,
+                "visual": 3803
+            },
+            "9": {
+                "performance": 3595,
+                "technique": 3695,
+                "visual": 3849
+            },
+            "10": {
+                "performance": 3640,
+                "technique": 3741,
+                "visual": 3897
+            },
+            "11": {
+                "performance": 3686,
+                "technique": 3788,
+                "visual": 3946
+            },
+            "12": {
+                "performance": 3733,
+                "technique": 3837,
+                "visual": 3997
+            },
+            "13": {
+                "performance": 3782,
+                "technique": 3887,
+                "visual": 4049
+            },
+            "14": {
+                "performance": 3832,
+                "technique": 3939,
+                "visual": 4103
+            },
+            "15": {
+                "performance": 3883,
+                "technique": 3992,
+                "visual": 4158
+            },
+            "16": {
+                "performance": 3936,
+                "technique": 4046,
+                "visual": 4215
+            },
+            "17": {
+                "performance": 3990,
+                "technique": 4102,
+                "visual": 4273
+            },
+            "18": {
+                "performance": 4046,
+                "technique": 4159,
+                "visual": 4332
+            },
+            "19": {
+                "performance": 4103,
+                "technique": 4217,
+                "visual": 4393
+            },
+            "20": {
+                "performance": 4161,
+                "technique": 4277,
+                "visual": 4455
+            },
+            "21": {
+                "performance": 4221,
+                "technique": 4338,
+                "visual": 4519
+            },
+            "22": {
+                "performance": 4282,
+                "technique": 4401,
+                "visual": 4584
+            },
+            "23": {
+                "performance": 4344,
+                "technique": 4465,
+                "visual": 4651
+            },
+            "24": {
+                "performance": 4408,
+                "technique": 4530,
+                "visual": 4719
+            },
+            "25": {
+                "performance": 4473,
+                "technique": 4597,
+                "visual": 4789
+            },
+            "26": {
+                "performance": 4539,
+                "technique": 4665,
+                "visual": 4860
+            },
+            "27": {
+                "performance": 4607,
+                "technique": 4735,
+                "visual": 4933
+            },
+            "28": {
+                "performance": 4676,
+                "technique": 4806,
+                "visual": 5007
+            },
+            "29": {
+                "performance": 4746,
+                "technique": 4878,
+                "visual": 5082
+            },
+            "30": {
+                "performance": 4818,
+                "technique": 4952,
+                "visual": 5159
+            },
+            "31": {
+                "performance": 4891,
+                "technique": 5027,
+                "visual": 5237
+            },
+            "32": {
+                "performance": 4966,
+                "technique": 5104,
+                "visual": 5317
+            },
+            "33": {
+                "performance": 5042,
+                "technique": 5182,
+                "visual": 5398
+            },
+            "34": {
+                "performance": 5119,
+                "technique": 5261,
+                "visual": 5481
+            },
+            "35": {
+                "performance": 5198,
+                "technique": 5342,
+                "visual": 5565
+            },
+            "36": {
+                "performance": 5278,
+                "technique": 5424,
+                "visual": 5651
+            },
+            "37": {
+                "performance": 5359,
+                "technique": 5508,
+                "visual": 5738
+            },
+            "38": {
+                "performance": 5442,
+                "technique": 5593,
+                "visual": 5826
+            },
+            "39": {
+                "performance": 5526,
+                "technique": 5679,
+                "visual": 5916
+            },
+            "40": {
+                "performance": 5611,
+                "technique": 5767,
+                "visual": 6007
+            },
+            "41": {
+                "performance": 5698,
+                "technique": 5856,
+                "visual": 6100
+            },
+            "42": {
+                "performance": 5786,
+                "technique": 5946,
+                "visual": 6194
+            },
+            "43": {
+                "performance": 5875,
+                "technique": 6038,
+                "visual": 6290
+            },
+            "44": {
+                "performance": 5966,
+                "technique": 6131,
+                "visual": 6387
+            },
+            "45": {
+                "performance": 6058,
+                "technique": 6226,
+                "visual": 6486
+            },
+            "46": {
+                "performance": 6151,
+                "technique": 6322,
+                "visual": 6586
+            },
+            "47": {
+                "performance": 6246,
+                "technique": 6419,
+                "visual": 6688
+            },
+            "48": {
+                "performance": 6342,
+                "technique": 6518,
+                "visual": 6791
+            },
+            "49": {
+                "performance": 6440,
+                "technique": 6618,
+                "visual": 6895
+            },
+            "50": {
+                "performance": 6539,
+                "technique": 6720,
+                "visual": 7001
+            },
+            "51": {
+                "performance": 6719,
+                "technique": 6905,
+                "visual": 7194
+            },
+            "52": {
+                "performance": 6931,
+                "technique": 7123,
+                "visual": 7421
+            },
+            "53": {
+                "performance": 7176,
+                "technique": 7374,
+                "visual": 7683
+            },
+            "54": {
+                "performance": 7453,
+                "technique": 7659,
+                "visual": 7979
+            },
+            "55": {
+                "performance": 7762,
+                "technique": 7977,
+                "visual": 8310
+            },
+            "56": {
+                "performance": 8103,
+                "technique": 8328,
+                "visual": 8676
+            },
+            "57": {
+                "performance": 8477,
+                "technique": 8712,
+                "visual": 9076
+            },
+            "58": {
+                "performance": 8883,
+                "technique": 9129,
+                "visual": 9511
+            },
+            "59": {
+                "performance": 9321,
+                "technique": 9579,
+                "visual": 9980
+            },
+            "60": {
+                "performance": 9791,
+                "technique": 10062,
+                "visual": 10484
+            },
+            "training": {
+                "levelLimit": 10,
+                "performance": 400,
+                "technique": 400,
+                "visual": 400
+            },
+            "episodes": [
+                {
+                    "performance": 250,
+                    "technique": 250,
+                    "visual": 250
+                },
+                {
+                    "performance": 600,
+                    "technique": 600,
+                    "visual": 600
+                }
+            ]
         }
     }
 }

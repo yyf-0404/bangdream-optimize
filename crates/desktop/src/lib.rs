@@ -145,7 +145,9 @@ impl DesktopOptimizer {
                 let config = BestdoriStaticMirrorConfig::new(cache_root, base_url);
                 DesktopCalculator::Remote {
                     source: DesktopRemoteSource::StaticMirror,
-                    calculator: BestdoriCachedFilesystemCalculator::new(config)?,
+                    calculator: BestdoriCachedFilesystemCalculator::new(config)?
+                        .with_card_repairs(embedded_card_repairs()?)?
+                        .with_area_item_repairs(embedded_area_item_repairs()?)?,
                 }
             }
             DesktopGameDataSource::BestdoriApi {
@@ -156,7 +158,9 @@ impl DesktopOptimizer {
                 let config = BestdoriStaticMirrorConfig::from_bestdori_api(cache_root, base_url);
                 DesktopCalculator::Remote {
                     source: DesktopRemoteSource::BestdoriApi,
-                    calculator: BestdoriCachedFilesystemCalculator::new(config)?,
+                    calculator: BestdoriCachedFilesystemCalculator::new(config)?
+                        .with_card_repairs(embedded_card_repairs()?)?
+                        .with_area_item_repairs(embedded_area_item_repairs()?)?,
                 }
             }
         };
@@ -749,12 +753,47 @@ fn read_optional_json(path: Option<&Path>) -> Result<Option<Value>, DataError> {
     read_json(path).map(Some)
 }
 
+fn embedded_card_repairs() -> Result<Value, DataError> {
+    serde_json::from_slice(EMBEDDED_FIX_FILES[0].1).map_err(|source| DataError::Json {
+        path: "embedded cardsCNfix.json".to_owned(), source,
+    })
+}
+
+fn embedded_area_item_repairs() -> Result<Value, DataError> {
+    serde_json::from_slice(EMBEDDED_FIX_FILES[2].1).map_err(|source| DataError::Json {
+        path: "embedded areaItemFix.json".to_owned(), source,
+    })
+}
+
 fn ensure_embedded_fix_files(root: &Path) -> Result<bool, DataError> {
     let mut changed = false;
     fs::create_dir_all(root).map_err(|source| io_error(root, source))?;
     for (file_name, data) in EMBEDDED_FIX_FILES {
         let path = root.join(file_name);
         if path.exists() {
+            if matches!(file_name, "cardsCNfix.json" | "areaItemFix.json") {
+                let mut cached = read_json(&path)?;
+                let cached = cached.as_object_mut().ok_or(DataError::InvalidField {
+                    field: if file_name == "cardsCNfix.json" { "cardsCNfix" } else { "areaItemFix" },
+                    value: "expected object".to_owned(),
+                })?;
+                let current = if file_name == "cardsCNfix.json" { embedded_card_repairs()? }
+                    else { embedded_area_item_repairs()? };
+                let mut entry_changed = false;
+                for (id, entry) in current.as_object().expect("embedded repair object") {
+                    if cached.get(id) != Some(entry) {
+                        cached.insert(id.clone(), entry.clone());
+                        entry_changed = true;
+                    }
+                }
+                if entry_changed {
+                    let bytes = serde_json::to_vec_pretty(cached).map_err(|error| DataError::JsonString {
+                        message: error.to_string(),
+                    })?;
+                    fs::write(&path, bytes).map_err(|source| io_error(&path, source))?;
+                    changed = true;
+                }
+            }
             continue;
         }
         fs::write(&path, data).map_err(|source| io_error(&path, source))?;
@@ -1033,6 +1072,38 @@ mod tests {
                 "{file_name} is missing"
             );
         }
+    }
+
+    #[test]
+    fn cached_cn_card_and_item_fixes_are_upgraded_without_erasing_other_entries() {
+        let fixture = TestDir::new();
+        let cache_root = fixture.path().join("cache");
+        fs::create_dir_all(&cache_root).unwrap();
+        let path = cache_root.join("cardsCNfix.json");
+        let unrelated = json!({"source":"retained extra entry"});
+        fs::write(&path, serde_json::to_vec(&json!({
+            "10005":{"skillId":5}, "99000":unrelated,
+        })).unwrap()).unwrap();
+        let item_path = cache_root.join("areaItemFix.json");
+        fs::write(&item_path, serde_json::to_vec(&json!({
+            "59":{"targetBandIds":[1]}, "99000":unrelated,
+        })).unwrap()).unwrap();
+        assert!(ensure_embedded_fix_files(&cache_root).unwrap());
+        let fixed = read_json(&path).unwrap();
+        assert_eq!(fixed["10005"]["skillId"], 8);
+        assert_eq!(fixed["10029"]["rarity"], 4);
+        assert_eq!(fixed["10029"]["skillId"], 45);
+        assert_eq!(fixed["99000"], unrelated);
+        let fixed_items = read_json(&item_path).unwrap();
+        for id in ["59", "68", "72"] {
+            assert!(fixed_items[id]["targetBandIds"].as_array().unwrap().contains(&json!(45)));
+        }
+        assert_eq!(fixed_items["99000"], unrelated);
+        let bytes = fs::read(&path).unwrap();
+        let item_bytes = fs::read(&item_path).unwrap();
+        assert!(!ensure_embedded_fix_files(&cache_root).unwrap());
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert_eq!(fs::read(&item_path).unwrap(), item_bytes);
     }
 
     #[test]

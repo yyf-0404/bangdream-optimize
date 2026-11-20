@@ -9,13 +9,17 @@ use crate::{
 use bangdream_optimize_core::{AreaItemDefinition, CardDefinition, Server};
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct BestdoriData {
-    cards: BTreeMap<String, Value>,
-    characters: BTreeMap<String, Value>,
-    skills: BTreeMap<String, Value>,
-    area_items: BTreeMap<String, Value>,
+    // Calculation contexts share immutable catalogs. Repairing a cloned
+    // context detaches only the affected catalog, preserving clone isolation.
+    cards: Arc<BTreeMap<String, Value>>,
+    characters: Arc<BTreeMap<String, Value>>,
+    skills: Arc<BTreeMap<String, Value>>,
+    area_items: Arc<BTreeMap<String, Value>>,
+    custom_timing_cards: BTreeMap<u32, CardDefinition>,
 }
 
 impl BestdoriData {
@@ -30,10 +34,11 @@ impl BestdoriData {
         normalize_object(&mut area_items, "areaItems")?;
 
         Ok(Self {
-            cards: into_object_map(cards, "cards")?,
-            characters: into_object_map(characters, "characters")?,
-            skills: into_object_map(skills, "skills")?,
-            area_items: into_object_map(area_items, "areaItems")?,
+            cards: Arc::new(into_object_map(cards, "cards")?),
+            characters: Arc::new(into_object_map(characters, "characters")?),
+            skills: Arc::new(into_object_map(skills, "skills")?),
+            area_items: Arc::new(into_object_map(area_items, "areaItems")?),
+            custom_timing_cards: BTreeMap::new(),
         })
     }
 
@@ -44,13 +49,13 @@ impl BestdoriData {
         area_items_fix: Option<Value>,
     ) -> Result<(), DataError> {
         if let Some(cards_fix) = cards_fix {
-            merge_object_map(&mut self.cards, cards_fix, "cardsCNfix")?;
+            merge_object_map(Arc::make_mut(&mut self.cards), cards_fix, "cardsCNfix")?;
         }
         if let Some(skills_fix) = skills_fix {
-            merge_object_map(&mut self.skills, skills_fix, "skillsCNfix")?;
+            merge_object_map(Arc::make_mut(&mut self.skills), skills_fix, "skillsCNfix")?;
         }
         if let Some(area_items_fix) = area_items_fix {
-            merge_object_map(&mut self.area_items, area_items_fix, "areaItemFix")?;
+            merge_object_map(Arc::make_mut(&mut self.area_items), area_items_fix, "areaItemFix")?;
         }
         Ok(())
     }
@@ -145,6 +150,22 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn repairing_a_cloned_catalog_keeps_the_original_context_unchanged() {
+        let base=BestdoriData::from_values(json!({"1":{"value":1}}),json!({}),
+            json!({"1":{"value":2}}),json!({"1":{"value":3}})).unwrap();
+        let mut repaired=base.clone();
+        repaired.apply_repairs(Some(json!({"1":{"value":10}})),
+            Some(json!({"1":{"value":20}})),Some(json!({"1":{"value":30}}))).unwrap();
+        for (original,changed,expected) in [
+            (&base.cards,&repaired.cards,1),(&base.skills,&repaired.skills,2),
+            (&base.area_items,&repaired.area_items,3),
+        ] {
+            assert_eq!(base.entity(original,"catalog",1).unwrap()["value"],expected);
+            assert_eq!(repaired.entity(changed,"catalog",1).unwrap()["value"],expected*10);
+        }
+    }
+
+    #[test]
     fn maps_card_definition_with_skill_and_character_band() {
         let data = BestdoriData::from_values(
             json!({
@@ -188,6 +209,49 @@ mod tests {
         assert_eq!(card.episode_stats[1].performance, 40);
         assert_eq!(card.skill.durations[4], 7.0);
         assert_eq!(card.skill.score_up.default, 1.0);
+    }
+
+    #[test]
+    fn cn_source_repairs_cover_intermediate_levels_and_skill_id_collisions() {
+        // Expectations are from the field-bound CN master, including level 37,
+        // rather than interpolating the catalogue's two endpoint records.
+        let skill = |percent| json!({
+            "duration": [5, 5, 5, 5, 5],
+            "activationEffect": {"activateEffectTypes": {
+                "score": {"activateEffectValue": [percent]}
+            }}
+        });
+        let mut data = BestdoriData::from_values(
+            json!({
+                "10005": {"characterId": 16, "rarity": 2, "attribute": "powerful",
+                    "skillId": 5, "stat": {"1": {"performance": 1, "technique": 2, "visual": 3}}},
+                "10029": {"characterId": 16, "rarity": 5, "attribute": "powerful",
+                    "skillId": 66, "stat": {"1": {"performance": 4, "technique": 5, "visual": 6}}}
+            }),
+            json!({"16": {"bandId": 4}}),
+            json!({"5": skill(5), "8": skill(8), "45": skill(45), "66": skill(66)}),
+            json!({}),
+        ).unwrap();
+        let repair = serde_json::from_str(include_str!("../../../../var/game-data/cardsCNfix.json")).unwrap();
+        data.apply_repairs(Some(repair), None, None).unwrap();
+        let two_star = data.card_definition(10005).unwrap();
+        let four_star = data.card_definition(10029).unwrap();
+        assert_eq!(two_star.skill.score_up.default, 0.08);
+        assert_eq!(four_star.skill.score_up.default, 0.45);
+        assert_eq!(four_star.rarity, 4);
+        assert_eq!(two_star.level_stats.len(), 30);
+        assert_eq!(four_star.level_stats.len(), 60);
+        for level in 1..=30 { assert!(data.card_has_level(10005, level).unwrap()); }
+        for level in 1..=60 { assert!(data.card_has_level(10029, level).unwrap()); }
+        assert_eq!(two_star.level_stats[&15], bangdream_optimize_core::Stat {
+            performance: 2935, technique: 3421, visual: 3866,
+        });
+        assert_eq!(four_star.level_stats[&37], bangdream_optimize_core::Stat {
+            performance: 5359, technique: 5508, visual: 5738,
+        });
+        assert_eq!(four_star.training_stat.performance, 400);
+        assert_eq!(four_star.episode_stats[0].performance, 250);
+        assert_eq!(four_star.episode_stats[1].performance, 600);
     }
 
     #[test]
