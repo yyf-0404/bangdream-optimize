@@ -59,7 +59,7 @@ wasm-bindgen \
   --out-dir apps/web/pkg \
   --out-name bangdream_optimize_web_wasm
 
-python3 scripts/prepare-web-release.py --source "$WEB_SOURCE_DIR" --output "$WEB_BUILD_DIR"
+python3 scripts/release/prepare-web-release.py --source "$WEB_SOURCE_DIR" --output "$WEB_BUILD_DIR"
 
 if [[ "$NO_DEPLOY" -eq 1 ]]; then
   echo "build completed; skip deploy (--no-deploy enabled)"

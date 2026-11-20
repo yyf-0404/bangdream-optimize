@@ -26,7 +26,7 @@
 
 Tauri crate 有意不加入根 Cargo 工作区，以避免常规工作区测试下载或编译 Tauri。
 
-基础 Rust/Cargo、Windows 工具链和发布工具安装见 `../../docs/environment.md`。
+Rust、Windows 工具链和发布工具的安装步骤见[环境准备](../../docs/guides/environment.md)。
 
 ## Ubuntu 22.04 依赖
 

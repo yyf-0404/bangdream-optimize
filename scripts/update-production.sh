@@ -217,7 +217,7 @@ log "Restarting Nginx"
 
 if [[ -n "$PUBLIC_URL" ]]; then
   log "Checking the public header PNG proxy"
-  bash scripts/check-header-proxy.sh "$PUBLIC_URL"
+  bash scripts/checks/check-header-proxy.sh "$PUBLIC_URL"
 else
   echo 'Public header proxy NOT checked. Pass --public-url https://your-domain to verify the active Nginx route.'
 fi

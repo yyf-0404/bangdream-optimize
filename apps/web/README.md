@@ -168,7 +168,7 @@ server {
 }
 ```
 
-也可直接使用 `docs/nginx-reverse-proxy.conf` 中的可编辑反向代理示例。
+也可直接使用 `docs/deployment/nginx-reverse-proxy.conf` 中的可编辑反向代理示例。
 
 上线注意：
 - 前端配置为 `gameDataBaseUrl: '/game-data'`，`apiBaseUrl: ''`，确保请求为同源，不写死 `127.0.0.1`。

@@ -47,7 +47,7 @@ bili安卓 / iOS 由用户选择，不能根据当前电脑系统推断。iOS �
 
 ## 部署
 
-网页新增 `POST /api/import/cn-account`，JSON body 为 `{account, password, channel}`，channel 必填 `android` 或 `ios`。需同时更新 Rust 服务端与网页，并将 `docs/nginx-reverse-proxy.conf` 中此路径的 location 加入当前生效的 **HTTPS server** 块，避免 SPA fallback 返回 HTML。建议 240 秒读取超时、8 KiB 请求大小、关闭请求落盘缓冲和响应缓存；不要在日志格式中加入 `$request_body`。
+网页新增 `POST /api/import/cn-account`，JSON body 为 `{account, password, channel}`，channel 必填 `android` 或 `ios`。需同时更新 Rust 服务端与网页，并将 `docs/deployment/nginx-reverse-proxy.conf` 中此路径的 location 加入当前生效的 **HTTPS server** 块，避免 SPA fallback 返回 HTML。建议 240 秒读取超时、8 KiB 请求大小、关闭请求落盘缓冲和响应缓存；不要在日志格式中加入 `$request_body`。
 
 日服使用 `POST /api/import/jp-uuid`，JSON body 为 `{playerId, uuid}`；该路径同样需要安装示例中的 HTTPS 代理配置。
 
