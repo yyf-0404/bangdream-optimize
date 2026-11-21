@@ -90,6 +90,11 @@ test('both single-song highest-score events submit timing and keep their complet
     assert.deepEqual(calls[0].options, { hitTiming: true });
     assert.equal(h.state.lastDiagnostic.calculationRequest.hitTiming, true);
     assert.deepEqual(h.state.lastDiagnostic.result, response);
+    h.state.resultCache[0].cacheVersion = 15;
+    await h.actions.handleCalculate({ preventDefault() {} });
+    assert.equal(calls.length, 2, 'recompute the old single-song maximum');
+    await h.actions.handleCalculate({ preventDefault() {} });
+    assert.equal(calls.length, 2, 'reuse the corrected maximum');
     assert.deepEqual(h.errors, []);
   }
 });

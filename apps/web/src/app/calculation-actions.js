@@ -15,7 +15,7 @@ import { validatePtEvaluateTeamSelection } from '../domain/pt-evaluate-validatio
 import {customCardPresentationKey} from '../domain/custom-cards.js';
 import {equipmentAvailable} from '../domain/area.js';
 import {restrictEventCardPool} from '../domain/event-card-pool.js';
-import {resultCacheInvalidationReason, resultTotalStat, RESULT_CACHE_SCHEMA_VERSION, SCORING_REVISION} from '../data/result-cache.js';
+import {resultCacheInvalidationReason, resultTotalStat, RESULT_CACHE_KEY_VERSION, RESULT_CACHE_SCHEMA_VERSION, SCORING_REVISION} from '../data/result-cache.js';
 
 import {
   isCompleteTimingResult, requireCompleteTimingResult, timingOptimizationEnabled, timingWitnessExport,
@@ -90,7 +90,7 @@ export function createCalculationActions({
   function makeResultCacheKey(player, eventId, profileId = state.activePlayerProfileId) {
     player = normalizedPlayer(player);
     const serialized = cloneJson({
-      cacheVersion: RESULT_CACHE_SCHEMA_VERSION,
+      cacheVersion: RESULT_CACHE_KEY_VERSION,
       scoringRevision: SCORING_REVISION,
       profileId,
       skillShuffleModel: 'cn-9.4.2',

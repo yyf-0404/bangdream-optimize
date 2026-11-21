@@ -254,7 +254,7 @@ impl Search<'_> {
                 bank.score_optional(request.power, &mut self.score_scratch)
             })
             .map_err(engine_error)?;
-        if let Some(maximum) = maximum {
+        if let Some(maximum) = maximum.filter(|candidate| self.competitive(candidate.score)) {
             self.best = Some(Winner {
                 items: item.items.clone(),
                 team: maximum.recommended_layout.map(|i| cards[i].card_id),

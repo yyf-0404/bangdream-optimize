@@ -81,6 +81,34 @@ fn single_fixture(event_type: &str) -> Value {
 }
 
 #[test]
+fn single_timing_keeps_the_best_score_across_equipment_choices() {
+    let mut payload = single_fixture("challenge");
+    // Notes at both ends of each skill window keep the score upper bound
+    // competitive even when the next magazine scores slightly lower.
+    let mut chart = vec![json!({"type": "BPM", "beat": 0, "bpm": 120})];
+    let offsets = [-0.125, 0.0, 0.125, 1.0, 9.875, 10.0, 12.0, 13.875, 14.0, 14.125, 16.0];
+    for section in 0..6 {
+        for (lane, offset) in offsets.into_iter().enumerate() {
+            chart.push(json!({
+                "type": "Single", "beat": f64::from(8 + 24 * section) + offset,
+                "lane": lane % 7, "skill": offset == 0.0,
+            }));
+        }
+    }
+    payload["charts"][0]["data"] = json!(chart);
+    for (id, axis) in [("80", "performance"), ("81", "technique"), ("82", "visual")] {
+        payload["areaItems"][id][axis]["1"] = json!(vec![0.05; 5]);
+    }
+    let solve = |case| calculate_payload(serde_json::from_value(case).unwrap()).unwrap();
+    let unrestricted = solve(payload.clone());
+    for id in ["81", "82"] {
+        payload["player"]["areaItem"][id]["level"] = json!(0);
+    }
+    let performance_only = solve(payload);
+    assert!(unrestricted.total_score >= performance_only.total_score);
+}
+
+#[test]
 fn single_highest_score_replays_and_applies_limits_for_both_events() {
     for event_type in [EventType::Challenge, EventType::Versus] {
         let mut payload = single_fixture(event_type.as_str());

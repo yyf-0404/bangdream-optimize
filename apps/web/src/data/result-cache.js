@@ -8,7 +8,9 @@ const DB_NAME = 'bangdream-optimize-result-cache-v1';
 const DB_VERSION = 1;
 const STORE = 'result-cache';
 const CACHE_KEY = 'entries';
-export const RESULT_CACHE_SCHEMA_VERSION = 15;
+export const RESULT_CACHE_SCHEMA_VERSION = 16;
+// Input keys are unchanged. Only older single-song timing results need a new search.
+export const RESULT_CACHE_KEY_VERSION = 15;
 export const RESULT_CACHE_LIMIT = 20;
 
 export function resultCacheInvalidationReason(entry) {
@@ -16,6 +18,9 @@ export function resultCacheInvalidationReason(entry) {
   if (timing?.rangeRestrictions != null) return '此结果含自定义击打范围，需另行计算无限制最高分';
   if (timing && !isCompleteTimingResult(entry.result)) {
     return '此历史结果的击打记录不完整或模型不兼容，需重新计算';
+  }
+  if (timing?.songs?.length === 1 && entry.cacheVersion < 16) {
+    return '单曲击打优化的最高分搜索已修正，需重新计算';
   }
   // Old 5v5 snapshots include teammateScores in the request/result scenario.
   // Keep them readable, but never reuse the inflated PT after this correction.
