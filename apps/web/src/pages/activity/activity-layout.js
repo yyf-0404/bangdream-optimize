@@ -42,7 +42,7 @@ export function mountActivityLayout({elements,getPlayer,getCore,getProfileId,wri
  cardScopeNote.id = 'event-card-scope-note';
  const cardScope = activitySwitch('event-available-cards-only', '仅限本服活动可用卡牌', cardScopeNote.id);
  cardScope.label.append(cardScopeNote);
- const timingExplanation = el('span', 'ui-text activity-timing-explanation', '在 Perfect 判定范围内调整音符的击打时机，寻找得分更高的方案。结果页会显示建议提前或延后的音符及对应帧数。');
+ const timingExplanation = el('span', 'ui-text activity-timing-explanation', '在保持 Full Combo（全连）的前提下调整击打时机，寻找最高分。结果页会标出偏移按键提前或延后的帧数，以及最终判定（PERFECT 或 GREAT）。');
  timingExplanation.id = 'hit-timing-note';
  timingExplanation.popover = 'auto';
  const timing = activitySwitch('hit-timing-optimization', '击打优化', timingExplanation.id);

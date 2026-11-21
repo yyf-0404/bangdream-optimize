@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readFileSync} from 'node:fs';
-import {chartReferenceFrame} from '../src/domain/chart-reference.js';
+import {chartReferenceFrame, rawJudgementOffsets} from '../src/domain/chart-reference.js';
 import {TimingPlanDraft, frameRangesToAbsolute, planNoteRows, restoreFrameRanges,
   recomputeGlobalTimingPlans, GLOBAL_RANGE_REVISION} from '../src/domain/timing-plan.js';
 import {isCompleteTimingResult} from '../src/domain/hit-timing.js';
@@ -29,6 +29,62 @@ test('chart references agree with native typed-window and lifetime fixtures',()=
     if (c.expected===null) assert.throws(()=>chartReferenceFrame(c.note,c.target),undefined,c.name);
     else assert.equal(chartReferenceFrame(c.note,c.target),c.expected,c.name);
   }
+});
+
+test('default offsets include every live raw grade through BAD for each native note type', () => {
+  for (const {name, note, target, reference, grades} of offsetCases) {
+    const input = {notes:[note], hitFrames:[reference], nativeTimeRouting:{targets:[target]}};
+    const [row] = planNoteRows({input});
+    assert.deepEqual(row.defaultRange, {
+      firstOffset: Math.max(grades[0][0], (target?.activeFromFrame ?? 0) - reference),
+      lastOffset: Math.min(grades.at(-1)[1], (target?.activeUntilFrame ?? 72000) - reference),
+    }, name);
+  }
+});
+
+test('the editor clips older limits to each live note window and keeps narrower edits on undo', () => {
+  const source = timingResult(), song = source.hitTiming.songs[0];
+  song.input.notes[0] = {time:2, window:{kind:'slideTime', role:'middle', last_frame:265}};
+  song.input.nativeTimeRouting = {targets:[{activeFromFrame:238, activeUntilFrame:252}]};
+  const draft = new TimingPlanDraft(source, 0, {includeReference:true});
+  const saved = [{noteIndex:0, firstOffset:-72000, lastOffset:5}];
+  draft.setRanges(saved, {record:false});
+  assert.deepEqual(draft.ranges, [{noteIndex:0, firstOffset:-2, lastOffset:5}]);
+  assert.equal(saved[0].firstOffset, -72000);
+  draft.setRange(0, 0, 72000);
+  assert.deepEqual(draft.ranges, [{noteIndex:0, firstOffset:0, lastOffset:12}]);
+  draft.undo();
+  assert.deepEqual(draft.ranges, [{noteIndex:0, firstOffset:-2, lastOffset:5}]);
+});
+
+test('displayed raw judgement bands match native grades after target lifetime clipping', () => {
+  for (const {name, note, target, reference, grades} of offsetCases) {
+    const expected = [];
+    for (const grade of ['perfect', 'great', 'good', 'bad']) {
+      const ranges = grades.filter(([, , raw]) => raw === grade)
+        .map(([start, end]) => [
+          Math.max(start, (target?.activeFromFrame ?? 0) - reference),
+          Math.min(end, (target?.activeUntilFrame ?? 72000) - reference),
+        ]).filter(([start, end]) => start <= end);
+      if (ranges.length) expected.push({grade, ranges});
+    }
+    assert.deepEqual(rawJudgementOffsets(note, target, reference), expected, name);
+  }
+});
+
+test('the editable range stays valid when the global search moves or replaces a correction skill', () => {
+  const notes = [{time:2, trigger:0}, {time:2}, {time:4}];
+  const input = {notes, hitFrames:[240, 240, 480], skills:[{correction:'bad'}]};
+  const result = {skillEvents:[
+    {kind:'start', index:0, firstInputFrame:241},
+    {kind:'end', index:0, lastInputFrame:254},
+  ]};
+  const ranges = () => planNoteRows({input, result}).map(row => row.defaultRange);
+  const expected = notes.map(() => ({firstOffset:-15, lastOffset:15}));
+  assert.deepEqual(ranges(), expected);
+  input.skills[0].correction = null;
+  result.skillEvents = [];
+  assert.deepEqual(ranges(), expected);
 });
 
 test('zero offset pins fractional flick to arrival and is not shown as a moved note',async()=>{

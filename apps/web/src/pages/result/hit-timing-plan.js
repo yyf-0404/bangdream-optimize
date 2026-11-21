@@ -1,11 +1,14 @@
 import {TimingPlanDraft, planNoteRows, restoreFrameRanges, recomputeGlobalTimingPlans, referenceFrameRanges, recomputeTimingPlans} from '../../domain/timing-plan.js';
 import {timingChartNoteTypes} from '../../domain/chart-note-types.js';
+import {rawJudgementOffsets} from '../../domain/chart-reference.js';
 import {drawTimingNote,drawTimingConnection,timingNoteBounds,TIMING_LANE_STEP} from './timing-note-glyph.js';
 import {timingPlanStorageKey, loadTimingPlanRanges} from '../../data/timing-plan-store.js';
 import {designIcon} from '../../design/fidelity.js';
+import {readPreferences, savePreferences} from '../../shared/preferences.js';
 
 const integer = n => Number(n).toLocaleString('zh-CN');
 const signed = n => `${n > 0 ? '+' : ''}${integer(n)}`;
+const judgementLabel = row => row.hit?.judgement?.toUpperCase() ?? '—';
 const laneLabel = row => row.visualType==='directional' && row.width>1 && ['Left','Right'].includes(row.direction)
   ? `${row.lane}→${row.lane+(row.direction==='Left'?-1:1)*(row.width-1)}` : `${row.lane || '—'}`;
 const time = seconds => {
@@ -32,10 +35,10 @@ function svgShape(tag, attrs, text, parent) {
   if (text !== undefined) node.textContent = text;
   parent?.append(node); return node;
 }
-function numberField(labelText, value, min = -72000, max = 72000) {
+function numberField(labelText, value, min = -72000, max = 72000, step = 1) {
   const label = el('label', 'timing-field ui-field'), input = el('input', 'ui-input');
-  input.type = 'number'; input.inputMode = min < 0 ? 'text' : 'numeric';
-  input.step = '1'; input.min = min; input.max = max; input.required = true; input.value = value;
+  input.type = 'number'; input.inputMode = min < 0 ? 'text' : step < 1 ? 'decimal' : 'numeric';
+  input.step = step; input.min = min; input.max = max; input.required = true; input.value = value;
   label.append(el('span', 'ui-field__label', labelText), input); return {label, input};
 }
 function fieldInteger(input) {
@@ -51,6 +54,14 @@ export function createHitTimingPlan(source, {songLabel = id => `歌曲 ${id}`, g
     drafts[i].setRanges(song.ranges,{record:false});drafts[i].evaluatedKey=drafts[i].key;drafts[i].evaluatedResult=drafts[i].original.result;
   });
   const calculationPlayer=player?structuredClone(player):null;
+  let displayFps = readPreferences().timingDisplayFps === 60 ? 60 : 120;
+  const displayFrames = frames => frames * displayFps / 120;
+  const signedFrames = frames => signed(displayFrames(frames));
+  function readFrameOffset(input) {
+    const frames = input.valueAsNumber / displayFrames(1);
+    if (!Number.isSafeInteger(frames)) throw new Error(displayFps === 60 ? '请输入 0.5 帧的整数倍' : '请输入整数帧');
+    return frames;
+  }
   let currentResult=source;
   let planReady=true,failure='';
   let appliedKeys=drafts.map(d=>d.key),appliedPlanValid=true;
@@ -68,7 +79,24 @@ export function createHitTimingPlan(source, {songLabel = id => `歌曲 ${id}`, g
   root.dataset.noteSkin=noteSkin;
   const heading = el('header', 'timing-heading'), title = el('div', 'timing-heading-title'), total = el('div', 'timing-total');
   const titleText = el('h2', 'ui-section__title timing-title', '击打方案'); titleText.insertAdjacentHTML('afterbegin', designIcon('activity'));
-  title.append(titleText, el('p', 'ui-text ui-text--secondary', '120 FPS · 零偏移')); heading.append(title, total);
+  const frameUnits = el('div', 'ui-segmented');
+  frameUnits.setAttribute('role', 'radiogroup'); frameUnits.setAttribute('aria-label', '帧数显示单位');
+  for (const fps of [60, 120]) {
+    const label = el('label'), radio = el('input');
+    radio.type = 'radio'; radio.name = `${id}-fps`; radio.value = fps; radio.checked = fps === displayFps;
+    radio.addEventListener('change', () => {
+      // Preserve unsubmitted offsets in the new unit, including blank fields.
+      const values = [...rangeForm.querySelectorAll('input')].map(input => input.valueAsNumber * fps / displayFps);
+      displayFps = fps;
+      savePreferences({timingDisplayFps: fps});
+      refresh();
+      rangeForm.querySelectorAll('input').forEach((input, i) => {
+        input.value = Number.isFinite(values[i]) ? values[i] : '';
+      });
+    });
+    label.append(radio, document.createTextNode(`${fps} 帧/秒`)); frameUnits.append(label);
+  }
+  title.append(titleText, frameUnits); heading.append(title, total);
   const tabs = el('div', 'timing-tabs'); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', '歌曲谱面');
   const panel = el('div', 'timing-panel'); panel.id = `${id}-panel`;
   panel.setAttribute('role', multiple ? 'tabpanel' : 'region');
@@ -278,6 +306,12 @@ export function createHitTimingPlan(source, {songLabel = id => `歌曲 ${id}`, g
   noteSummary.append(noteMeta, activeSkill);
   noteDetails.append(noteSummary, comparison);
   const rangeEditor = el('div', 'timing-range-editor');
+  const rangeHeading = el('div', 'timing-range-heading');
+  const rangeState = el('span', 'timing-range-state', '已加限制');
+  const removeRange = button('移除限制', () => change(() => current().removeRange(view().selected)), 'ui-button ui-button--text');
+  rangeHeading.append(el('h4', 'ui-subtitle', '可击打范围'));
+  const rangeForm = el('form', 'timing-range-form'); rangeForm.noValidate = true;
+  rangeEditor.append(rangeHeading, rangeForm);
   editor.append(editorHeading, locateError, noteDetails, rangeEditor);
 
   const limitList = el('section', 'timing-list'), listHeading = el('header', 'timing-list-heading');
@@ -341,7 +375,7 @@ export function createHitTimingPlan(source, {songLabel = id => `歌曲 ${id}`, g
     const selected = index === view().selected;
     marker.classList.toggle('is-selected', selected); marker.setAttribute('aria-pressed', selected); marker.setAttribute('tabindex', selected ? '0' : '-1');
     marker.querySelector('text')?.remove();
-    if (selected) svgShape('text', {x:0, y:timingNoteBounds(row).y-5, 'text-anchor':'middle'}, `#${row.number}${row.frame === row.chartFrame ? '' : ` ${signed(row.frame - row.chartFrame)}`}`, marker);
+    if (selected) svgShape('text', {x:0, y:timingNoteBounds(row).y-5, 'text-anchor':'middle'}, `#${row.number}${row.frame === row.chartFrame ? '' : ` ${signedFrames(row.frame - row.chartFrame)}`}`, marker);
     if(selected)marker.parentNode?.append(marker);
   }
   function jumpChanged(direction) {
@@ -388,7 +422,7 @@ export function createHitTimingPlan(source, {songLabel = id => `歌曲 ${id}`, g
     currentKey.textContent = indices.length ? `${integer(indices.length)} 个偏移按键` : '无偏移按键';
     shifted.replaceChildren(currentKey, ...indices.map(index => {
       const row = rows[index], offset = row.frame - row.chartFrame;
-      const option = el('option', '', `#${row.number} · ${time(row.time)} · ${signed(offset)} 帧`);
+      const option = el('option', '', `#${row.number} · ${time(row.time)} · ${signedFrames(offset)} 帧`);
       option.value = String(index);
       return option;
     }));
@@ -425,43 +459,53 @@ export function createHitTimingPlan(source, {songLabel = id => `歌曲 ${id}`, g
     activeSkill.textContent = row.hit?.activeSkill != null ? `技能 ${row.hit.activeSkill + 1}` : '';
     const timing = [['原始参考', time(row.chartFrame / 120)]];
     if (offset) timing.push(['方案击打', time(row.frame / 120)]);
-    const offsetLabel = offset ? `${offset < 0 ? '提前' : '延后'} ${integer(Math.abs(offset))} 帧` : '原位击打';
-    timing.push(['击打偏移', offsetLabel, offset ? 'is-shifted' : '']);
+    const offsetLabel = offset ? `${offset < 0 ? '提前' : '延后'} ${displayFrames(Math.abs(offset))} 帧` : '原位击打';
+    timing.push(['击打偏移', offsetLabel, offset ? 'is-shifted' : ''], ['判定', judgementLabel(row)]);
     comparison.replaceChildren();
     for (const [label, value, valueClass] of timing) {
       const item = el('div');
       item.append(el('dt', '', label), el('dd', valueClass, value));
       comparison.append(item);
     }
-    const first = numberField('最早偏移（帧）', range?.firstOffset ?? 0,-72000,0), last = numberField('最晚偏移（帧）', range?.lastOffset ?? 0,0,72000);
+    const {firstOffset, lastOffset} = range ?? row.defaultRange;
+    const {firstOffset: lower, lastOffset: upper} = row.defaultRange;
+    const first = numberField('最早偏移（帧）', displayFrames(firstOffset), displayFrames(lower), 0, displayFrames(1));
+    const last = numberField('最晚偏移（帧）', displayFrames(lastOffset), 0, displayFrames(upper), displayFrames(1));
     first.input.disabled = last.input.disabled = working;
-    const rangeHeading = el('div', 'timing-range-heading');
-    rangeHeading.append(el('h4', 'ui-subtitle', '可击打范围'));
     if (range) {
-      const remove = button('移除限制', () => change(() => draft.removeRange(row.index)), 'ui-button ui-button--text');
-      remove.disabled = working;
-      rangeHeading.append(el('span', 'timing-range-state', '已加限制'), remove);
+      removeRange.disabled = working;
+      rangeHeading.append(rangeState, removeRange);
+    } else {
+      rangeState.remove(); removeRange.remove();
     }
-    const form = el('form', 'timing-range-form'), apply = el('button', 'ui-button ui-button--text ui-button--brand timing-range-save', range ? '更新限制' : '添加限制'); apply.type = 'submit'; apply.disabled = working; form.noValidate = true;
+    const apply = el('button', 'ui-button ui-button--text ui-button--brand timing-range-save', range ? '更新限制' : '添加限制'); apply.type = 'submit'; apply.disabled = working;
     const fieldError = el('p', 'timing-field-error ui-field__error'); fieldError.id = `${id}-range-error`; fieldError.setAttribute('role', 'alert');
-    const hint = el('p', 'ui-field__hint', '0 对应最接近谱面时间的有效 Perfect 帧，范围须包含 0。'); hint.id = `${id}-range-hint`;
+    const hint = el('dl', 'ui-field__hint timing-judgement-ranges');
+    hint.id = `${id}-range-hint`;
+    hint.setAttribute('aria-label', '原始判定范围');
+    const note = draft.original.input.notes[row.index];
+    for (const {grade, ranges} of rawJudgementOffsets(note, row.window, row.chartFrame)) {
+      const offsets = ranges.map(([start, end]) => start === end ? signedFrames(start) : `${signedFrames(start)}～${signedFrames(end)}`);
+      const item = el('div');
+      item.append(el('dt', '', grade.toUpperCase()), el('dd', '', `${offsets.join(' / ')} 帧`));
+      hint.append(item);
+    }
     first.input.setAttribute('aria-describedby', `${hint.id} ${fieldError.id}`); last.input.setAttribute('aria-describedby', `${hint.id} ${fieldError.id}`);
-    form.append(first.label, el('span', 'timing-range-separator', '至'), last.label, apply, fieldError, hint);
-    form.addEventListener('submit', event => {
+    rangeForm.replaceChildren(first.label, el('span', 'timing-range-separator', '至'), last.label, apply, fieldError, hint);
+    rangeForm.onsubmit = event => {
       event.preventDefault();
       let target = first.input;
       try {
         first.input.removeAttribute('aria-invalid'); last.input.removeAttribute('aria-invalid'); fieldError.textContent = '';
-        const earliest = fieldInteger(first.input);
-        if (earliest > 0 || earliest < -72000) throw new Error('最早偏移须为 −72000 到 0 之间的整数');
-        target = last.input; const latest = fieldInteger(last.input);
-        if (latest < 0 || latest > 72000) throw new Error('最晚偏移须为 0 到 72000 之间的整数');
+        const earliest = readFrameOffset(first.input);
+        if (earliest < lower || earliest > 0) throw new Error(`最早偏移须在 ${signedFrames(lower)} 到 0 帧之间`);
+        target = last.input; const latest = readFrameOffset(last.input);
+        if (latest < 0 || latest > upper) throw new Error(`最晚偏移须在 0 到 ${signedFrames(upper)} 帧之间`);
         if (change(() => draft.setRange(row.index, earliest, latest))) {
           editor.querySelector('.timing-range-save')?.focus({preventScroll:true});
         }
       } catch (error) { fieldError.textContent = error.message; target.setAttribute('aria-invalid', 'true'); target.focus(); }
-    });
-    rangeEditor.replaceChildren(rangeHeading, form);
+    };
   }
   function renderChart() {
     const draft = current(), evaluation = displayed(), px = zoomPixels;
@@ -503,7 +547,7 @@ export function createHitTimingPlan(source, {songLabel = id => `歌曲 ${id}`, g
       }
       const marker = shape('g', {class:`plan-note${moved ? ' is-moved' : ''}${row.index === view().selected ? ' is-selected' : ''}`,
         transform:`translate(${x(row.frame)} ${y(row.lane)})`, role:'button', tabindex:row.index === view().selected ? '0' : '-1',
-        'aria-label':`按键 #${row.number}，${row.kind}，${laneLabel(row)} 轨，${moved ? `${signed(row.frame - row.chartFrame)} 帧` : '原位'}`,
+        'aria-label':`按键 #${row.number}，${row.kind}，${laneLabel(row)} 轨，${moved ? `${signedFrames(row.frame - row.chartFrame)} 帧` : '原位'}`,
         'aria-pressed':row.index === view().selected, 'data-note-index':row.index, 'data-chart-frame':row.chartFrame, 'data-hit-frame':row.frame,
         'data-note-type':row.visualType,'data-note-direction':row.direction??'','data-note-width':row.width??1},undefined,notes);
       const bounds=timingNoteBounds(row);
@@ -512,7 +556,7 @@ export function createHitTimingPlan(source, {songLabel = id => `歌曲 ${id}`, g
       shape('path', {d:`M${cursor} -8v16m0 -8h5`,class:'plan-selection','aria-hidden':'true'},undefined,marker);
       drawTimingNote(marker,row,noteSkin);
       if(moved)shape('path',{d:'M0 13L2 15L0 17L-2 15Z',class:'plan-shift-mark'},undefined,marker);
-      shape('title', {}, `按键 #${row.number} · ${row.kind} · ${laneLabel(row)} 轨 · ${signed(row.frame-row.chartFrame)} 帧`, marker);
+      shape('title', {}, `按键 #${row.number} · ${row.kind} · ${laneLabel(row)} 轨 · ${signedFrames(row.frame-row.chartFrame)} 帧`, marker);
       noteMarkers.push(marker); updateMarker(row.index);
       marker.addEventListener('click', () => selectNote(row.index, {reveal:false}));
       marker.addEventListener('keydown', event => {
@@ -570,10 +614,10 @@ export function createHitTimingPlan(source, {songLabel = id => `歌曲 ${id}`, g
     for (const name of ['按键','谱面时间','偏移 / 帧','范围 / 帧','判定','得分']) { const th = el('th', '', name); th.scope = 'col'; tr.append(th); }
     head.append(tr); table.append(head); const body = el('tbody');
     for (const row of rows) {
-      const line = el('tr'), first = el('td'), range = ranges.get(row.index);
+      const line = el('tr'), first = el('td'), range = ranges.get(row.index) ?? row.defaultRange;
       line.dataset.noteIndex = row.index;
       first.append(button(`#${row.number}`, () => locateFromList(row.index), 'ui-button ui-button--text')); line.append(first);
-      for (const text of [time(row.time), signed(row.frame - row.chartFrame), range ? `${signed(range.firstOffset)}～${signed(range.lastOffset)}` : '—', row.hit?.judgement ?? '—', row.hit ? integer(row.hit.score) : '—']) line.append(el('td', '', text));
+      for (const text of [time(row.time), signedFrames(row.frame - row.chartFrame), `${signedFrames(range.firstOffset)}～${signedFrames(range.lastOffset)}`, judgementLabel(row), row.hit ? integer(row.hit.score) : '—']) line.append(el('td', '', text));
       body.append(line);
     }
     table.append(body); tableBox.replaceChildren(table); syncListSelection();
@@ -599,7 +643,7 @@ export function createHitTimingPlan(source, {songLabel = id => `歌曲 ${id}`, g
       key.append(locate, el('span','timing-list-lane',`${laneLabel(row)} 轨`));tr.append(key);
       const range=ranges.get(row.index),action=el('td'),remove=button('移除',()=>change(()=>current().removeRange(row.index)),'ui-button ui-button--text');
       remove.disabled=busy||initializing;remove.setAttribute('aria-label',`移除按键 #${row.number} 的限制`);
-      action.append(remove);tr.append(el('td','timing-range-value',range.firstOffset === 0 && range.lastOffset === 0 ? '仅原始帧' : `${signed(range.firstOffset)} ～ ${signed(range.lastOffset)}`),action);
+      action.append(remove);tr.append(el('td','timing-range-value',range.firstOffset === 0 && range.lastOffset === 0 ? '仅原始帧' : `${signedFrames(range.firstOffset)} ～ ${signedFrames(range.lastOffset)}`),action);
       body.append(tr);
     }
     limitBox.replaceChildren(table);limitBox.scrollTop=scroll;

@@ -1,5 +1,5 @@
 import {isCompleteTimingResult, requireCompleteTimingResult, sameTimingChart, TIMING_RANGE_REVISION} from './hit-timing.js';
-import {chartReferenceFrame, MAX_HIT_FRAME} from './chart-reference.js';
+import {chartReferenceFrame, chartHitOffsets, MAX_HIT_FRAME} from './chart-reference.js';
 export {chartReferenceFrame, MAX_HIT_FRAME};
 
 export const PLAN_REVISION = 'bounded-hit-plan-120-v1';
@@ -182,8 +182,21 @@ export class TimingPlanDraft {
     return this.ranges.length || this.issue ? null : this.original.result;
   }
   setRanges(ranges, {record = true} = {}) {
-    const next = (this.includeReference?referenceFrameRanges:normalizeFrameRanges)(ranges, this.original.input.notes.length);
-    frameRangesToAbsolute(next, this.original.input.notes, this.original.input.nativeTimeRouting?.targets);
+    const {notes, nativeTimeRouting} = this.original.input;
+    const targets = nativeTimeRouting?.targets;
+    const next = (this.includeReference ? referenceFrameRanges : normalizeFrameRanges)(ranges, notes.length);
+    if (this.includeReference) {
+      // Older editor limits could extend beyond the live window. Keep their
+      // effective intersection when opening a result or restoring saved edits.
+      for (const range of next) {
+        const note = notes[range.noteIndex], target = targets?.[range.noteIndex];
+        const bounds = chartHitOffsets(note, target, chartReferenceFrame(note, target));
+        range.firstOffset = Math.max(range.firstOffset, bounds.firstOffset);
+        range.lastOffset = Math.min(range.lastOffset, bounds.lastOffset);
+      }
+    } else {
+      frameRangesToAbsolute(next, notes, targets);
+    }
     if (JSON.stringify(next) === this.key) return false;
     if (record) {
       this.history.push(this.ranges);
@@ -294,19 +307,24 @@ export function planNoteRows(witness, evaluation = witness.result, noteTypes = [
   const connectionKind = (note, index) => note.window?.kind === 'slideTime' ? 'slide'
     : note.window?.kind === 'widenedEndpoint' || longHeads.has(index) ? 'long'
     : before.has(index) || after.has(index) ? 'slide' : null;
-  return witness.input.notes.map((note, index) => ({
-    index, number: index + 1, time: note.time, chartFrame: chartReferenceFrame(note, witness.input.nativeTimeRouting?.targets?.[index]),
-    lane: (witness.input.nativeTimeRouting?.targets?.[index]?.button ?? -1) + 1,
-    kind: note.window?.kind === 'slideTime' ? slideKinds[note.window.role]
-      : note.window?.kind === 'widenedEndpoint' ? '长按尾' : longHeads.has(index) ? '长按头'
-      : before.has(index) || after.has(index) ? (after.has(index) ? (before.has(index) ? '绿条中间' : '绿条尾') : '绿条头') : '单键',
-    connectionKind: connectionKind(note, index),
-    visualType: note.window?.kind === 'slideTime'
-      ? ({middle:'slide-middle',flickEnd:'flick',directionalEnd:'directional'}[note.window.role] ?? 'hold')
-      : note.window?.kind === 'widenedEndpoint' || longHeads.has(index) ? 'hold' : 'unknown',
-    ...noteTypes[index],
-    trigger: note.trigger, originalFrame: witness.input.hitFrames[index],
-    frame: evaluation?.hitFrames?.[index], hit: trace.get(index),
-    window: witness.input.nativeTimeRouting?.targets?.[index],
-  }));
+  return witness.input.notes.map((note, index) => {
+    const target = witness.input.nativeTimeRouting?.targets?.[index];
+    const chartFrame = chartReferenceFrame(note, target);
+    return {
+      index, number: index + 1, time: note.time, chartFrame,
+      defaultRange: chartHitOffsets(note, target, chartFrame),
+      lane: (target?.button ?? -1) + 1,
+      kind: note.window?.kind === 'slideTime' ? slideKinds[note.window.role]
+        : note.window?.kind === 'widenedEndpoint' ? '长按尾' : longHeads.has(index) ? '长按头'
+        : before.has(index) || after.has(index) ? (after.has(index) ? (before.has(index) ? '绿条中间' : '绿条尾') : '绿条头') : '单键',
+      connectionKind: connectionKind(note, index),
+      visualType: note.window?.kind === 'slideTime'
+        ? ({middle:'slide-middle',flickEnd:'flick',directionalEnd:'directional'}[note.window.role] ?? 'hold')
+        : note.window?.kind === 'widenedEndpoint' || longHeads.has(index) ? 'hold' : 'unknown',
+      ...noteTypes[index],
+      trigger: note.trigger, originalFrame: witness.input.hitFrames[index],
+      frame: evaluation?.hitFrames?.[index], hit: trace.get(index),
+      window: target,
+    };
+  });
 }

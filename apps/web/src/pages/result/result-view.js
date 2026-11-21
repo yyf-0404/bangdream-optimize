@@ -26,7 +26,7 @@ import { songBandCategory } from '../activity/song-rules.js';
 import { scoreRangeEmptyExplanation } from '../../data/calculation-errors.js';
 import {equipmentBonusText, resultCharacterBonuses, statFields} from '../../domain/result-bonuses.js';
 import {formatCompactPercentNumber} from '../../shared/utils.js';
-import { isCompleteTimingResult, timingSongSummary } from '../../domain/hit-timing.js';
+import { isCompleteTimingResult } from '../../domain/hit-timing.js';
 import { createHitTimingPlan } from './hit-timing-plan.js';
 
 const POINT_BONUS_EVENT_TYPES = new Set(['challenge', 'live_try', 'mission_live']);
@@ -135,7 +135,9 @@ function renderSummaryContent(resultElement, result, deps, { diagnostic, timingP
   resultElement.append(overview);
 
   const currentTiming = isCompleteTimingResult(result);
-  if (result.hitTiming) resultElement.append(renderTimingScope(result, currentTiming));
+  if (result.hitTiming && !currentTiming) {
+    resultElement.append(emptyMessage('请重新计算以查看和编辑此历史结果的击打方案。', 'ui-text ui-text--secondary'));
+  }
 
   if (result.items) {
     resultElement.append(renderSelectedItems(result.items, deps));
@@ -167,48 +169,6 @@ function renderSummaryContent(resultElement, result, deps, { diagnostic, timingP
       onResult: onTimingResult,
     }));
   }
-}
-
-function renderTimingScope(result, current) {
-  const timing = result.hitTiming;
-  const songs = Array.isArray(timing.songs) ? timing.songs : [];
-  const multiple = songs.length > 1;
-  const section = document.createElement('section');
-  section.className = 'timing-result-scope';
-  const title = document.createElement('h3');
-  title.className = 'ui-subtitle';
-  const restrictions = timing.rangeRestrictions?.songs;
-  const limited = Array.isArray(restrictions)
-    ? restrictions.reduce((count, song) => count + (Array.isArray(song?.ranges) ? song.ranges.length : 0), 0)
-    : 0;
-  title.textContent = current ? (limited?'击打优化 · 自定义范围最高分':'击打优化 · 模型最高分') : '历史击打结果 · 需重新计算';
-  const scope = document.createElement('p');
-  scope.className = 'ui-text ui-text--secondary';
-  const model = timing.model === 'chartTimeVisibleNodes' ? '时间距离 · 可见音符' : '历史模型';
-  const offset = timing.offsetFrames === 0 ? '零偏移' : `${timing.offsetFrames ?? '未记录'} 帧偏移`;
-  scope.textContent = `${model} · ${timing.fps ?? '未记录'} FPS · ${offset}。覆盖 ${formatInteger(timing.poolCardCount)} 张可用卡牌、${formatInteger(timing.equipmentCombinations)} 种${multiple ? '共用' : ''}道具组合。${limited ? `已应用 ${limited} 处范围限制。` : ''}`;
-  const note = document.createElement('p');
-  note.className = 'ui-text ui-text--secondary';
-  note.textContent = current
-    ? '技能顺序权重按各顺序分别优化击打后的最高分统计。判定范围采用可见音符的谱面时间距离。'
-    : '重新计算后可使用范围编辑和当前版击打方案。';
-  const details = document.createElement('details');
-  const summary = document.createElement('summary');
-  summary.textContent = '查看击打概要';
-  const list = document.createElement('ul');
-  for (const [index, song] of songs.entries()) {
-    const metrics = timingSongSummary(song);
-    const row = document.createElement('li');
-    const prefix = multiple ? `第 ${index + 1} 曲 · ` : '';
-    row.textContent = `${prefix}${metrics.noteCount} 个音符 · 判定后 Perfect ${metrics.perfect} / Great ${metrics.great} · 击打偏移 ${metrics.minOffsetMs.toFixed(1)} 至 ${metrics.maxOffsetMs.toFixed(1)} ms`;
-    list.append(row);
-  }
-  details.append(summary, list);
-  const intro = document.createElement('div');
-  intro.className = 'timing-scope-intro';
-  intro.append(title, scope);
-  section.append(intro, note, details);
-  return section;
 }
 
 function renderPtMaximizeSummary(resultElement, result, deps) {
