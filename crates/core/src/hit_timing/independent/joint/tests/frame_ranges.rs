@@ -36,6 +36,56 @@ fn restricted_frames_match_cartesian_replay_with_dynamic_skills_and_touch_order(
 }
 
 #[test]
+fn presentation_matches_exhaustive_scores_offsets_and_touch_orders() {
+    use std::cmp::Reverse;
+    for effect in [
+        ScoreEffect::Plain { percent: 110. },
+        ScoreEffect::Continuous { high: 140., low: 60. },
+        ScoreEffect::Crescendo { percent: 100., step: 10., cap: 130 },
+    ] {
+        let mut request = input(&[0.5, 0.5, 0.6], vec![skill(effect)], 2);
+        let references = request.chart_reference_frames().unwrap();
+        for limits in [[None; 3], [Some([58, 59]), None, Some([72, 74])]] {
+            let winner = JointTimeline::maximum_in_frame_ranges(&request, &limits).unwrap().unwrap().result;
+            let best = JointTimeline::simplest_maximum(&request, &limits, &winner).unwrap();
+            let rank = |result: &ReplayResult| {
+                let offsets = result.hit_frames.iter().zip(&references).map(|(&f, &r)| f.abs_diff(r));
+                (result.total, Reverse(offsets.clone().max().unwrap()), Reverse(offsets.filter(|&d| d > 0).count()))
+            };
+            let mut expected = None;
+            for a in 58..=62 { for b in 58..=62 { for c in 70..=74 {
+                request.hit_frames = vec![a, b, c];
+                if request.hit_frames.iter().zip(limits).any(|(&f,r)| r.is_some_and(|[lo,hi]| f < lo || f > hi)) {
+                    continue;
+                }
+                if let Some(result) = crate::hit_timing::touch_order_tests::best_replay(&request) {
+                    expected = expected.max(Some(rank(&result)));
+                }
+            }}}
+            assert_eq!(Some(rank(&best)), expected);
+            request.hit_frames.clone_from(&references);
+        }
+    }
+}
+
+#[test]
+fn independent_skills_remain_separate_across_a_dense_ordinary_passage() {
+    let times: Vec<_> = (60..=390).step_by(10).map(|f| f64::from(f) / 120.).collect();
+    let effect = skill(ScoreEffect::Plain { percent: 100. });
+    let mut request = input(&times, vec![effect.clone(), effect], 2);
+    request.native_time_routing = None;
+    request.notes[1].trigger = None;
+    let last = request.notes.len() - 1;
+    request.notes[last].trigger = Some(1);
+    let mut prepared = Prepared::new(&request).unwrap();
+    let row = prepared.joint_row();
+    assert_eq!(row.timing_sections(&request).unwrap().len(), 1);
+    let pinned = prepared.pin_section_references(&row, &request.chart_reference_frames().unwrap(),
+        local::protected(&request).unwrap()).unwrap();
+    assert!(!pinned.timing_sections(&request).unwrap().iter().any(|s| s.contains(&0) && s.contains(&last)));
+}
+
+#[test]
 fn unrestricted_query_stays_identical_and_a_displaced_baseline_is_allowed() {
     let request = input(&[0.5, 0.6, 0.7], vec![skill(ScoreEffect::Plain { percent: 100. })], 2);
     let expected = JointTimeline::new(&request).unwrap().maximum(ScoringPower::new(request.power).unwrap()).unwrap();
@@ -90,7 +140,7 @@ fn outside_skill_restrictions_keep_forced_great_and_match_full_geometry() {
         crate::scoring::Judgement::Great);
     let prepared = geometry::Prepared::new(&request).unwrap();
     let row = prepared.restrict_row(prepared.joint_row(), &limits).unwrap().unwrap();
-    let full = JointTimeline::from_row(&request, prepared, row, false, false).unwrap()
+    let full = JointTimeline::from_row(&request, &prepared, row, false, false).unwrap()
         .maximum(ScoringPower::new(request.power).unwrap()).unwrap();
     assert_eq!(restricted.result.total, full.result.total);
     assert_eq!(Some(restricted.result.total), brute_ranges(&request, &limits));

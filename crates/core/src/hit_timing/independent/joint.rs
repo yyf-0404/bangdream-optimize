@@ -21,6 +21,7 @@ mod preparation;
 mod functions;
 mod circuit;
 mod buckets;
+mod presentation;
 pub(super) mod quotient;
 pub use functions::FunctionStats;
 pub(crate) use preparation::JointPreparation;
@@ -76,7 +77,7 @@ impl JointTimeline {
         replay(input)?;
         let prepared = Prepared::new(input)?;
         let row = prepared.joint_row();
-        Self::from_row(input, prepared, row, local_geometry, true)
+        Self::from_row(input, &prepared, row, local_geometry, true)
     }
 
     /// Exact fixed-team/fixed-skill-order query with inclusive per-note hit
@@ -104,7 +105,7 @@ impl JointTimeline {
         let Some(row) = prepared.restrict_row(prepared.joint_row(), limits)? else {
             return Ok(None);
         };
-        Self::from_row(input, prepared, row, local::enabled(), false).map(Some)
+        Self::from_row(input, &prepared, row, local::enabled(), false).map(Some)
     }
 
     pub(crate) fn maximum_optional(&self, power: ScoringPower)
@@ -127,7 +128,7 @@ impl JointTimeline {
         Ok(result.map(|(score, _)| score))
     }
 
-    fn from_row(input: &ReplayInput, prepared: Prepared, row: geometry::Row,
+    fn from_row(input: &ReplayInput, prepared: &Prepared, row: geometry::Row,
         local_geometry: bool, prepare_functions: bool) -> Result<Self, ReplayError> {
         let mut stats = WindowStats {
             prepared_frames: prepared.frame_count,

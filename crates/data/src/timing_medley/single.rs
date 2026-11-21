@@ -8,7 +8,6 @@ use super::{
 };
 use crate::{
     timing_chart::time_distance::{TimeDistanceChart, TimeDistanceScoring},
-    timing_plan::simplify::restore_chart_positions,
     DataError,
 };
 use bangdream_optimize_core::{
@@ -405,7 +404,9 @@ pub(super) fn maximize(
     let result = bank.materialize(winner.power).map_err(engine_error)?;
     replay_input.skills = winner.skills.to_vec();
     replay_input.power = winner.power.value();
-    let result = restore_chart_positions(&replay_input, &limits, result);
+    let result = bangdream_optimize_core::hit_timing::independent::JointTimeline::simplest_maximum(
+        &replay_input, &limits, &result,
+    ).map_err(engine_error)?;
     replay_input.hit_frames = result.hit_frames.clone();
     replay_input.hit_order = result.hit_order.clone();
     if result.total != winner.maximum.score || replay(&replay_input)? != result {

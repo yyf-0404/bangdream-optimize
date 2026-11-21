@@ -9,7 +9,8 @@ use std::collections::BTreeSet;
 use bangdream_optimize_core::timing::Instant;
 use crate::timing_chart::time_distance::TIME_DISTANCE_PREPARATION_REVISION;
 
-pub(crate) mod simplify;
+#[cfg(test)]
+mod simplify;
 
 pub const PLAN_REVISION: &str = "bounded-hit-plan-120-v1";
 
@@ -88,11 +89,13 @@ pub fn optimize_timing_plan(request: TimingPlanRequest) -> TimingPlanResponse {
             }
             limits[range.note_index] = Some([range.first_frame, range.last_frame]);
         }
-        match JointTimeline::maximum_in_frame_ranges(&request.input, &limits) {
+        let result = JointTimeline::maximum_in_frame_ranges(&request.input, &limits)
+            .and_then(|winner| winner.map(|w| JointTimeline::simplest_maximum(&request.input, &limits, &w.result)).transpose());
+        match result {
             Ok(Some(winner)) => {
                 response.status = "complete".to_owned();
                 response.message = "已在当前队伍、技能顺序和自定义范围内完成精确重算".to_owned();
-                response.result = Some(simplify::restore_chart_positions(&request.input, &limits, winner.result));
+                response.result = Some(winner);
             }
             Ok(None) => {
                 response.status = "infeasible".to_owned();

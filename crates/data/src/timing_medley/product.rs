@@ -359,11 +359,11 @@ pub fn maximize_timing_medley_in_ranges(
                 Some(r) => r.songs[index].limits(&song.input)?,
                 None => vec![None; song.input.notes.len()],
             };
-            song.result = crate::timing_plan::simplify::restore_chart_positions(
+            song.result = bangdream_optimize_core::hit_timing::independent::JointTimeline::simplest_maximum(
                 &song.input,
                 &limits,
-                song.result.clone(),
-            );
+                &song.result,
+            ).map_err(engine_error)?;
             song.input.hit_frames = song.result.hit_frames.clone();
             song.input.hit_order = song.result.hit_order.clone();
         }

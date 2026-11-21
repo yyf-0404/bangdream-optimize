@@ -12,6 +12,7 @@ mod component_cache;
 mod hits;
 pub(super) mod storage;
 mod outside;
+mod sections;
 mod temporal;
 mod envelope;
 pub(super) mod incremental;
