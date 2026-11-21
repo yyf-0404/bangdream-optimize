@@ -1843,6 +1843,7 @@ fn data_error_response(err: DataError) -> axum::response::Response {
         | DataError::JsonString { .. }
         | DataError::NotImplemented => StatusCode::SERVICE_UNAVAILABLE,
         DataError::Chart(_)
+        | DataError::Timing(_)
         | DataError::Preparation(_)
         | DataError::Maximize(_)
         | DataError::ScoreRange(_)
@@ -1899,6 +1900,14 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
     use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn timing_errors_return_bad_request_with_the_replay_reason() {
+        let error = bangdream_optimize_core::hit_timing::ReplayError::Input("invalid hit frame");
+        let response = data_error_response(DataError::from(error));
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_body_contains(response, "invalid hit frame").await;
+    }
 
     #[test]
     fn score_range_api_distinguishes_missing_mission_support_from_explicit_zero() {
