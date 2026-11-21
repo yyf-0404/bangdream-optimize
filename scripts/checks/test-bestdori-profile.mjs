@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
+import { createCharacterBonusHelpers } from '../../apps/web/src/domain/character.js';
 
 import {
   createBestdoriProfileImporter,
@@ -64,6 +65,28 @@ const episodeImporter = createBestdoriProfileImporter({
   getCharacterRecords: () => ({}),
   bestdoriCharacterBonusFromPoints: () => ({ potential: 0, characterTask: 0 }),
 });
+
+{
+  const getCharacterRecords = () => ({ 31: {} });
+  const normalizedServer = server => server;
+  const helpers = createCharacterBonusHelpers({ getCharacterRecords, normalizedServer, normalizedCharacterBonus });
+  const profiles = createBestdoriProfileImporter({
+    normalizedPlayer, normalizedServer, normalizedCharacterBonus, getCharacterRecords,
+    recordWithFix: () => undefined,
+    bestdoriCharacterBonusFromPoints: helpers.bestdoriCharacterBonusFromPoints,
+  });
+  const player = normalizedPlayer({ server: 'cn' });
+  const max = helpers.maxCharacterBonusForPlayer(player);
+  assert.deepEqual(max, { potential: 0.055, characterTask: 0.06 });
+  const rates = value => ({ performance: value, technique: value, visual: value });
+  player.characterBouns[31] = { potential: rates(0.05), characterTask: rates(max.characterTask) };
+  assert.equal(helpers.allCharacterBonusesAreMaxed(player), false);
+  player.characterBouns[31].potential = rates(max.potential);
+  assert.equal(helpers.allCharacterBonusesAreMaxed(player), true);
+  const profile = parseBestdoriProfileExport(JSON.stringify(profiles.playerToBestdoriProfileExport(player)));
+  assert.deepEqual(profile.items.potentials, [115]);
+  assert.deepEqual(profiles.bestdoriProfileToPlayerConfig(profile).characterBouns, player.characterBouns);
+}
 
 {
   const player = importer.bestdoriProfileToPlayerConfig({

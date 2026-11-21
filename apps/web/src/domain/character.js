@@ -1,6 +1,8 @@
-const BESTDORI_JP_POTENTIAL_DEFAULT_MAX = 55;
-const BESTDORI_OTHER_POTENTIAL_DEFAULT_MAX = 50;
 const BESTDORI_CHARACTER_TASK_DEFAULT_MAX = 60;
+
+export function maxCharacterPotentialPoints(server) {
+  return server === 'cn' || server === 'jp' ? 55 : 50;
+}
 
 export function createCharacterBonusHelpers({
   getCharacterRecords,
@@ -33,7 +35,7 @@ export function createCharacterBonusHelpers({
 
   function maxCharacterBonusForPlayer(player) {
     return {
-      potential: bestdoriBonusRate(bestdoriPotentialDefaultMaxForServer(player.server)),
+      potential: bestdoriBonusRate(maxCharacterPotentialPoints(normalizedServer(player.server))),
       characterTask: bestdoriBonusRate(BESTDORI_CHARACTER_TASK_DEFAULT_MAX),
     };
   }
@@ -41,7 +43,7 @@ export function createCharacterBonusHelpers({
   function bestdoriCharacterBonusFromPoints(value, server) {
     const rawPoints = Math.max(0, Math.floor(Number(value) || 0));
     const points = rawPoints <= 1 ? 0 : rawPoints;
-    const potentialPoints = Math.min(points, bestdoriPotentialDefaultMaxForServer(server));
+    const potentialPoints = Math.min(points, maxCharacterPotentialPoints(normalizedServer(server)));
     const taskPoints = Math.min(
       Math.max(0, points - potentialPoints),
       BESTDORI_CHARACTER_TASK_DEFAULT_MAX,
@@ -50,13 +52,6 @@ export function createCharacterBonusHelpers({
       potential: bestdoriBonusRate(potentialPoints),
       characterTask: bestdoriBonusRate(taskPoints),
     };
-  }
-
-  function bestdoriPotentialDefaultMaxForServer(server) {
-    if (normalizedServer(server) === 'jp') {
-      return BESTDORI_JP_POTENTIAL_DEFAULT_MAX;
-    }
-    return BESTDORI_OTHER_POTENTIAL_DEFAULT_MAX;
   }
 
   return {

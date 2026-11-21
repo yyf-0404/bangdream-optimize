@@ -1,3 +1,4 @@
+import { maxCharacterPotentialPoints } from '../domain/character.js';
 import {
   finiteNumberOrZero,
   integerOrZero,
@@ -259,7 +260,7 @@ export function createBestdoriProfileImporter({
 
   function collectCharacterPotentialPoints(characterBouns = {}, server) {
     const characterIds = Object.keys(getCharacterRecords() ?? {}).sort(numericStringSort);
-    const maxPotential = bestdoriCharacterBonusPotentialMax(server);
+    const maxPotential = maxCharacterPotentialPoints(normalizedServer(server));
     return characterIds.map((characterId) => {
       const bonus = normalizedCharacterBonus(characterBouns?.[characterId] ?? {});
       const potentialRate = Math.max(
@@ -281,10 +282,6 @@ export function createBestdoriProfileImporter({
       const task = Math.min(taskPoints, 60);
       return potential > 0 || task > 0 ? potential + task : 0;
     });
-  }
-
-  function bestdoriCharacterBonusPotentialMax(server) {
-    return normalizedServer(server) === 'jp' ? 55 : 50;
   }
 
   function bestdoriRateToPoints(rate) {
