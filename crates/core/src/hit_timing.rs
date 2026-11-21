@@ -32,7 +32,7 @@ mod baseline;
 pub use routing::{CandidateDistanceMode, NativeTimeConnection, NativeTimeRouting, NativeTimeTarget, RoutingCoverage};
 pub use schema::*;
 
-use crate::scoring::{Judgement, NoteScorer, ScoringError, ScoringPower};
+use crate::scoring::{CompiledScore, Judgement, NoteFactors, NoteScorer, ScoringError, ScoringPower};
 use clock::SkillClock;
 use thiserror::Error;
 
@@ -95,6 +95,19 @@ pub fn time_judgement(delta: f64, widened_endpoint: bool) -> Result<Judgement, R
         }
     }
     Ok(Judgement::Miss)
+}
+
+/// Replay a fixed witness and retain its exact note operands for scoring the
+/// same frames, dispatch order and skills at other native equipment powers.
+pub fn compile_replay(input: &ReplayInput) -> Result<(ReplayResult, CompiledScore), ReplayError> {
+    let result = replay(input)?;
+    let factors: Vec<_> = result.trace.iter().map(|hit| NoteFactors {
+        judgement: hit.judgement.multiplier(),
+        combo: input.combo_multiplier(hit.combo),
+        skill: hit.skill_multiplier,
+        fever: hit.fever_multiplier,
+    }).collect();
+    Ok((result, CompiledScore::new(input.play_level, &factors)?))
 }
 
 /// Fully specified fixed-order replay. Uncorrected Good/Bad and all Misses

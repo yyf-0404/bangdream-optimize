@@ -85,6 +85,14 @@ impl Table {
         if keys.iter().collect::<BTreeSet<_>>().len() != keys.len() {
             return Err(Error::DuplicateKey);
         }
+        if candidates.is_empty() {
+            return Ok(Self {
+                bits: BTreeMap::new(),
+                pair: vec![[MISSING; 3]],
+                occupied: 0,
+                combinations: 0,
+            });
+        }
         let mut result = Self {
             bits: keys.iter().enumerate().map(|(i, &c)| (c, 1 << i)).collect(),
             pair: vec![[MISSING; 3]; 1 << keys.len()],

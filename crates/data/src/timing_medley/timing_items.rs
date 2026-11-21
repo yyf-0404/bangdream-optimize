@@ -52,7 +52,8 @@ pub(super) fn solve_all(
     if fixed[1] != fixed[0] || fixed[2] != fixed[0] {
         return Err("allItems seed must use one common equipment set for all three songs".into());
     }
-    let (seed_score, _) = validate_seed(r, problem, &seed_powers, false)?;
+    let seed = validate_seed(r, problem, &seed_powers)?;
+    let seed_score = seed.original_score;
     let area = calculate_area_item_percent(&problem.player.area_item, &problem.defs)?;
     let selections = area_item_combinations(&area);
     if !selections.contains(&fixed[0]) {
@@ -89,27 +90,7 @@ pub(super) fn solve_all(
     );
 
     let upper_start = Instant::now();
-    let mut keys = BTreeMap::new();
-    let mut skills = Vec::new();
-    let mut skill_cases = Vec::new();
-    for card in &problem.prepared {
-        let resolved = problem.data.hit_timing_skill_cases(
-            problem.server,
-            TimingTeamCard {
-                card_id: card.card_id,
-                skill_level: card.skill_level,
-            },
-        )?;
-        let mut ids = [0; 4];
-        for (c, s) in resolved.into_iter().enumerate() {
-            let key = s.skill.cache_key();
-            ids[c] = *keys.entry(key).or_insert_with(|| {
-                skills.push(s.skill);
-                skills.len() - 1
-            });
-        }
-        skill_cases.push(ids);
-    }
+    let catalogue = SkillCatalogue::new(&problem.data, problem.server, &problem.prepared)?;
     let max_member = cases
         .iter()
         .flat_map(|c| c.powers.values())
@@ -117,7 +98,7 @@ pub(super) fn solve_all(
         .fold(0_f64, f64::max);
     let cap = ScoringPower::new((max_member * 5. * 1.001 + 1.) as f32)?;
     let models = (0..3)
-        .map(|song| workspace.models.adjacent(song, &skills, cap))
+        .map(|song| workspace.models.adjacent(song, &catalogue.skills, cap))
         .collect::<Result<Vec<_>, _>>()?;
     let indices: Vec<_> = (0..problem.prepared.len()).collect();
     let mut bounds = vec![None; cases.len()];
@@ -125,7 +106,7 @@ pub(super) fn solve_all(
     for &i in &active {
         let powers = &cases[i].powers;
         let mut choices = Vec::new();
-        for (card, ids) in problem.prepared.iter().zip(&skill_cases) {
+        for (card, ids) in problem.prepared.iter().zip(&catalogue.cases) {
             let mut row = [[Default::default(); 3]; 4];
             for c in 0..4 {
                 for s in 0..3 {
@@ -198,10 +179,10 @@ pub(super) fn solve_all(
             cases[i].selected
         );
         let begin = Instant::now();
-        // One item set shared by all three songs. The original fixed seed is
-        // replayed at these powers; no score from another domain is trusted.
+        // The witness is fixed. Reapply native per-note rounding at the new powers.
         let powers = vec![cases[i].powers.clone(); 3];
-        let mut output = solve_one(r, problem, &powers, true, incumbent, workspace)?;
+        let local_seed_score = seed.score(&powers)?;
+        let mut output = solve_one(r, problem, &powers, Some(&catalogue), &seed.rosters, local_seed_score, incumbent, workspace)?;
         let seconds = begin.elapsed().as_secs_f64();
         if output.get("incomplete").and_then(Value::as_bool) == Some(true) {
             complete = false;

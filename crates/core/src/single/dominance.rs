@@ -2,14 +2,15 @@ use crate::medley::team;
 use crate::model::dp::SongMode;
 use crate::model::preparation::{AreaItemPercent, PreparedCard};
 use crate::model::schema::SelectedAreaItems;
+use crate::scoring::MemberPower;
 use crate::{team_prune as prune, Chart, TeamCardSkill};
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
-pub(super) fn contribution_pruned_card_indices(
+pub(super) fn contribution_pruned_card_indices<'a>(
     cards: &[PreparedCard],
     chart: &Chart,
-    area_item_percent: &AreaItemPercent,
-    selected_items: &SelectedAreaItems,
+    powers: impl FnOnce() -> Cow<'a, [MemberPower]>,
     mode: SongMode,
     replacement_values: Option<&[u64]>,
     point_bonus_fixed_score_equivalent: Option<f64>,
@@ -18,8 +19,7 @@ pub(super) fn contribution_pruned_card_indices(
     contribution_pruned_card_indices_impl(
         cards,
         chart,
-        area_item_percent,
-        selected_items,
+        powers,
         mode,
         None,
         replacement_values,
@@ -45,8 +45,7 @@ pub(super) fn contribution_pruned_captain_indices(
     contribution_pruned_card_indices_impl(
         cards,
         chart,
-        area_item_percent,
-        selected_items,
+        || Cow::Owned(team::adjusted_card_stats(cards, area_item_percent, selected_items)),
         mode,
         Some((teammate_skills, teammate_effective_stat)),
         replacement_values,
@@ -56,11 +55,10 @@ pub(super) fn contribution_pruned_captain_indices(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn contribution_pruned_card_indices_impl(
+fn contribution_pruned_card_indices_impl<'a>(
     cards: &[PreparedCard],
     chart: &Chart,
-    area_item_percent: &AreaItemPercent,
-    selected_items: &SelectedAreaItems,
+    powers: impl FnOnce() -> Cow<'a, [MemberPower]>,
     mode: SongMode,
     fixed_teammate_context: Option<(&[TeamCardSkill; 4], f64)>,
     replacement_values: Option<&[u64]>,
@@ -112,7 +110,7 @@ fn contribution_pruned_card_indices_impl(
         .and_then(|(values, _)| four_card_bonus_bounds(cards, mode, values));
     let point_bonus_bounds_ms = bonus_bounds_start.elapsed_ms();
     let adjusted_stats_start = crate::timing::Timer::start();
-    let all_card_stats = team::adjusted_card_stats(cards, area_item_percent, selected_items);
+    let all_card_stats = powers();
     let adjusted_stats_ms = adjusted_stats_start.elapsed_ms();
     let same_shape_start = crate::timing::Timer::start();
     let hard_prefiltered_indices =
@@ -250,19 +248,22 @@ fn same_shape_prefilter(
         SongMode::UnifiedAttribute(attribute) => (None, Some(attribute)),
         SongMode::UnifiedBandAttribute(band_id, attribute) => (Some(band_id), Some(attribute)),
     };
-    let allowed = cards
-        .iter()
-        .enumerate()
-        .filter_map(|(index, card)| mode.allows(card).then_some(index))
-        .collect::<Vec<_>>();
+    let mut groups = BTreeMap::<_, Vec<usize>>::new();
+    for (index, card) in cards.iter().enumerate().filter(|(_, c)| mode.allows(c)) {
+        let key = (
+            card.character_id,
+            card.skill.duration.to_bits(),
+            card.skill.rateup,
+        );
+        groups.entry(key).or_default().push(index);
+    }
 
-    allowed
-        .iter()
-        .copied()
-        .filter(|&target_index| {
+    let mut retained = Vec::new();
+    for group in groups.values() {
+        retained.extend(group.iter().copied().filter(|&target_index| {
             let target = &cards[target_index];
             let target_score_up = target.score_up.resolve(band_id, attribute);
-            !allowed.iter().copied().any(|dominator_index| {
+            !group.iter().copied().any(|dominator_index| {
                 if dominator_index == target_index {
                     return false;
                 }
@@ -272,12 +273,7 @@ fn same_shape_prefilter(
                     return false;
                 }
                 let dominator = &cards[dominator_index];
-                if dominator.character_id != target.character_id
-                    || dominator.skill.duration.to_bits() != target.skill.duration.to_bits()
-                    || dominator.skill.rateup != target.skill.rateup
-                    || !card_stats[dominator_index]
-                        .componentwise_dominates(card_stats[target_index])
-                {
+                if !card_stats[dominator_index].componentwise_dominates(card_stats[target_index]) {
                     return false;
                 }
                 let dominator_score_up = dominator.score_up.resolve(band_id, attribute);
@@ -287,8 +283,10 @@ fn same_shape_prefilter(
                         || dominator_score_up > target_score_up
                         || dominator.card_id < target.card_id)
             })
-        })
-        .collect()
+        }));
+    }
+    retained.sort_unstable();
+    retained
 }
 
 #[cfg(test)]

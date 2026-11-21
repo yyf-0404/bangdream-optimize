@@ -7,6 +7,7 @@ pub(super) fn solve(
     max_stages: usize,
     warm: Option<[usize; 3]>,
     compatible_bounds: bool,
+    minimum_score: i32,
     mut refine: impl FnMut(usize, usize, usize) -> Result<MedleyRefinement, SearchError>,
 ) -> Result<LazyMedleyResult, LazyMedleyError> {
     let possible_entries = upper.scores.len() * 3;
@@ -67,6 +68,13 @@ pub(super) fn solve(
             .map(|&i| upper.scores[i].map(i64::from))
             .collect(),
     };
+    // Keep the warm refinement, active indices and initial traversal order:
+    // they determine which witness wins an exact tie. Only skip triples that
+    // cannot reach the requested score, using the band's monotone visit floor.
+    if best < minimum_score {
+        best = minimum_score - 1;
+        winner = None;
+    }
     let mut failure = None;
     let metrics = enumerate_medley_band_wide(&band, |indices, _| {
         let indices = indices.map(|i| active[i]);
@@ -199,6 +207,32 @@ fn refine_triple(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn equipment_floor_keeps_the_same_tied_witness_and_never_supplies_a_plan() {
+        let input = WideMedleySolverInput {
+            current_best: i32::MAX,
+            team_masks: (0..8).map(|i| vec![1 << i]).collect(),
+            scores: (0..8).map(|i| [20 + i % 3; 3]).collect(),
+        };
+        let actual = |c: usize, s: usize| if c < 3 { 5 } else { 10 + ((c + s) % 2) as i32 };
+        for warm in [None, Some([0, 1, 2]), Some([3, 4, 5])] {
+            let run = |policy| solve_staged_with_policy(input.clone(), 2, policy, |c, s, stage| {
+                let score = actual(c, s);
+                Ok(if stage == 0 { MedleyRefinement::Upper(score + 2) } else { MedleyRefinement::Exact(score) })
+            });
+            let expected = run(CandidatePolicy::StreamCompatibleFrom(warm)).unwrap().plan;
+            for floor in [0, expected.score - 1, expected.score, expected.score + 1] {
+                let result = run(CandidatePolicy::StreamCompatibleAtLeast { warm, minimum_score: floor });
+                if floor <= expected.score {
+                    let plan = result.unwrap().plan;
+                    assert_eq!((plan.score, plan.indices), (expected.score, expected.indices));
+                } else {
+                    assert!(matches!(result, Err(LazyMedleyError::Solver(MedleySolverError::NoValidPlan))));
+                }
+            }
+        }
+    }
 
     #[test]
     fn streamed_refinement_matches_exhaustive_and_staged_reference() {

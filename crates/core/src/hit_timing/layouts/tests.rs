@@ -1,6 +1,79 @@
 use super::*;
 
 #[test]
+fn each_skill_equality_pattern_preserves_first_seen_configuration_ids() {
+    fn check(classes: &mut [usize; 5], next: usize, used: usize) -> usize {
+        if next < classes.len() {
+            return (0..=used).map(|class| {
+                classes[next] = class;
+                check(classes, next + 1, used.max(class + 1))
+            }).sum();
+        }
+        let pattern = LayoutPattern::for_classes(*classes);
+        let mut seen = BTreeMap::new();
+        let mut refs = pattern.references.iter();
+        for layout in &tables().layouts {
+            for order in &layout.weighted_orders {
+                let mut slots = [layout.cards[CAPTAIN_SLOT]; 6];
+                slots[..5].copy_from_slice(&tables().orders[order.index]);
+                let next_id = seen.len();
+                let (id, first_slots) = *seen.entry(slots.map(|i| classes[i]))
+                    .or_insert((next_id, slots));
+                assert_eq!(refs.next().copied().map(usize::from), Some(id));
+                assert_eq!(pattern.configurations[id], first_slots);
+            }
+        }
+        assert_eq!(refs.next(), None);
+        assert_eq!(pattern.configurations.len(), seen.len());
+        1
+    }
+    assert_eq!(check(&mut [0; 5], 1, 1), 52);
+}
+
+#[test]
+fn score_only_search_uses_reachable_peaks_and_full_search_recovers_lower_power_ties() {
+    use crate::scoring::{Judgement, NoteScorer};
+
+    // Five adjacent f32 powers straddle the native integer truncation at 100000.
+    let layouts = TimingLayouts::build([0, 0, 1, 1, 2], |cards| {
+        ScoringPower::new(f32::from_bits(100_000_f32.to_bits() - 2 + cards[0] as u32))
+    }).unwrap();
+    let actual: Vec<_> = layouts.requests().iter().map(|q| {
+        let scorer = NoteScorer::new(q.power, 5, 3).unwrap();
+        let skill = 1.0 + (q.configuration % 3) as f32;
+        u64::from(scorer.score(Judgement::Perfect, 1., skill, 1.).unwrap().final_score)
+    }).collect();
+    let upper: Vec<_> = actual.iter().enumerate().map(|(i, &v)| v + (i % 5) as u64).collect();
+    let mut visited = std::collections::BTreeSet::new();
+    let best = layouts.maximum_monotone_score(&upper, |i, q| {
+        assert!(visited.insert(q.configuration));
+        assert!(layouts.configurations()[q.configuration].iter().all(|&j| layouts.requests()[j].power <= q.power));
+        Ok(actual[i])
+    }).unwrap();
+    assert_eq!(best, *actual.iter().max().unwrap());
+    assert_eq!(layouts.maximize(&upper, |i, _| Ok(actual[i])).unwrap().score, best);
+    assert!(visited.len() < layouts.requests().len());
+
+    // Every power ties. The first physical layout has lower power than the
+    // representative, yet all 1024 native paths must still count for it.
+    let tied = TimingLayouts::build([0; 5], |cards| ScoringPower::new(100. + cards[0] as f32)).unwrap();
+    let mut calls = 0;
+    let upper = vec![9; tied.requests().len()];
+    let peak = tied.maximum_monotone_score(&upper, |_, q| {
+        calls += 1;
+        assert_eq!(q.power.value(), 104.);
+        Ok(9)
+    }).unwrap();
+    assert_eq!(calls, 1);
+    let winner = tied.maximize(&upper, |_, _| Ok(9)).unwrap();
+    assert_eq!(winner.score, peak);
+    assert_eq!(winner.recommended_layout, tables().layouts[0].cards);
+    assert!(tied.requests()[winner.chosen_request].power.value() < 104.);
+    assert_eq!(winner.max_score_path_count, 1024);
+    assert_eq!(winner.optimal_order_count, 96);
+}
+
+#[test]
 fn all_layouts_keep_native_orders_weights_and_float_power_bits() {
     for distinct in [false, true] {
         let power = |l: [usize; 5]| {

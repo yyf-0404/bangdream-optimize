@@ -34,16 +34,19 @@ pub(crate) struct SignatureCandidatePool {
     pub(crate) estimated_candidates: usize,
 }
 
+pub(crate) struct SignatureCandidatePools {
+    pub(crate) pools: Vec<SignatureCandidatePool>,
+    pub(crate) stats: Vec<SignaturePoolStats>,
+    pub(crate) trace: MedleyPruneTrace,
+    pub(crate) song_upper_bounds: Vec<f64>,
+}
+
 pub(crate) fn signature_candidate_pools(
     cards: &[PreparedCard],
     charts: &[Chart],
     profiles: &[MedleyCardPruneProfile],
     current_best: i32,
-) -> (
-    Vec<SignatureCandidatePool>,
-    Vec<SignaturePoolStats>,
-    MedleyPruneTrace,
-) {
+) -> SignatureCandidatePools {
     let trace_start = Timer::start();
     let signatures_start = Timer::start();
     let signatures = seed_signatures(cards);
@@ -121,7 +124,12 @@ pub(crate) fn signature_candidate_pools(
     });
 
     trace.context_ms = elapsed_ms(trace_start);
-    (pools, stats, trace)
+    SignatureCandidatePools {
+        pools,
+        stats,
+        trace,
+        song_upper_bounds: best_any_team_scores,
+    }
 }
 
 fn signature_active_card_indices(

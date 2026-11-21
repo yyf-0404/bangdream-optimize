@@ -70,7 +70,7 @@ pub(crate) struct JointGeometry {
 pub(super) fn geometry(input: &ReplayInput, enabled: bool) -> Result<JointGeometry, ReplayError> {
     crate::hit_timing::validate(input)?;
     if enabled && bad_scan_enabled() {
-        return geometry_with_bounds(input, &BadBounds::new(&input.notes)?);
+        return geometry_with_bounds(input, &BadBounds::new(&input.notes)?, false);
     }
     let corrections = geometry::correction_ranges(input)?;
     let protected = if enabled { protected_legacy(input)? } else { vec![] };
@@ -78,10 +78,22 @@ pub(super) fn geometry(input: &ReplayInput, enabled: bool) -> Result<JointGeomet
 }
 
 /// Input validation is performed by the caller before using fixed-chart bounds.
-pub(super) fn geometry_with_bounds(input: &ReplayInput, bad: &BadBounds)
-    -> Result<JointGeometry, ReplayError> {
-    let ranges = geometry::skill_ranges(input, |index| Ok(bad.bounds[index]))?;
+pub(super) fn geometry_with_bounds(
+    input: &ReplayInput,
+    bad: &BadBounds,
+    share_playing_windows: bool,
+) -> Result<JointGeometry, ReplayError> {
+    let mut ranges = geometry::skill_ranges(input, |index| Ok(bad.bounds[index]))?;
     let corrections = geometry::corrections_from_ranges(input, &ranges);
+    if share_playing_windows {
+        // Keep each actual FIFO start and correction domain. Extend the range
+        // only for deciding which notes to compress. Extra explicit notes are
+        // still scored with the real duration and the real FIFO clock.
+        let longest = countdown(input.skills.iter().map(|s| s.duration).fold(0.0, f32::max));
+        for (slot, _, last) in &mut ranges {
+            *last += longest - countdown(input.skills[*slot].duration);
+        }
+    }
     let protected = bad.protected(&input.notes, &merge_regions(&ranges));
     Ok(layout(corrections, protected, true))
 }

@@ -8,7 +8,7 @@ use bangdream_optimize_core::{
         },
         compiled::{CompiledTimingCandidates, TimingCompileCache, TimingCompileCachePool, TimingScoreScratch},
         enumeration::{enumerate, TimingCardIdentity},
-        layouts::{physical_layouts, LayoutMaximum, TimingLayouts},
+        layouts::{physical_layouts, LayoutError, LayoutMaximum, LayoutScoreRequest, TimingLayouts},
         lazy_medley::{self, MedleyRefinement},
         search::{SearchError, SearchOptions},
         ReplayInput, ReplaySkill,
@@ -16,7 +16,7 @@ use bangdream_optimize_core::{
     prepare_cards,
     scoring::{
         preparation::{selected_equipment, PreparedPowerCard},
-        MemberPower, ScoringPower,
+        CompiledScore, MemberPower, ScoringPower,
     },
     AreaItemDefinition, PlayerConfig, PreparedCard, SelectedAreaItems, Server,
 };
@@ -56,6 +56,10 @@ mod timing_model_cache;
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Request {
+    /// Product searches need only complete three-team plans. Research requests
+    /// can still enumerate individual rosters and audit every small pool.
+    #[serde(skip)]
+    plan_only: bool,
     #[serde(skip)]
     frame_ranges: Option<[Vec<Option<[u32; 2]>>; 3]>,
     /// Explicit research-only simplification: all scoring windows are based on
@@ -173,6 +177,48 @@ struct Roster {
     skills: [ReplaySkill; 5],
     max_power: [ScoringPower; 3],
 }
+
+struct SkillCatalogue {
+    skills: Vec<ReplaySkill>,
+    cases: Vec<[usize; 4]>,
+}
+
+impl SkillCatalogue {
+    fn new(
+        data: &BestdoriData,
+        server: Server,
+        cards: &[PreparedCard],
+    ) -> Result<Self, crate::DataError> {
+        let mut keys = BTreeMap::new();
+        let mut skills = Vec::new();
+        let mut cases = Vec::with_capacity(cards.len());
+        for card in cards {
+            let resolved = data.hit_timing_skill_cases(
+                server,
+                TimingTeamCard {
+                    card_id: card.card_id,
+                    skill_level: card.skill_level,
+                },
+            )?;
+            cases.push(resolved.map(|case| {
+                *keys.entry(case.skill.cache_key()).or_insert_with(|| {
+                    skills.push(case.skill);
+                    skills.len() - 1
+                })
+            }));
+        }
+        Ok(Self { skills, cases })
+    }
+
+    fn roster_ids(&self, cards: &[PreparedCard], roster: [usize; 5]) -> [usize; 5] {
+        let first = &cards[roster[0]];
+        let band = roster.iter().all(|&i| cards[i].band_id == first.band_id);
+        let attr = roster.iter().all(|&i| cards[i].attribute == first.attribute);
+        let case = usize::from(band) | (usize::from(attr) << 1);
+        roster.map(|i| self.cases[i][case])
+    }
+}
+
 struct Fine {
     layouts: TimingLayouts,
     upper: Vec<u64>,
@@ -327,12 +373,30 @@ impl Workspace {
         }
     }
 }
+struct ValidatedSeed {
+    rosters: Vec<[u32; 5]>,
+    timelines: Vec<CompiledScore>,
+    original_score: u64,
+}
+
+impl ValidatedSeed {
+    fn score(&self, powers: &[BTreeMap<u32, MemberPower>]) -> Result<u64, Box<dyn std::error::Error>> {
+        let mut total = 0;
+        for (song, (team, timeline)) in self.rosters.iter().zip(&self.timelines).enumerate() {
+            let power = ScoringPower::from_member_parameters(
+                &team.map(|id| powers[song][&id].final_parameters()),
+            )?;
+            total += timeline.score(power)?;
+        }
+        Ok(total)
+    }
+}
+
 fn validate_seed(
     r: &Request,
     problem: &Problem,
     member_powers: &[BTreeMap<u32, MemberPower>],
-    changed_items: bool,
-) -> Result<(u64, Vec<[u32; 5]>), Box<dyn std::error::Error>> {
+) -> Result<ValidatedSeed, Box<dyn std::error::Error>> {
     let Problem {
         player,
         server,
@@ -343,6 +407,7 @@ fn validate_seed(
     let server = *server;
     let mut seed_score = 0u64;
     let mut seed_rosters = Vec::new();
+    let mut timelines = Vec::new();
     if let Some(artifact) = &problem.seed {
         let winners = artifact["output"]["winners"]
             .as_array()
@@ -389,11 +454,7 @@ fn validate_seed(
             )?
             .value();
             inp.skills = slots.map(|i| skills[i].skill.clone()).to_vec();
-            let mut expected = w["input"].clone();
-            if changed_items {
-                expected["power"] = json!(inp.power);
-            }
-            if serde_json::to_value(&inp)? != expected {
+            if serde_json::to_value(&inp)? != w["input"] {
                 return Err(
                     "seed chart, profile power or resolved skill does not match this request"
                         .into(),
@@ -406,21 +467,20 @@ fn validate_seed(
                     .cloned()
                     .unwrap_or_else(|| json!([])),
             )?;
-            let result = bangdream_optimize_core::hit_timing::replay(&inp)?;
+            let (result, timeline) = bangdream_optimize_core::hit_timing::compile_replay(&inp)?;
             if r.frame_ranges.as_ref().is_some_and(|all| all[s].iter().zip(&result.hit_frames)
                 .any(|(limit, &f)| limit.is_some_and(|[a,b]| f<a || f>b))) {
                 return Err("seed violates user frame limits".into());
             }
-            if !changed_items
-                && result.total != w["result"]["total"].as_u64().ok_or("seed score missing")?
-            {
+            if result.total != w["result"]["total"].as_u64().ok_or("seed score missing")? {
                 return Err("seed score replay mismatch".into());
             }
             seed_score += result.total;
             seed_rosters.push(team);
+            timelines.push(timeline);
         }
     }
-    Ok((seed_score, seed_rosters))
+    Ok(ValidatedSeed { rosters: seed_rosters, timelines, original_score: seed_score })
 }
 fn trace(row: serde_json::Value) {
     if std::env::var("BANDORI_TIMING_DISABLE_BUFFERED_TRACE").as_deref() == Ok("1") {
@@ -502,7 +562,8 @@ fn solve(mut r: Request, problem: &Problem) -> Result<Value, Box<dyn std::error:
             .iter()
             .map(|i| problem.powers(i))
             .collect::<Result<Vec<_>, _>>()?;
-        solve_one(&r, &problem, &powers, false, 0, &mut workspace)?
+        let seed = validate_seed(&r, problem, &powers)?;
+        solve_one(&r, problem, &powers, None, &seed.rosters, seed.original_score, 0, &mut workspace)?
     };
     Ok(output)
 }
@@ -510,7 +571,9 @@ fn solve_one(
     r: &Request,
     problem: &Problem,
     member_powers: &[BTreeMap<u32, MemberPower>],
-    changed_items: bool,
+    skill_catalogue: Option<&SkillCatalogue>,
+    seed_rosters: &[[u32; 5]],
+    local_seed_score: u64,
     external_cutoff: u64,
     workspace: &mut Workspace,
 ) -> Result<Value, Box<dyn std::error::Error>> {
@@ -526,7 +589,6 @@ fn solve_one(
         ..
     } = problem;
     let server = *server;
-    let (local_seed_score, seed_rosters) = validate_seed(r, problem, member_powers, changed_items)?;
     let seed_score = local_seed_score.max(external_cutoff);
     let layouts = physical_layouts();
     let mut pool_scan = None;
@@ -557,6 +619,7 @@ fn solve_one(
             r.max_teams,
             r.max_nodes,
             r.census_only,
+            r.plan_only && external_cutoff > 0,
             r.pair_bounds || r.blocking_bounds,
             r.priced_prefix,
             r.price_card_filter,
@@ -590,6 +653,9 @@ fn solve_one(
             r.prefix_key_pair_bounds,
             &mut workspace.models,
         )?;
+        if r.plan_only && !stats.complete {
+            return Ok(json!({"incomplete":true,"poolScan":stats}));
+        }
         let by_id: BTreeMap<_, _> = r.pool.iter().enumerate().map(|(i, &id)| (id, i)).collect();
         enumerated = indices
             .into_iter()
@@ -614,7 +680,11 @@ fn solve_one(
             character_id: characters[&card_id],
         })
         .collect();
-    let mut rosters = Vec::new();
+    let by_id: BTreeMap<_, _> = prepared.iter().enumerate().map(|(i, c)| (c.card_id, i)).collect();
+    let pool_indices: Vec<_> = r.pool.iter().map(|id| by_id[id]).collect();
+    let pool_parameters: Vec<[[f32; 3]; 3]> = r.pool.iter().map(|id| {
+        std::array::from_fn(|s| member_powers[s][id].final_parameters())
+    }).collect();
     let mut layout_power_variants = [0usize; 3];
     let start = Instant::now();
     let enumeration = if use_pool_scan {
@@ -627,32 +697,46 @@ fn solve_one(
     };
     let (mut masks, mask_stats) = timing_masks::build(&enumerated, r.pool.len(), r.compact_masks);
     let roster_count = enumerated.len();
+    let mut rosters = Vec::with_capacity(roster_count);
     eprintln!(
         "preparing {roster_count} rosters; masks {} used cards / {} words",
         mask_stats.used_cards, mask_stats.words
     );
     for indices in enumerated {
         let cards = indices.map(|i| r.pool[i]);
-        let members = cards.map(|card_id| TimingTeamCard {
-            card_id,
-            skill_level: player.card_list[&card_id.to_string()].skill_level,
+        let skills = if let Some(catalogue) = skill_catalogue {
+            let ids = catalogue.roster_ids(prepared, indices.map(|i| pool_indices[i]));
+            ids.map(|id| catalogue.skills[id].clone())
+        } else {
+            let members = cards.map(|card_id| TimingTeamCard {
+                card_id,
+                skill_level: player.card_list[&card_id.to_string()].skill_level,
+            });
+            data.hit_timing_team_skills(server, &members)?.map(|s| s.skill)
+        };
+        let parameters: [_; 3] = std::array::from_fn(|s| {
+            indices.map(|i| pool_parameters[i][s])
         });
-        let skills = data.hit_timing_team_skills(server, &members)?;
-        let mut powers = Vec::new();
-        for song in 0..3 {
-            let members = cards.map(|id| member_powers[song][&id]);
-            let mut bits = std::collections::BTreeSet::new();
-            for order in layouts.iter() {
-                let parameters = order.map(|i| members[i].final_parameters());
-                bits.insert(ScoringPower::from_member_parameters(&parameters)?);
-            }
-            layout_power_variants[song] += bits.len();
-            powers.push(*bits.last().unwrap());
+        let mut powers = [None; 3];
+        for (song, params) in parameters.iter().enumerate() {
+            let (maximum, count) = if let Some(i) = parameters[..song].iter().position(|p| p == params) {
+                powers[i].unwrap()
+            } else if r.plan_only {
+                (ScoringPower::maximum_layout_power(params)?, 0)
+            } else {
+                let mut distinct = std::collections::BTreeSet::new();
+                for order in &layouts {
+                    distinct.insert(ScoringPower::from_member_parameters(&order.map(|i| params[i]))?);
+                }
+                (*distinct.last().unwrap(), distinct.len())
+            };
+            layout_power_variants[song] += count;
+            powers[song] = Some((maximum, count));
         }
         rosters.push(Roster {
             cards,
-            skills: skills.map(|s| s.skill),
-            max_power: powers.try_into().unwrap(),
+            skills,
+            max_power: powers.map(|p| p.unwrap().0),
         });
         if rosters.len() % 100000 == 0 {
             eprintln!(
@@ -792,7 +876,12 @@ fn solve_one(
     } else {
         None
     };
-    let mut output = json!({"pool":r.pool, "enumeration":enumeration, "enumerationSeconds":enumeration_seconds, "coarseSeconds":coarse_seconds, "coarseStats":coarse_stats, "layoutPowerVariants":layout_power_variants, "rosters":rosters.iter().map(|t|t.cards).collect::<Vec<_>>(), "upperScores":uppers});
+    let mut output = json!({"pool":r.pool, "enumeration":enumeration, "enumerationSeconds":enumeration_seconds, "coarseSeconds":coarse_seconds, "coarseStats":coarse_stats});
+    if !r.plan_only {
+        output["layoutPowerVariants"] = json!(layout_power_variants);
+        output["rosters"] = json!(rosters.iter().map(|t|t.cards).collect::<Vec<_>>());
+        output["upperScores"] = json!(uppers);
+    }
     output["keyPairBounds"] = json!(key_pair_bounds);
     output["poolScan"] = json!(pool_scan);
     output["maskStats"] = json!(mask_stats);
@@ -849,7 +938,12 @@ fn solve_one(
         })
         .flatten()
         .map(|indices| <[usize; 3]>::try_from(indices).unwrap());
-    let policy = if r.stream_competitive && r.companion_bounds {
+    let policy = if r.plan_only && r.stream_competitive && r.companion_bounds {
+        lazy_medley::CandidatePolicy::StreamCompatibleAtLeast {
+            warm: warm_start,
+            minimum_score: int_score(seed_score)?,
+        }
+    } else if r.stream_competitive && r.companion_bounds {
         lazy_medley::CandidatePolicy::StreamCompatibleFrom(warm_start)
     } else if r.stream_competitive {
         warm_start.map_or(
@@ -864,167 +958,169 @@ fn solve_one(
     } else {
         lazy_medley::CandidatePolicy::HighestUpper
     };
-    let lazy = lazy_medley::solve_staged_with_policy(
-        WideMedleySolverInput {
-            current_best: -1,
-            team_masks: masks,
-            scores: uppers,
-        },
-        2,
-        policy,
-        |team, song, stage| {
-            let roster = &rosters[team];
-            if stage == 0 {
-                let start = Instant::now();
-                if trace_exact {
-                    trace(json!({"event":"fineStart","team":team,"song":song}));
+    // With only the three required rosters, resolving their layouts immediately
+    // avoids a second pass. Research reports also expose every evaluated layout.
+    let defer_layouts = r.plan_only && r.frame_ranges.is_none() && rosters.len() > r.inputs.len();
+    let mut refine = |team: usize, song: usize, stage: usize, score_only: bool| {
+        let roster = &rosters[team];
+        if stage == 0 {
+            let start = Instant::now();
+            if trace_exact {
+                trace(json!({"event":"fineStart","team":team,"song":song}));
+            }
+            let parameters = roster
+                .cards
+                .map(|id| member_powers[song][&id].final_parameters());
+            let power =
+                |l: [usize; 5]| ScoringPower::from_member_parameters(&l.map(|i| parameters[i]));
+            let layouts = if r.share_equivalent_skills {
+                TimingLayouts::for_skills(&roster.skills, power)?
+            } else {
+                TimingLayouts::new(power)?
+            };
+            let mut upper = vec![0; layouts.requests().len()];
+            if r.batch_powers {
+                for group in layouts.configurations() {
+                    let skills = layouts.requests()[group[0]]
+                        .slots
+                        .map(|i| roster.skills[i].clone());
+                    let model_start = Instant::now();
+                    let bound = fine_memos[song].get(&skills, || {
+                        fine_prepares += 1;
+                        fine_caches[song].prepare(&skills)
+                    })?;
+                    fine_model_seconds += model_start.elapsed().as_secs_f64();
+                    let arithmetic_start = Instant::now();
+                    for &i in group {
+                        upper[i] =
+                            bound.score(layouts.requests()[i].power, &mut upper_scratch)?;
+                    }
+                    fine_arithmetic_seconds += arithmetic_start.elapsed().as_secs_f64();
                 }
-                let parameters = roster
-                    .cards
-                    .map(|id| member_powers[song][&id].final_parameters());
-                let power =
-                    |l: [usize; 5]| ScoringPower::from_member_parameters(&l.map(|i| parameters[i]));
-                let layouts = if r.share_equivalent_skills {
-                    TimingLayouts::for_skills(&roster.skills, power)?
-                } else {
-                    TimingLayouts::new(power)?
-                };
-                let mut upper = vec![0; layouts.requests().len()];
-                if r.batch_powers {
-                    for group in layouts.configurations() {
-                        let skills = layouts.requests()[group[0]]
-                            .slots
-                            .map(|i| roster.skills[i].clone());
-                        let model_start = Instant::now();
-                        let bound = fine_memos[song].get(&skills, || {
+            } else {
+                for (i, query) in layouts.requests().iter().enumerate() {
+                    let skills = query.slots.map(|i| roster.skills[i].clone());
+                    let model_start = Instant::now();
+                    let bound = fine_memos[song]
+                        .get(&skills, || {
                             fine_prepares += 1;
                             fine_caches[song].prepare(&skills)
                         })?;
-                        fine_model_seconds += model_start.elapsed().as_secs_f64();
-                        let arithmetic_start = Instant::now();
-                        for &i in group {
-                            upper[i] =
-                                bound.score(layouts.requests()[i].power, &mut upper_scratch)?;
-                        }
-                        fine_arithmetic_seconds += arithmetic_start.elapsed().as_secs_f64();
-                    }
-                } else {
-                    for (i, query) in layouts.requests().iter().enumerate() {
-                        let skills = query.slots.map(|i| roster.skills[i].clone());
-                        let model_start = Instant::now();
-                        let bound = fine_memos[song]
-                            .get(&skills, || {
-                                fine_prepares += 1;
-                                fine_caches[song].prepare(&skills)
-                            })?;
-                        fine_model_seconds += model_start.elapsed().as_secs_f64();
-                        let arithmetic_start = Instant::now();
-                        upper[i] = bound.score(query.power, &mut upper_scratch)?;
-                        fine_arithmetic_seconds += arithmetic_start.elapsed().as_secs_f64();
-                    }
+                    fine_model_seconds += model_start.elapsed().as_secs_f64();
+                    let arithmetic_start = Instant::now();
+                    upper[i] = bound.score(query.power, &mut upper_scratch)?;
+                    fine_arithmetic_seconds += arithmetic_start.elapsed().as_secs_f64();
                 }
-                fine_requests += upper.len();
-                if r.net_bounds {
-                    let net_start = Instant::now();
-                    for (i, query) in layouts.requests().iter().enumerate() {
-                        let skills = query.slots.map(|id| roster.skills[id].clone());
-                        upper[i] = upper[i].min(net[song].upper_sequence(&skills, query.power)?);
-                    }
-                    fine_net_seconds += net_start.elapsed().as_secs_f64();
+            }
+            fine_requests += upper.len();
+            if r.net_bounds {
+                let net_start = Instant::now();
+                for (i, query) in layouts.requests().iter().enumerate() {
+                    let skills = query.slots.map(|id| roster.skills[id].clone());
+                    upper[i] = upper[i].min(net[song].upper_sequence(&skills, query.power)?);
                 }
-                let bound = int_score(*upper.iter().max().unwrap())?;
-                let bound = if r.net_bounds {
-                    bound.min(initial_uppers[team][song])
-                } else {
-                    bound
-                };
-                fine.insert((team, song), Fine { layouts, upper });
-                fine_entries += 1;
-                fine_peak_retained_entries = fine_peak_retained_entries.max(fine.len());
-                fine_seconds += start.elapsed().as_secs_f64();
+                fine_net_seconds += net_start.elapsed().as_secs_f64();
+            }
+            let bound = int_score(*upper.iter().max().unwrap())?;
+            let bound = if r.net_bounds {
+                bound.min(initial_uppers[team][song])
+            } else {
+                bound
+            };
+            fine.insert((team, song), Fine { layouts, upper });
+            fine_entries += 1;
+            fine_peak_retained_entries = fine_peak_retained_entries.max(fine.len());
+            fine_seconds += start.elapsed().as_secs_f64();
+            if trace_exact {
+                trace(json!({"event":"fineEnd","team":team,"song":song,
+                    "seconds":start.elapsed().as_secs_f64(),"bound":bound}));
+            }
+            return Ok(MedleyRefinement::Upper(bound));
+        }
+        // Discard the layout table after refinement. Only finalists need
+        // it again to recover their exact path weights and physical order.
+        let entry = fine.remove(&(team, song)).expect("exact stage needs a fine entry");
+        let exact_start = Instant::now();
+        if trace_exact {
+            trace(json!({"event":"rosterStart","team":team,"song":song,
+                "cards":roster.cards,"elapsedSeconds":start.elapsed().as_secs_f64()}));
+        }
+        let queries_before = actual_score_queries;
+        let mut scored = vec![None; entry.upper.len()];
+        let mut score = |index: usize, query: &LayoutScoreRequest| {
+            if let Some(value) = scored[index] {
+                return Ok(value);
+            }
+            let skills = query.slots.map(|i| roster.skills[i].clone());
+            let prepare_start = Instant::now();
+            if trace_exact {
+                trace(json!({"event":"prepareStart","team":team,
+                    "song":song,"index":index,"power":query.power.value(),"skills":skills}));
+            }
+            let bank = bank_memos[song].get(&skills, || {
+                timing_prepares += 1;
+                caches.prepare_for_score(song, &skills)
+            })?;
+            if trace_exact {
+                trace(json!({"event":"prepareEnd","team":team,
+                    "song":song,"index":index,"seconds":prepare_start.elapsed().as_secs_f64()}));
+            }
+            let indices = if r.batch_powers && !score_only {
+                entry.layouts.configurations()[query.configuration].as_slice()
+            } else {
+                std::slice::from_ref(&index)
+            };
+            for &i in indices {
+                let query_start = Instant::now();
+                let power = entry.layouts.requests()[i].power;
+                let value = bank.score(power, &mut scratch)?;
                 if trace_exact {
-                    trace(json!({"event":"fineEnd","team":team,"song":song,
-                        "seconds":start.elapsed().as_secs_f64(),"bound":bound}));
+                    trace(json!({"event":"scoreEnd","team":team,
+                        "song":song,"index":i,"power":power.value(),
+                        "seconds":query_start.elapsed().as_secs_f64(),"score":value}));
                 }
-                return Ok(MedleyRefinement::Upper(bound));
+                if value > entry.upper[i] {
+                    return Err(SearchError::Options("exact layout score exceeds its upper bound"));
+                }
+                scored[i] = Some(value);
+                actual_score_queries += 1;
             }
-            // The staged solver never scores this entry twice. Release its
-            // layout/request data after maximizing; winners retain exact power.
-            let entry = fine.remove(&(team, song)).expect("exact stage needs a fine entry");
-            let exact_start = Instant::now();
-            if trace_exact {
-                trace(json!({"event":"rosterStart","team":team,"song":song,
-                    "cards":roster.cards,"elapsedSeconds":start.elapsed().as_secs_f64()}));
-            }
-            let mut scored = vec![None; entry.upper.len()];
-            let max = entry
-                .layouts
-                .maximize(&entry.upper, |index, query| {
-                    if let Some(value) = scored[index] {
-                        return Ok(value);
-                    }
-                    let skills = query.slots.map(|i| roster.skills[i].clone());
-                    let prepare_start = Instant::now();
-                    if trace_exact {
-                        trace(json!({"event":"prepareStart","team":team,
-                            "song":song,"index":index,"power":query.power.value(),"skills":skills}));
-                    }
-                    let bank = bank_memos[song].get(&skills, || {
-                        timing_prepares += 1;
-                        caches.prepare(song, &skills)
-                    })?;
-                    if trace_exact {
-                        trace(json!({"event":"prepareEnd","team":team,
-                            "song":song,"index":index,"seconds":prepare_start.elapsed().as_secs_f64()}));
-                    }
-                    if r.batch_powers {
-                        for &i in &entry.layouts.configurations()[query.configuration] {
-                            let query_start = Instant::now();
-                            let value =
-                                bank.score(entry.layouts.requests()[i].power, &mut scratch)?;
-                            if trace_exact {
-                                trace(json!({"event":"scoreEnd","team":team,
-                                    "song":song,"index":i,"power":entry.layouts.requests()[i].power.value(),
-                                    "seconds":query_start.elapsed().as_secs_f64(),"score":value}));
-                            }
-                            assert!(value <= entry.upper[i]);
-                            scored[i] = Some(value);
-                            actual_score_queries += 1;
-                        }
-                    } else {
-                        let query_start = Instant::now();
-                        scored[index] = Some(bank.score(query.power, &mut scratch)?);
-                        if trace_exact {
-                            trace(json!({"event":"scoreEnd","team":team,
-                                "song":song,"index":index,"power":query.power.value(),
-                                "seconds":query_start.elapsed().as_secs_f64(),"score":scored[index]}));
-                        }
-                        actual_score_queries += 1;
-                    }
-                    Ok(scored[index].unwrap())
-                })
-                .map_err(|e| {
-                    eprintln!("{e}");
-                    SearchError::Options("layout maximum failed")
-                })?;
-            let value = int_score(max.score)?;
-            exact_seconds_by_song[song] += exact_start.elapsed().as_secs_f64();
-            if trace_exact {
-                trace(json!({"event":"rosterEnd","team":team,"song":song,
-                    "seconds":exact_start.elapsed().as_secs_f64(),"fineSeconds":fine_seconds,
-                    "exactSecondsBySong":exact_seconds_by_song,"exactScoreReuse":scratch.exact_score_stats()}));
-            }
-            eprintln!(
-                "roster {team} song {song}: {value}, {}/{} requests",
-                max.scored_requests, max.possible_requests
-            );
+            Ok(scored[index].unwrap())
+        };
+        let layout_error = |e: LayoutError| {
+            eprintln!("{e}");
+            SearchError::Options("layout maximum failed")
+        };
+        let value = if score_only {
+            entry.layouts.maximum_monotone_score(&entry.upper, &mut score).map_err(layout_error)?
+        } else {
+            let max = entry.layouts.maximize(&entry.upper, &mut score).map_err(layout_error)?;
+            let value = max.score;
             let power = entry.layouts.requests()[max.chosen_request].power;
             maxima.insert((team, song), Exact { maximum: max, power });
-            if r.audit_winner_song == Some(song) {
-                fine.insert((team, song), entry);
-            }
-            Ok(MedleyRefinement::Exact(value))
-        },
+            value
+        };
+        let value = int_score(value)?;
+        exact_seconds_by_song[song] += exact_start.elapsed().as_secs_f64();
+        if trace_exact {
+            trace(json!({"event":"rosterEnd","team":team,"song":song,
+                "seconds":exact_start.elapsed().as_secs_f64(),"fineSeconds":fine_seconds,
+                "exactSecondsBySong":exact_seconds_by_song,"exactScoreReuse":scratch.exact_score_stats()}));
+        }
+        eprintln!(
+            "roster {team} song {song}: {value}, {}/{} requests",
+            actual_score_queries - queries_before, entry.upper.len()
+        );
+        if r.audit_winner_song == Some(song) {
+            fine.insert((team, song), entry);
+        }
+        Ok(MedleyRefinement::Exact(value))
+    };
+    let lazy = lazy_medley::solve_staged_with_policy(
+        WideMedleySolverInput { current_best: -1, team_masks: masks, scores: uppers },
+        2,
+        policy,
+        |team, song, stage| refine(team, song, stage, defer_layouts),
     );
     let lazy = match lazy {
         Ok(value) => value,
@@ -1036,6 +1132,19 @@ fn solve_one(
         }
         Err(error) => return Err(error.into()),
     };
+    if defer_layouts {
+        let mut reconstructed_score = 0_i64;
+        for (song, &team) in lazy.plan.indices.iter().enumerate() {
+            refine(team, song, 0, false)?;
+            let MedleyRefinement::Exact(value) = refine(team, song, 1, false)? else {
+                unreachable!("the final refinement resolves the exact layout");
+            };
+            reconstructed_score += i64::from(value);
+        }
+        if reconstructed_score != i64::from(lazy.plan.score) {
+            return Err("winning layouts differ from the three-team search score".into());
+        }
+    }
     let lazy_seconds = start.elapsed().as_secs_f64();
     let mut winners = Vec::new();
     for (song, &team) in lazy.plan.indices.iter().enumerate() {

@@ -472,6 +472,7 @@ fn production_request(inputs: [ReplayInput; 3], pool: Vec<u32>) -> Result<Reques
     // Match the accepted full-process benchmark and keep application memory
     // independent of whole-score reuse. Shared geometric templates still apply.
     request.equivalent_score_reuse = Some(false);
+    request.plan_only = true;
     Ok(request)
 }
 

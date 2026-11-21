@@ -154,9 +154,10 @@ pub struct TimingCompileCache {
     limits: Option<Vec<Option<[u32; 2]>>>,
     options: SearchOptions,
     groups: HashMap<Vec<u64>, RawGroup>,
-    exact: HashMap<Vec<[u32; 6]>, Arc<JointTimeline>>,
-    exact_stamps: HashMap<Vec<[u32; 6]>, u64>,
+    exact: HashMap<(bool, Vec<[u32; 6]>), Arc<JointTimeline>>,
+    exact_stamps: HashMap<(bool, Vec<[u32; 6]>), u64>,
     exact_clock: u64,
+    score_durations: Vec<f32>,
     max_geometry_bytes: usize,
     // Geometry ownership is independent of the 64 resolved-skill bindings.
     // These owners contain no value DP or power-specific score result.
@@ -176,6 +177,7 @@ impl TimingCompileCache {
             exact: HashMap::new(),
             exact_stamps: HashMap::new(),
             exact_clock: 0,
+            score_durations: Vec::new(),
             geometry_owners: HashMap::new(),
             // The complete benchmark showed no useful preparation improvement
             // and higher retained memory; keep independent owners opt-in.
@@ -274,6 +276,52 @@ impl TimingCompileCache {
         &mut self,
         skills: &[super::ReplaySkill],
     ) -> Result<CompiledTimingCandidates, SearchError> {
+        self.prepare_impl(skills, false)
+    }
+
+    /// Numeric search can keep more notes explicit to share geometry across
+    /// skill durations. Use `prepare` for the canonical tied frame witness.
+    pub fn prepare_for_score(
+        &mut self,
+        skills: &[super::ReplaySkill],
+    ) -> Result<CompiledTimingCandidates, SearchError> {
+        self.prepare_impl(skills, true)
+    }
+
+    fn share_playing_windows(&mut self, skills: &[super::ReplaySkill]) -> bool {
+        if !self.preparation.enabled()
+            || !self.preparation.stats.bad_interval_scan_enabled
+            || self.preparation.stats.bad_interval_audit_enabled
+        {
+            return false;
+        }
+        // With at most two durations the six slots have at most 64 duration
+        // patterns. The precise graphs are cheap to reuse in that case.
+        if self.score_durations.len() < 3 {
+            for skill in skills {
+                if !self.score_durations.contains(&skill.duration) {
+                    self.score_durations.push(skill.duration);
+                    if self.score_durations.len() == 3 {
+                        break;
+                    }
+                }
+            }
+        }
+        if self.score_durations.len() < 3 {
+            return false;
+        }
+        let (shortest, longest) = skills.iter().fold((f32::INFINITY, 0.0_f32), |(lo, hi), skill| {
+            (lo.min(skill.duration), hi.max(skill.duration))
+        });
+        // Avoid expanding a short custom skill to a much longer interval.
+        shortest < longest && longest <= 2.0 * shortest
+    }
+
+    fn prepare_impl(
+        &mut self,
+        skills: &[super::ReplaySkill],
+        score_only: bool,
+    ) -> Result<CompiledTimingCandidates, SearchError> {
         let mut input = self.input.clone();
         input.skills = skills.to_vec();
         if let Some(limits) = &self.limits {
@@ -281,13 +329,13 @@ impl TimingCompileCache {
                 return Err(SearchError::Options("frame ranges require exhaustive scoring"));
             }
             self.exact_clock += 1;
-            let key: Vec<_> = skills.iter().map(super::ReplaySkill::cache_key).collect();
+            let key = (false, skills.iter().map(super::ReplaySkill::cache_key).collect());
             let model = if let Some(model) = self.exact.get(&key) {
                 self.stats.group_hits += 1;
                 self.exact_stamps.insert(key.clone(), self.exact_clock);
                 Some(Arc::clone(model))
             } else {
-                let layout=self.preparation.geometry(&input)?;
+                let layout=self.preparation.geometry(&input, false)?;
                 let existing=self.geometry_owners.get(&layout.key).map(|(m,_)|m)
                     .or_else(||self.exact.values().find(|m|m.geometry_key()==layout.key));
                 let model=if let Some(existing)=existing {
@@ -311,14 +359,15 @@ impl TimingCompileCache {
         }
         if self.options.exhaustive() {
             self.exact_clock += 1;
-            let key: Vec<_> = skills.iter().map(super::ReplaySkill::cache_key).collect();
+            let share = score_only && self.share_playing_windows(skills);
+            let key = (share, skills.iter().map(super::ReplaySkill::cache_key).collect());
             let model = if let Some(model) = self.exact.get(&key) {
                 self.stats.group_hits += 1;
                 self.exact_stamps.insert(key.clone(), self.exact_clock);
                 Arc::clone(model)
             } else {
                 let key_start = crate::timing::Instant::now();
-                let layout = self.preparation.geometry(&input)?;
+                let layout = self.preparation.geometry(&input, share)?;
                 self.preparation.stats.geometry_key_seconds += key_start.elapsed().as_secs_f64();
                 let existing = self.geometry_owners.get(&layout.key).map(|(m, _)| m)
                     .or_else(|| self.exact.values().find(|m| m.geometry_key() == layout.key));

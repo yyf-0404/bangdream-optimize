@@ -3,7 +3,7 @@ mod single;
 
 use crate::medley::error::BuildError;
 use crate::medley::seed::seed_medley_result_for_items;
-use crate::medley::team::{TeamBuildError, TeamGenerationOptions};
+use crate::medley::team::{ItemScoreBounds, TeamBuildError, TeamGenerationOptions};
 use crate::model::chart::Chart;
 use crate::model::preparation::{AreaItemPercent, PreparedCard};
 use crate::model::schema::{BuildResult, EventType, SelectedAreaItems, SongSelection};
@@ -156,16 +156,13 @@ pub fn calculate_best_result_for_items(
     }
     let mut medley_search_metrics =
         (event_type == EventType::Medley).then(medley::MedleySearchMetrics::default);
-    let medley_item_upper_bounds = if event_type == EventType::Medley {
+    let mut medley_bounds = (event_type == EventType::Medley)
+        .then(|| ItemScoreBounds::new(cards, charts, area_item_percent));
+    let medley_item_upper_bounds = if let Some(bounds) = medley_bounds.as_mut() {
         let mut upper_bounds = Vec::with_capacity(item_combinations.len());
         for selected_items in &item_combinations {
             let upper_bound_start = Timer::start();
-            let upper_bound = medley::medley_item_score_upper_bound(
-                cards,
-                charts,
-                area_item_percent,
-                selected_items,
-            )?;
+            let upper_bound = bounds.score(selected_items)?;
             if let Some(metrics) = medley_search_metrics.as_mut() {
                 metrics.add_item_upper_bound_ms(upper_bound_start.elapsed_ms());
             }
@@ -212,6 +209,22 @@ pub fn calculate_best_result_for_items(
         }
     }
 
+    let single_modes = if event_type == EventType::Medley {
+        Vec::new()
+    } else {
+        mode_candidates(cards)
+    };
+    let mut single_bounds = (!single_modes.is_empty()
+        && item_combinations.len() > 1
+        && !charts[0].score_as_medley
+        && (charts[0].warning.is_empty()
+            || charts[0].supports_exact_queue_search(cards.iter().map(|c| c.skill.duration))))
+        .then(|| ItemScoreBounds::new(cards, charts, area_item_percent));
+    let bound_disjoint_items = event_type == EventType::Medley && charts.iter().all(|chart| {
+        chart.score_as_medley == options.team_generation.score_as_medley
+            && (chart.warning.is_empty()
+                || chart.supports_exact_queue_search(cards.iter().map(|c| c.skill.duration)))
+    });
     for (item_idx, selected_items) in item_combinations.into_iter().enumerate() {
         let current_best = best_score(&best);
         if event_type == EventType::Medley {
@@ -222,6 +235,17 @@ pub fn calculate_best_result_for_items(
                 medley::medley_item_can_beat_incumbent(&selected_items, upper_bound, current_best);
             if !can_beat {
                 continue;
+            }
+            if current_best > 0 && bound_disjoint_items {
+                let bounds = medley_bounds.as_mut().expect("medley item bounds were prepared");
+                let start = Timer::start();
+                let competitive = bounds.can_allocate_key_cards(&selected_items, current_best)?;
+                if let Some(metrics) = medley_search_metrics.as_mut() {
+                    metrics.add_item_bound_refinement_ms(start.elapsed_ms());
+                }
+                if !competitive {
+                    continue;
+                }
             }
         }
 
@@ -239,15 +263,16 @@ pub fn calculate_best_result_for_items(
                 medley_search_metrics.as_mut(),
             )
         } else {
-            calculate_result_for_items(
+            single::calculate_single_result_for_items(
                 event_id,
                 event_type,
-                &song_list,
+                &song_list[0],
                 cards,
-                charts,
+                &charts[0],
                 area_item_percent,
                 &selected_items,
-                &options,
+                &single_modes,
+                single_bounds.as_mut(),
                 current_best,
             )
         };
@@ -422,44 +447,6 @@ fn validate_song_inputs(
     }
 
     Ok(())
-}
-
-fn calculate_result_for_items(
-    event_id: u32,
-    event_type: EventType,
-    song_list: &[SongSelection],
-    cards: &[PreparedCard],
-    charts: &[Chart],
-    area_item_percent: &AreaItemPercent,
-    selected_items: &SelectedAreaItems,
-    options: &ItemSearchOptions,
-    current_best: i32,
-) -> Result<BuildResult, CalculationError> {
-    match event_type {
-        EventType::Medley => medley::calculate_medley_result_for_items(
-            event_id,
-            song_list,
-            cards,
-            charts,
-            area_item_percent,
-            selected_items,
-            options,
-            current_best,
-            None,
-        ),
-        EventType::Versus | EventType::Challenge => single::calculate_single_result_for_items(
-            event_id,
-            event_type,
-            &song_list[0],
-            cards,
-            &charts[0],
-            area_item_percent,
-            selected_items,
-        ),
-        EventType::Festival | EventType::LiveTry | EventType::MissionLive => {
-            Err(CalculationError::UnsupportedEventType { event_type })
-        }
-    }
 }
 
 fn trace_enabled() -> bool {

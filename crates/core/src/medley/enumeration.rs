@@ -1,5 +1,5 @@
 use super::candidate::TeamCandidate;
-use super::prune::{best_any_team_score_upper_bound, MedleyCardPruneProfile, MedleyPruneSignature};
+use super::prune::{MedleyCardPruneProfile, MedleyPruneSignature};
 use super::scoring::{
     resolve_medley_cards_for_signature, selected_resolved_team_signature, CandidateScorer,
     MedleyCardInput, RawTeamCandidate, ResolvedCandidateBuildProfile, ResolvedMedleyCardInput,
@@ -60,34 +60,25 @@ pub(in crate::medley) struct CandidateIncumbentFilter {
 }
 
 impl CandidateIncumbentFilter {
-    pub(in crate::medley) fn new(
-        cards: &[PreparedCard],
-        charts: &[Chart],
-        profiles: &[MedleyCardPruneProfile],
-        current_best: i32,
-    ) -> Option<Self> {
-        if current_best <= 0 || charts.len() != MEDLEY_TEAM_COUNT {
+    pub(in crate::medley) fn new(song_upper_bounds: &[f64], current_best: i32) -> Option<Self> {
+        if current_best <= 0 {
             return None;
         }
-
-        let best_any_team_scores: [f64; MEDLEY_TEAM_COUNT] = std::array::from_fn(|chart_idx| {
-            best_any_team_score_upper_bound(cards, charts, profiles, chart_idx)
-        });
+        let &[first, second, third] = song_upper_bounds else {
+            return None;
+        };
         Some(Self {
             current_best,
-            other_song_upper_bounds: [
-                best_any_team_scores[1] + best_any_team_scores[2],
-                best_any_team_scores[0] + best_any_team_scores[2],
-                best_any_team_scores[0] + best_any_team_scores[1],
-            ],
+            other_song_upper_bounds: [second + third, first + third, first + second],
         })
     }
 
     fn candidate_can_beat_incumbent(&self, candidate: &RawTeamCandidate) -> bool {
-        let current_best = self.current_best as f64;
-        candidate.scores[0] as f64 + self.other_song_upper_bounds[0] > current_best
-            || candidate.scores[1] as f64 + self.other_song_upper_bounds[1] > current_best
-            || candidate.scores[2] as f64 + self.other_song_upper_bounds[2] > current_best
+        (0..MEDLEY_TEAM_COUNT).any(|s| self.song_can_improve(s, f64::from(candidate.scores[s])))
+    }
+
+    pub(in crate::medley) fn song_can_improve(&self, song: usize, score_upper: f64) -> bool {
+        score_upper + self.other_song_upper_bounds[song] > f64::from(self.current_best)
     }
 }
 
@@ -336,12 +327,27 @@ fn process_final_layer_flat_card(
         selected_indices[3],
         card_idx,
     ];
+    score_complete_team(&team_indices, candidates, candidate_filter, candidate_scorer, stats)
+}
+
+fn score_complete_team(
+    selected: &[usize; TEAM_SIZE],
+    candidates: &mut Vec<RawTeamCandidate>,
+    candidate_filter: Option<&CandidateIncumbentFilter>,
+    candidate_scorer: &mut CandidateScorer<'_>,
+    stats: &mut SignatureEnumerationStats,
+) -> Result<(), TeamBuildError> {
     let mut build_profile = stats
         .should_profile_next_candidate()
         .then(ResolvedCandidateBuildProfile::default);
     let build_start = stats.build_profile_enabled.then(Timer::start);
-    let candidate = candidate_scorer.score(&team_indices, build_profile.as_mut())?;
+    let candidate = candidate_scorer.score_competitive(selected, candidate_filter, build_profile.as_mut())?;
     stats.build_candidate_ms += crate::timing::optional_elapsed_ms(build_start);
+    let Some(candidate) = candidate else {
+        stats.final_layer_upper_bound_rejects += 1;
+        stats.branch_upper_bound_pruned += 1;
+        return Ok(());
+    };
     stats.candidate_builds += 1;
     if let Some(profile) = build_profile {
         stats.build_profile.add(&profile);
@@ -427,12 +433,6 @@ unsafe fn final_layer_can_beat_mask_avx2_x86(
         groups.card_indices[flat_pos + 1] as i32,
         groups.card_indices[flat_pos] as i32,
     );
-    let suffix_indices = _mm_set_epi32(
-        groups.group_indices[flat_pos + 3] as i32 + 1,
-        groups.group_indices[flat_pos + 2] as i32 + 1,
-        groups.group_indices[flat_pos + 1] as i32 + 1,
-        groups.group_indices[flat_pos] as i32 + 1,
-    );
 
     let stat = _mm256_add_pd(
         _mm256_i32gather_pd(filter.card_stat_bounds.as_ptr(), card_indices, 8),
@@ -455,24 +455,25 @@ unsafe fn final_layer_can_beat_mask_avx2_x86(
             card_indices,
             8,
         );
-        let suffix_captain = _mm256_i32gather_pd(
-            filter.suffix_captain_meta_by_chart[chart_idx].as_ptr(),
-            suffix_indices,
-            8,
-        );
         let captain_meta = _mm256_max_pd(
-            _mm256_max_pd(
-                card_captain,
-                _mm256_set1_pd(state.captain_meta_by_chart[chart_idx]),
-            ),
-            suffix_captain,
+            card_captain,
+            _mm256_set1_pd(state.captain_meta_by_chart[chart_idx]),
         );
         let meta = _mm256_add_pd(
-            _mm256_set1_pd(filter.no_skill_by_chart[chart_idx]),
-            _mm256_add_pd(normal_meta, captain_meta),
+            _mm256_add_pd(
+                _mm256_set1_pd(filter.base_upper_by_chart[chart_idx]),
+                normal_meta,
+            ),
+            captain_meta,
         );
+        // Same outward rounding as linear_score_upper for nonnegative scores.
+        let linear = _mm256_mul_pd(stat, meta);
+        let upper = _mm256_ceil_pd(_mm256_add_pd(
+            _mm256_mul_pd(linear, _mm256_set1_pd(1.0 + crate::scoring::SCORE_GAMMA)),
+            _mm256_mul_pd(linear, _mm256_set1_pd(32.0 * f64::EPSILON)),
+        ));
         let score = _mm256_add_pd(
-            _mm256_floor_pd(_mm256_mul_pd(stat, meta)),
+            upper,
             _mm256_set1_pd(filter.other_song_upper_bounds[chart_idx]),
         );
         can_beat = _mm256_or_pd(can_beat, _mm256_cmp_pd(score, current_best, _CMP_GT_OQ));
@@ -613,40 +614,19 @@ fn process_complete_signature_team(
             limit: options.max_candidates,
         });
     }
-    let mut build_profile = stats
-        .should_profile_next_candidate()
-        .then(ResolvedCandidateBuildProfile::default);
-    let build_start = stats.build_profile_enabled.then(Timer::start);
-    let candidate = candidate_scorer.score(selected_indices, build_profile.as_mut())?;
-    stats.build_candidate_ms += crate::timing::optional_elapsed_ms(build_start);
-    stats.candidate_builds += 1;
-    if let Some(profile) = build_profile {
-        stats.build_profile.add(&profile);
-    }
-
-    let filter_start = stats.build_profile_enabled.then(Timer::start);
-    let rejected =
-        candidate_filter.is_some_and(|filter| !filter.candidate_can_beat_incumbent(&candidate));
-    stats.candidate_filter_ms += crate::timing::optional_elapsed_ms(filter_start);
-    if rejected {
-        stats.candidate_filter_rejects += 1;
-        return Ok(());
-    }
-    candidates.push(candidate);
-    Ok(())
+    score_complete_team(selected_indices, candidates, candidate_filter, candidate_scorer, stats)
 }
 
 #[derive(Debug, Clone)]
 struct PrefixUpperBoundFilter {
     current_best: i32,
-    no_skill_by_chart: [f64; MEDLEY_TEAM_COUNT],
+    base_upper_by_chart: [f64; MEDLEY_TEAM_COUNT],
     other_song_upper_bounds: [f64; MEDLEY_TEAM_COUNT],
     card_bounds: Vec<CardUpperBound>,
     card_stat_bounds: Vec<f64>,
     card_normal_meta_by_chart: [Vec<f64>; MEDLEY_TEAM_COUNT],
     card_captain_meta_by_chart: [Vec<f64>; MEDLEY_TEAM_COUNT],
     suffix_bounds: Vec<SuffixUpperBound>,
-    suffix_captain_meta_by_chart: [Vec<f64>; MEDLEY_TEAM_COUNT],
 }
 
 #[derive(Debug, Clone)]
@@ -761,9 +741,10 @@ impl PrefixUpperBoundFilter {
             return None;
         }
 
+        let mut slot_offsets = [[f64::NEG_INFINITY; TEAM_SIZE]; MEDLEY_TEAM_COUNT];
         let card_bounds = cards
             .iter()
-            .map(|card| card_upper_bound(card, charts, profiles, signature))
+            .map(|card| card_upper_bound(card, profiles, signature, &mut slot_offsets))
             .collect::<Option<Vec<_>>>()?;
         let suffix_bounds =
             suffix_upper_bounds(cards, charts, groups, &card_bounds).collect::<Vec<_>>();
@@ -780,22 +761,21 @@ impl PrefixUpperBoundFilter {
                 .map(|bound| bound.captain_meta_by_chart[chart_idx])
                 .collect()
         });
-        let suffix_captain_meta_by_chart = std::array::from_fn(|chart_idx| {
-            suffix_bounds
-                .iter()
-                .map(|bound| bound.captain_meta_by_chart[chart_idx])
-                .collect()
-        });
         Some(Self {
             current_best: candidate_filter.current_best,
-            no_skill_by_chart: std::array::from_fn(|idx| charts[idx].meta.no_skill),
+            // Every team uses each slot once. A slot where every card earns
+            // less than its own maximum reduces even the relaxed prefix sum.
+            base_upper_by_chart: std::array::from_fn(|s| {
+                slot_offsets[s].iter().fold(charts[s].meta.no_skill, |base, &offset| {
+                    (base + offset).next_up()
+                })
+            }),
             other_song_upper_bounds: candidate_filter.other_song_upper_bounds,
             card_bounds,
             card_stat_bounds,
             card_normal_meta_by_chart,
             card_captain_meta_by_chart,
             suffix_bounds,
-            suffix_captain_meta_by_chart,
         })
     }
 
@@ -842,10 +822,13 @@ impl PrefixUpperBoundFilter {
     ) -> bool {
         let normal_meta = state.normal_meta_by_chart[chart_idx]
             + suffix.normal_meta_by_chart_and_slots[chart_idx][remaining_slots];
-        let captain_meta =
-            state.captain_meta_by_chart[chart_idx].max(suffix.captain_meta_by_chart[chart_idx]);
+        let captain_meta = if remaining_slots == 0 {
+            state.captain_meta_by_chart[chart_idx]
+        } else {
+            state.captain_meta_by_chart[chart_idx].max(suffix.captain_meta_by_chart[chart_idx])
+        };
         let score_upper_bound = crate::scoring::linear_score_upper(
-            stat * (self.no_skill_by_chart[chart_idx] + normal_meta + captain_meta),
+            stat * (self.base_upper_by_chart[chart_idx] + normal_meta + captain_meta),
         );
 
         score_upper_bound + self.other_song_upper_bounds[chart_idx] > current_best
@@ -854,9 +837,9 @@ impl PrefixUpperBoundFilter {
 
 fn card_upper_bound(
     card: &MedleyCardInput<'_>,
-    _charts: &[Chart],
     profiles: &[MedleyCardPruneProfile],
     signature: MedleyPruneSignature,
+    slot_offsets: &mut [[f64; TEAM_SIZE]; MEDLEY_TEAM_COUNT],
 ) -> Option<CardUpperBound> {
     let profile = profiles.get(card.raw_index)?;
     let score_up = card
@@ -870,8 +853,12 @@ fn card_upper_bound(
     for chart_idx in 0..MEDLEY_TEAM_COUNT {
         let start = chart_idx * (TEAM_SIZE + 1);
         let end = start + TEAM_SIZE;
-        normal_meta_by_chart[chart_idx] =
-            values.get(start..end)?.iter().copied().fold(0.0, f64::max);
+        let slots = values.get(start..end)?;
+        let maximum = slots.iter().copied().fold(0.0, f64::max);
+        normal_meta_by_chart[chart_idx] = maximum;
+        for (offset, gain) in slot_offsets[chart_idx].iter_mut().zip(slots) {
+            *offset = offset.max((gain - maximum).next_up());
+        }
         captain_meta_by_chart[chart_idx] = *values.get(end)?;
     }
 
@@ -1213,5 +1200,56 @@ fn attribute_code(attribute: crate::model::schema::Attribute) -> i32 {
         crate::model::schema::Attribute::Pure => 2,
         crate::model::schema::Attribute::Powerful => 3,
         crate::model::schema::Attribute::All => 4,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::medley::team::adjusted_card_stats;
+    use crate::medley::test_support::{medley_charts, prepared_card, selected_cool_items};
+    use crate::{AreaItemPercent, Attribute};
+
+    #[test]
+    fn final_layer_masks_keep_the_outward_rounding_margin() {
+        let cards: Vec<_> = (1..=8)
+            .map(|i| prepared_card(i, i, 1, Attribute::Cool))
+            .collect();
+        let charts = medley_charts();
+        let powers = adjusted_card_stats(&cards, &AreaItemPercent::empty(), &selected_cool_items());
+        let profiles =
+            crate::team_prune::medley_card_prune_profiles(&cards, &charts, &powers).unwrap();
+        let active = active_medley_cards(&cards, &powers, &(0..cards.len()).collect::<Vec<_>>());
+        let groups = character_groups(&active);
+        let mut filter = PrefixUpperBoundFilter::new(
+            &active,
+            &charts,
+            &profiles,
+            MedleyPruneSignature::Mixed,
+            &groups,
+            &CandidateIncumbentFilter::new(&[0.0; 3], 1).unwrap(),
+        )
+        .unwrap();
+        let mut state = PrefixUpperBoundState::default();
+        for card in &filter.card_bounds[..4] {
+            state = state.with_card(card);
+        }
+        let complete = state.with_card(&filter.card_bounds[4]);
+        let linear = complete.stat
+            * (filter.base_upper_by_chart[0]
+                + complete.normal_meta_by_chart[0]
+                + complete.captain_meta_by_chart[0]);
+        let upper = crate::scoring::linear_score_upper(linear) as i32;
+        for (floor, expected) in [(upper - 1, 0b1111), (upper, 0)] {
+            filter.current_best = floor;
+            assert_eq!(
+                final_layer_can_beat_mask_scalar(&filter, &groups, 4, state),
+                expected
+            );
+            assert_eq!(
+                final_layer_can_beat_mask_avx2(&filter, &groups, 4, state),
+                expected
+            );
+        }
     }
 }

@@ -1,8 +1,6 @@
 use super::{trace_enabled, CalculationError, ItemSearchOptions};
 use crate::medley::candidate::{calculate_medley_from_raw_candidates, RawCandidateBuildRequest};
-use crate::medley::team::{
-    build_raw_team_candidates_with_current_best, medley_same_team_item_score_upper_bound,
-};
+use crate::medley::team::build_raw_team_candidates_with_current_best;
 use crate::model::chart::Chart;
 use crate::model::preparation::{AreaItemPercent, PreparedCard};
 use crate::model::schema::{
@@ -37,6 +35,10 @@ impl MedleySearchMetrics {
 
     pub(super) fn add_item_upper_bound_ms(&mut self, elapsed_ms: f64) {
         self.item_upper_bound_count += 1;
+        self.item_upper_bound_ms += elapsed_ms;
+    }
+
+    pub(super) fn add_item_bound_refinement_ms(&mut self, elapsed_ms: f64) {
         self.item_upper_bound_ms += elapsed_ms;
     }
 
@@ -111,13 +113,15 @@ pub(super) fn calculate_medley_result_for_items(
     let trace = trace_enabled();
     let mut search_metrics = search_metrics;
     let build_start = Timer::start();
+    // Both stages use an exclusive floor. Keep ties for the equipment comparison.
+    let score_floor = current_best.saturating_sub(1);
     let candidates = build_raw_team_candidates_with_current_best(
         cards,
         charts,
         area_item_percent,
         selected_items,
         options.team_generation,
-        current_best,
+        score_floor,
     )?;
     let build_ms = build_start.elapsed_ms();
     if let Some(metrics) = search_metrics.as_mut() {
@@ -137,7 +141,7 @@ pub(super) fn calculate_medley_result_for_items(
         song_list,
         candidates: &candidates,
         cards,
-        current_best: current_best.saturating_sub(1),
+        current_best: score_floor,
         solver_preference: options.solver_preference,
         items: Some(selected_items.clone()),
     });
@@ -175,20 +179,6 @@ pub(super) fn calculate_medley_result_for_items(
     }
 
     Ok(result)
-}
-
-pub(super) fn medley_item_score_upper_bound(
-    cards: &[PreparedCard],
-    charts: &[Chart],
-    area_item_percent: &AreaItemPercent,
-    selected_items: &SelectedAreaItems,
-) -> Result<i32, CalculationError> {
-    Ok(medley_same_team_item_score_upper_bound(
-        cards,
-        charts,
-        area_item_percent,
-        selected_items,
-    )?)
 }
 
 pub(super) fn medley_item_can_beat_incumbent(

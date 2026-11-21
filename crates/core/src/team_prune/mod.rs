@@ -8,9 +8,10 @@ pub(super) mod stats;
 
 pub(super) use contribution::trace_score_contribution_cover_diagnostics;
 pub(super) use global::global_prune_stats;
-pub(super) use hard::best_any_team_score_upper_bound;
-pub(crate) use hard::{medley_card_prune_profiles, MedleyCardPruneProfile};
-pub(super) use pool::signature_candidate_pools;
+pub(crate) use hard::{
+    medley_card_prune_profiles, set_medley_card_prune_powers, MedleyCardPruneProfile,
+};
+pub(super) use pool::{signature_candidate_pools, SignatureCandidatePools};
 pub(crate) use pool::{
     single_team_active_card_indices,
     single_team_active_card_indices_with_fixed_teammate_skills_and_trace,

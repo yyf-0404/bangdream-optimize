@@ -4,9 +4,10 @@ use super::enumeration::{
     SignatureEnumerationStats,
 };
 use super::prune::{
-    global_prune_stats, medley_card_prune_profiles, seed_signatures, signature_candidate_pools,
-    signature_label, trace_medley_prune_stats, trace_score_contribution_cover_diagnostics,
-    trace_signature_pool_stats, MedleyPruneSignature, MedleyPruneTrace,
+    global_prune_stats, medley_card_prune_profiles, seed_signatures, set_medley_card_prune_powers,
+    signature_candidate_pools, signature_label, trace_medley_prune_stats,
+    trace_score_contribution_cover_diagnostics, trace_signature_pool_stats, MedleyCardPruneProfile,
+    MedleyPruneSignature, MedleyPruneTrace, SignatureCandidatePools,
 };
 use super::scoring::{RawTeamCandidate, ResolvedCandidateBuildProfile, SkillMetaCache};
 use crate::medley::candidate::TeamCandidate;
@@ -187,8 +188,12 @@ fn build_raw_team_candidates_internal(
     let profile_ms = elapsed_ms(profile_start);
     let mut current_best = current_best;
     let signature_pool_start = trace.then(Timer::start);
-    let (signature_pools, signature_stats, prune_trace) =
-        signature_candidate_pools(cards, charts, &profiles, current_best);
+    let SignatureCandidatePools {
+        pools: signature_pools,
+        stats: signature_stats,
+        trace: prune_trace,
+        song_upper_bounds,
+    } = signature_candidate_pools(cards, charts, &profiles, current_best);
     let signature_pool_ms = elapsed_ms(signature_pool_start);
     let prune_ms = elapsed_ms(prune_start);
     if signature_pools.is_empty() {
@@ -201,8 +206,7 @@ fn build_raw_team_candidates_internal(
 
     let enumerate_start = trace.then(Timer::start);
     for pool in &signature_pools {
-        let candidate_filter =
-            CandidateIncumbentFilter::new(cards, charts, &profiles, current_best);
+        let candidate_filter = CandidateIncumbentFilter::new(&song_upper_bounds, current_best);
         match enumerate_signature_pool(
             cards,
             &card_stats,
@@ -584,22 +588,70 @@ pub(crate) fn medley_same_team_item_score_upper_bound(
     area_item_percent: &AreaItemPercent,
     selected_items: &SelectedAreaItems,
 ) -> Result<i32, TeamBuildError> {
-    if cards.len() < TEAM_SIZE {
-        return Err(TeamBuildError::NotEnoughCards { count: cards.len() });
-    }
-    let card_stats = adjusted_card_stats(cards, area_item_percent, selected_items);
-    let profiles = medley_card_prune_profiles(cards, charts, &card_stats)?;
-    let signatures = seed_signatures(cards);
-    let mut total = 0;
-
-    for (chart_idx, chart) in charts.iter().enumerate() {
-        total +=
-            medley_chart_item_score_upper_bound(cards, &profiles, chart, chart_idx, &signatures)
-                as i32;
-    }
-
-    Ok(total)
+    ItemScoreBounds::new(cards, charts, area_item_percent).score(selected_items)
 }
+
+/// Skill windows and unification variants are fixed for a request. Only member
+/// powers change when bounding another equipment choice.
+pub(crate) struct ItemScoreBounds<'a> {
+    cards: &'a [PreparedCard],
+    charts: &'a [Chart],
+    area: &'a AreaItemPercent,
+    signatures: Vec<MedleyPruneSignature>,
+    profiles: Vec<MedleyCardPruneProfile>,
+}
+
+impl<'a> ItemScoreBounds<'a> {
+    pub(crate) fn new(
+        cards: &'a [PreparedCard],
+        charts: &'a [Chart],
+        area: &'a AreaItemPercent,
+    ) -> Self {
+        Self {
+            cards,
+            charts,
+            area,
+            signatures: seed_signatures(cards),
+            profiles: Vec::new(),
+        }
+    }
+
+    pub(crate) fn score(
+        &mut self,
+        selected_items: &SelectedAreaItems,
+    ) -> Result<i32, TeamBuildError> {
+        let powers = adjusted_card_stats(self.cards, self.area, selected_items);
+        self.score_for_powers(&powers)
+    }
+
+    pub(crate) fn score_for_powers(
+        &mut self,
+        powers: &[crate::scoring::MemberPower],
+    ) -> Result<i32, TeamBuildError> {
+        self.prepare_powers(powers)?;
+        Ok(self.charts.iter().enumerate()
+            .map(|(s, chart)| {
+                medley_chart_item_score_upper_bound(self.cards, &self.profiles, chart, s, &self.signatures) as i32
+            })
+            .fold(0_i32, i32::saturating_add))
+    }
+
+    fn prepare_powers(&mut self, powers: &[crate::scoring::MemberPower]) -> Result<(), TeamBuildError> {
+        if self.cards.len() < TEAM_SIZE {
+            return Err(TeamBuildError::NotEnoughCards {
+                count: self.cards.len(),
+            });
+        }
+        if self.profiles.is_empty() {
+            self.profiles = medley_card_prune_profiles(self.cards, self.charts, powers)?;
+        } else {
+            set_medley_card_prune_powers(&mut self.profiles, powers);
+        }
+        Ok(())
+    }
+}
+
+mod item_keys;
 
 pub(crate) fn medley_chart_item_score_upper_bound(
     cards: &[PreparedCard],
@@ -608,13 +660,24 @@ pub(crate) fn medley_chart_item_score_upper_bound(
     chart_idx: usize,
     signatures: &[MedleyPruneSignature],
 ) -> f64 {
-    signatures
+    chart_upper_excluding(cards, profiles, chart, chart_idx, signatures, &[])
+}
+
+fn chart_upper_excluding(
+    cards: &[PreparedCard],
+    profiles: &[MedleyCardPruneProfile],
+    chart: &Chart,
+    chart_idx: usize,
+    signatures: &[MedleyPruneSignature],
+    excluded: &[usize],
+) -> f64 {
+    let upper = signatures
         .iter()
         .filter_map(|&signature| {
-            same_team_chart_signature_upper_bound(cards, profiles, chart, chart_idx, signature)
+            same_team_chart_signature_upper_bound(cards, profiles, chart, chart_idx, signature, excluded)
         })
-        .fold(0.0_f64, f64::max)
-        .ceil()
+        .fold(0.0_f64, f64::max);
+    crate::scoring::linear_score_upper(upper)
 }
 
 fn same_team_chart_signature_upper_bound(
@@ -623,8 +686,12 @@ fn same_team_chart_signature_upper_bound(
     chart: &Chart,
     chart_idx: usize,
     signature: MedleyPruneSignature,
+    excluded: &[usize],
 ) -> Option<f64> {
-    let groups = upper_bound_card_groups(cards, profiles, chart_idx, signature)?;
+    let Some((groups, position_cap)) = upper_bound_card_groups(cards, profiles, chart_idx, signature, excluded) else {
+        // A missing profile cannot certify that this signature loses.
+        return Some(f64::INFINITY);
+    };
     if groups.len() < TEAM_SIZE {
         return None;
     }
@@ -638,20 +705,25 @@ fn same_team_chart_signature_upper_bound(
                 continue;
             }
 
-            let previous = dp[count - 1].clone();
-            dp[count].reserve(previous.len().saturating_mul(group.len()));
+            let (smaller, rest) = dp.split_at_mut(count);
+            let previous = &smaller[count - 1];
+            let current = &mut rest[0];
+            current.reserve(previous.len().saturating_mul(group.len()));
             for state in previous {
                 for card in &group {
-                    dp[count].push(state.with_card(*card));
+                    current.push(state.with_card(*card));
                 }
             }
-            prune_dominated_upper_bound_states(&mut dp[count]);
+            prune_dominated_upper_bound_states(current);
         }
     }
 
     dp[TEAM_SIZE]
         .iter()
-        .map(|state| state.score_upper_bound(chart))
+        .map(|state| {
+            let normal = state.normal.min((position_cap + state.normal_residual).next_up());
+            state.stat * (chart.meta.no_skill + normal + state.captain)
+        })
         .max_by(f64::total_cmp)
 }
 
@@ -660,11 +732,13 @@ fn upper_bound_card_groups(
     profiles: &[super::prune::MedleyCardPruneProfile],
     chart_idx: usize,
     signature: MedleyPruneSignature,
-) -> Option<Vec<Vec<UpperBoundCard>>> {
-    let mut groups: BTreeMap<u32, Vec<UpperBoundCard>> = BTreeMap::new();
+    excluded: &[usize],
+) -> Option<(Vec<Vec<UpperBoundCard>>, f64)> {
+    let mut members = Vec::new();
+    let mut best_by_position = [0.0_f64; TEAM_SIZE];
 
     for (idx, card) in cards.iter().enumerate() {
-        if !signature.allows(card) {
+        if !signature.allows(card) || excluded.contains(&idx) {
             continue;
         }
 
@@ -674,19 +748,27 @@ fn upper_bound_card_groups(
             .resolve(signature.team_band_id(), signature.team_attribute());
         let values = profile.skill_meta_for_score_up(score_up)?;
         let start = chart_idx * (TEAM_SIZE + 1);
-        let normal = values
-            .get(start..start + TEAM_SIZE)?
-            .iter()
-            .copied()
-            .fold(0.0, f64::max);
+        let positions: &[f64; TEAM_SIZE] = values.get(start..start + TEAM_SIZE)?.try_into().ok()?;
+        for (best, &value) in best_by_position.iter_mut().zip(positions) {
+            *best = best.max(value);
+        }
         let captain = *values.get(start + TEAM_SIZE)?;
-
+        members.push((card.character_id, profile.stat, positions, captain));
+    }
+    let mut groups: BTreeMap<u32, Vec<UpperBoundCard>> = BTreeMap::new();
+    for (character, stat, positions, captain) in members {
+        // For every assigned slot p, gain[p] <= best[p] + max(gain - best).
+        // Every legal team uses each best[p] once and pays one residual per card.
+        let normal_residual = positions.iter().zip(best_by_position)
+            .map(|(value, best)| (value - best).next_up())
+            .fold(f64::NEG_INFINITY, f64::max);
         groups
-            .entry(card.character_id)
+            .entry(character)
             .or_default()
             .push(UpperBoundCard {
-                stat: profile.stat,
-                normal,
+                stat,
+                normal: positions.iter().copied().fold(0.0, f64::max),
+                normal_residual,
                 captain,
             });
     }
@@ -697,13 +779,16 @@ fn upper_bound_card_groups(
         result.push(group);
     }
 
-    Some(result)
+    // Each normal slot is used once, even if every card prefers the same slot.
+    let position_cap = best_by_position.into_iter().fold(0.0_f64, |a, b| (a + b).next_up());
+    Some((result, position_cap))
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 struct UpperBoundCard {
     stat: f64,
     normal: f64,
+    normal_residual: f64,
     captain: f64,
 }
 
@@ -711,6 +796,7 @@ struct UpperBoundCard {
 struct UpperBoundState {
     stat: f64,
     normal: f64,
+    normal_residual: f64,
     captain: f64,
 }
 
@@ -719,13 +805,11 @@ impl UpperBoundState {
         Self {
             stat: self.stat + card.stat,
             normal: self.normal + card.normal,
+            normal_residual: (self.normal_residual + card.normal_residual).next_up(),
             captain: self.captain.max(card.captain),
         }
     }
 
-    fn score_upper_bound(self, chart: &Chart) -> f64 {
-        self.stat * (chart.meta.no_skill + self.normal + self.captain)
-    }
 }
 
 fn prune_dominated_upper_bound_cards(cards: &mut Vec<UpperBoundCard>) {
@@ -771,19 +855,23 @@ fn prune_dominated_upper_bound_states(states: &mut Vec<UpperBoundState>) {
 }
 
 fn upper_bound_card_dominates(left: UpperBoundCard, right: UpperBoundCard) -> bool {
-    left.stat >= right.stat && left.normal >= right.normal && left.captain >= right.captain
+    left.stat >= right.stat && left.normal >= right.normal
+        && left.normal_residual >= right.normal_residual && left.captain >= right.captain
 }
 
 fn upper_bound_card_strictly_dominates(left: UpperBoundCard, right: UpperBoundCard) -> bool {
-    left.stat > right.stat || left.normal > right.normal || left.captain > right.captain
+    left.stat > right.stat || left.normal > right.normal
+        || left.normal_residual > right.normal_residual || left.captain > right.captain
 }
 
 fn upper_bound_state_dominates(left: UpperBoundState, right: UpperBoundState) -> bool {
-    left.stat >= right.stat && left.normal >= right.normal && left.captain >= right.captain
+    left.stat >= right.stat && left.normal >= right.normal
+        && left.normal_residual >= right.normal_residual && left.captain >= right.captain
 }
 
 fn upper_bound_state_strictly_dominates(left: UpperBoundState, right: UpperBoundState) -> bool {
-    left.stat > right.stat || left.normal > right.normal || left.captain > right.captain
+    left.stat > right.stat || left.normal > right.normal
+        || left.normal_residual > right.normal_residual || left.captain > right.captain
 }
 
 fn trace_enabled() -> bool {
@@ -807,6 +895,30 @@ mod tests {
     use crate::model::preparation::{ScoreUp, StatRate, StatValue};
     use crate::model::schema::Attribute;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn disjoint_item_bound_rejects_using_the_same_strong_cards_three_times() {
+        let mut cards: Vec<_> = (1..=15).map(|id| prepared_card(id, id, 1, Attribute::Cool)).collect();
+        for card in &mut cards[..3] {
+            card.stat.performance *= 10.0;
+        }
+        let charts = crate::medley::test_support::medley_charts();
+        let area = AreaItemPercent::empty();
+        let items = selected_cool_items();
+        let mut bounds = ItemScoreBounds::new(&cards, &charts, &area);
+        let independent = bounds.score(&items).unwrap();
+        assert!(bounds.can_allocate_key_cards(&items, 0).unwrap());
+        assert!(!bounds.can_allocate_key_cards(&items, independent).unwrap());
+    }
+
+    #[test]
+    fn missing_skill_profile_keeps_the_equipment_in_the_search() {
+        let cards = (1..=5).map(|id| prepared_card(id, id, 1, Attribute::Cool)).collect::<Vec<_>>();
+        let upper = medley_chart_item_score_upper_bound(
+            &cards, &[], &chart(), 0, &[MedleyPruneSignature::Mixed],
+        );
+        assert_eq!(upper, f64::INFINITY);
+    }
 
     #[test]
     fn incumbent_refresh_respects_solver_candidate_budget() {
@@ -1171,20 +1283,21 @@ mod tests {
         );
         let item_upper =
             medley_same_team_item_score_upper_bound(&cards, &charts, &area, &items).unwrap();
-        let independent_song_max_sum: i32 = (0..MEDLEY_TEAM_COUNT)
-            .map(|song_idx| {
-                exhaustive
-                    .values()
-                    .map(|scores| scores[song_idx])
-                    .max()
-                    .unwrap()
-            })
-            .sum();
-        assert!(
-            item_upper >= independent_song_max_sum,
-            "seed={seed} item_upper={item_upper} exact={independent_song_max_sum}"
-        );
+        let profiles = medley_card_prune_profiles(&cards, &charts, &card_stats).unwrap();
+        let signatures = seed_signatures(&cards);
+        let mut upper_sum = 0;
+        for (song, chart) in charts.iter().enumerate() {
+            let upper = medley_chart_item_score_upper_bound(
+                &cards, &profiles, chart, song, &signatures,
+            ) as i32;
+            let exact = exhaustive.values().map(|scores| scores[song]).max().unwrap();
+            assert!(upper >= exact, "seed={seed} song={song} upper={upper} exact={exact}");
+            upper_sum += upper;
+        }
+        assert_eq!(item_upper, upper_sum);
         let exhaustive_best = exhaustive_three_team_score(&exhaustive, &cards);
+        assert!(ItemScoreBounds::new(&cards, &charts, &area)
+            .can_allocate_key_cards(&items, exhaustive_best).unwrap(), "seed={seed}");
         let production_best = exhaustive_three_team_score(&production, &cards);
         if queue_kind != 0 {
             eprintln!(

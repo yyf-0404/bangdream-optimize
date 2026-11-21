@@ -6,12 +6,14 @@ use crate::medley::team::TeamBuildError;
 use crate::model::chart::{Chart, ConditionalSkillMeta, TeamCardSkill};
 use crate::model::preparation::{PreparedCard, ScoreUp};
 use crate::model::schema::Attribute;
+use crate::scoring::MemberPower;
 use bangdream_optimize_team_prune::{
     cross_group_dominator_cover, direct_dominance_graph_for_cross_subsets,
     direct_dominance_graph_for_index_subset, dominance_graph_for_index_subset,
     dominator_cover_after_worst_teammate_groups, same_group_dominator_cover, DominanceGraph,
 };
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 mod cover;
 mod teammate;
@@ -38,7 +40,7 @@ pub(crate) struct MedleyCardPruneProfile {
     pub(crate) stat: f64,
     // Covers the difference of both teams' accumulation errors for this pool.
     power_rounding_guard: f64,
-    skill_meta_variants: Vec<SkillMetaVariant>,
+    skill_meta_variants: Vec<Arc<SkillMetaVariant>>,
     pub(crate) skill_meta_bounds: Vec<SkillMetaBounds>,
     pub(crate) best_skill_meta_by_chart: Vec<f64>,
 }
@@ -77,7 +79,7 @@ impl MedleyCardPruneProfile {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct SkillMetaVariant {
     score_up_bits: u64,
     values: Vec<f64>,
@@ -414,7 +416,7 @@ where
 pub(crate) fn medley_card_prune_profiles(
     cards: &[PreparedCard],
     charts: &[Chart],
-    card_stats: &[crate::scoring::MemberPower],
+    card_stats: &[MemberPower],
 ) -> Result<Vec<MedleyCardPruneProfile>, TeamBuildError> {
     let max_duration = cards
         .iter()
@@ -424,22 +426,10 @@ pub(crate) fn medley_card_prune_profiles(
         .iter()
         .map(|chart| chart.has_skill_queue_risk(max_duration).unwrap_or(true))
         .collect();
-    // Queue windows depend on skill shape, not card ID or item-adjusted stat.
-    // Share their precomputation across the many cards with identical skills.
+    // Windows depend on the charts and resolved skill. Pruning passes can
+    // share the same immutable tables even as the active card pool shrinks.
     let mut variants_by_skill = BTreeMap::new();
-    let maximum_team = 5.0
-        * card_stats
-            .iter()
-            .map(|p| p.linear_total())
-            .fold(0.0, f64::max);
-    // For the same four teammates and physical slot, the continuous difference
-    // is exactly the replacement's stat difference. Every native team lies in
-    // [linear_power_lower(sum), linear_power_upper(sum)]. Paying for both errors
-    // proves scalar dominance even when the replacement trades one axis for
-    // another. Near ties still need componentwise dominance.
-    let power_rounding_guard = crate::scoring::linear_power_upper(maximum_team)
-        - crate::scoring::linear_power_lower(maximum_team)
-        + maximum_team * 128.0 * f64::EPSILON;
+    let power_rounding_guard = pool_power_rounding_guard(card_stats);
     cards
         .iter()
         .zip(card_stats)
@@ -460,6 +450,28 @@ pub(crate) fn medley_card_prune_profiles(
             })
         })
         .collect()
+}
+
+pub(crate) fn set_medley_card_prune_powers(
+    profiles: &mut [MedleyCardPruneProfile],
+    powers: &[MemberPower],
+) {
+    debug_assert_eq!(profiles.len(), powers.len());
+    let guard = pool_power_rounding_guard(powers);
+    for (profile, &power) in profiles.iter_mut().zip(powers) {
+        profile.power = power;
+        profile.stat = power.linear_total();
+        profile.power_rounding_guard = guard;
+    }
+}
+
+fn pool_power_rounding_guard(powers: &[MemberPower]) -> f64 {
+    let maximum_team = TEAM_SIZE as f64
+        * powers.iter().map(|p| p.linear_total()).fold(0.0, f64::max);
+    // A scalar replacement must cover the native accumulation errors of both teams.
+    crate::scoring::linear_power_upper(maximum_team)
+        - crate::scoring::linear_power_lower(maximum_team)
+        + maximum_team * 128.0 * f64::EPSILON
 }
 
 pub(crate) fn medley_card_dominates_for_signature(
@@ -1132,8 +1144,8 @@ fn medley_skill_meta_variants(
     card: &PreparedCard,
     charts: &[Chart],
     queued_charts: &[bool],
-    cache: &mut BTreeMap<(u64, bool, u64), SkillMetaVariant>,
-) -> Result<Vec<SkillMetaVariant>, TeamBuildError> {
+    cache: &mut BTreeMap<(u64, bool, u64), Arc<SkillMetaVariant>>,
+) -> Result<Vec<Arc<SkillMetaVariant>>, TeamBuildError> {
     let score_ups = score_up_bounds(card.score_up);
     let mut result = Vec::with_capacity(score_ups.len());
 
@@ -1143,11 +1155,9 @@ fn medley_skill_meta_variants(
             card.skill.rateup,
             score_up.to_bits(),
         );
-        if queued_charts.iter().any(|&queued| queued) {
-            if let Some(variant) = cache.get(&key) {
-                result.push(variant.clone());
-                continue;
-            }
+        if let Some(variant) = cache.get(&key) {
+            result.push(Arc::clone(variant));
+            continue;
         }
         let mut values = Vec::with_capacity(charts.len() * (TEAM_SIZE + 1));
         let mut conditional = Vec::with_capacity(charts.len());
@@ -1173,33 +1183,23 @@ fn medley_skill_meta_variants(
             }
             conditional.push(None);
             for activation in 0..=TEAM_SIZE {
-                let value = chart.skill_meta_value(
-                    activation,
-                    TeamCardSkill {
-                        card_id: card.card_id,
-                        duration: card.skill.duration,
-                        score_up,
-                        rateup: card.skill.rateup,
-                    },
-                )?;
+                let value = chart.skill_meta_value(activation, skill)?;
                 values.push(value);
             }
         }
-        let variant = SkillMetaVariant {
+        let variant = Arc::new(SkillMetaVariant {
             score_up_bits: score_up.to_bits(),
             values,
             conditional,
-        };
-        if queued_charts.iter().any(|&queued| queued) {
-            cache.insert(key, variant.clone());
-        }
+        });
+        cache.insert(key, Arc::clone(&variant));
         result.push(variant);
     }
 
     Ok(result)
 }
 
-fn skill_meta_bounds(variants: &[SkillMetaVariant]) -> Vec<SkillMetaBounds> {
+fn skill_meta_bounds(variants: &[Arc<SkillMetaVariant>]) -> Vec<SkillMetaBounds> {
     let Some(first) = variants.first() else {
         return Vec::new();
     };
@@ -1288,11 +1288,11 @@ mod tests {
                 [0.0; 3],
             ),
             stat: 1.0,
-            skill_meta_variants: vec![SkillMetaVariant {
+            skill_meta_variants: vec![Arc::new(SkillMetaVariant {
                 conditional: Vec::new(),
                 score_up_bits: 1.0_f64.to_bits(),
                 values: vec![10.0],
-            }],
+            })],
             skill_meta_bounds: vec![SkillMetaBounds {
                 low: 10.0,
                 high: 10.0,

@@ -1,9 +1,11 @@
+use crate::medley::team::adjusted_card_stats;
 use crate::model::{
     chart::Chart,
     dp::{DpModelError, SongMode},
     preparation::{AreaItemPercent, PreparedCard},
     schema::SelectedAreaItems,
 };
+use crate::scoring::MemberPower;
 use crate::LiveVariant;
 use thiserror::Error;
 
@@ -66,7 +68,9 @@ pub fn calculate_single_song(
     selected_items: &SelectedAreaItems,
     mode: SongMode,
 ) -> Result<SingleSongResult, SingleSongError> {
-    let candidate = find_single_song(cards, chart, area_item_percent, selected_items, mode)?;
+    let powers = adjusted_card_stats(cards, area_item_percent, selected_items);
+    let candidate = find_single_song(cards, chart, &powers, mode, i32::MIN)?
+        .ok_or(SingleSongError::NoResult)?;
     Ok(SingleSongResult {
         score: candidate.score,
         stat: candidate
@@ -80,21 +84,13 @@ pub fn calculate_single_song(
 pub(crate) fn find_single_song(
     cards: &[PreparedCard],
     chart: &Chart,
-    area_item_percent: &AreaItemPercent,
-    selected_items: &SelectedAreaItems,
+    powers: &[MemberPower],
     mode: SongMode,
-) -> Result<SingleSongCandidate, SingleSongError> {
-    let active_indices =
-        candidate::pruned_card_indices(cards, chart, area_item_percent, selected_items, mode)?;
-    let cards = candidate::resolve_card_indices(
-        cards,
-        &active_indices,
-        area_item_percent,
-        selected_items,
-        mode,
-        candidate::SingleCardRole::FullSkill,
-    )?;
-    exact::solve(&cards, chart)
+    minimum_score: i32,
+) -> Result<Option<SingleSongCandidate>, SingleSongError> {
+    let active_indices = candidate::pruned_card_indices(cards, chart, powers, mode)?;
+    let cards = candidate::resolve_card_indices(cards, &active_indices, powers, mode)?;
+    exact::solve(&cards, chart, minimum_score)
 }
 
 #[cfg(test)]
@@ -109,14 +105,8 @@ fn numeric_card_sources(
         .enumerate()
         .filter_map(|(index, card)| mode.allows(card).then_some(index))
         .collect::<Vec<_>>();
-    Ok(candidate::resolve_card_indices(
-        cards,
-        &indices,
-        area_item_percent,
-        selected_items,
-        mode,
-        candidate::SingleCardRole::FullSkill,
-    )?)
+    let powers = adjusted_card_stats(cards, area_item_percent, selected_items);
+    Ok(candidate::resolve_card_indices(cards, &indices, &powers, mode)?)
 }
 
 #[cfg(test)]
@@ -155,6 +145,29 @@ mod tests {
         assert_eq!(exact.score, brute.score);
         assert_eq!(exact.stat, brute.stat);
         assert_eq!(exact.captain_card_id, brute.captain_card_id);
+
+        let powers = adjusted_card_stats(&cards, &area, &selected_items);
+        let equal = find_single_song(
+            &cards,
+            &chart,
+            &powers,
+            SongMode::Mixed,
+            exact.score,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(equal.score, exact.score);
+        assert_eq!(equal.team_card_ids, exact.team_card_ids);
+        assert_eq!(equal.captain_card_id, exact.captain_card_id);
+        assert!(find_single_song(
+            &cards,
+            &chart,
+            &powers,
+            SongMode::Mixed,
+            exact.score + 1,
+        )
+        .unwrap()
+        .is_none());
     }
 
     #[test]

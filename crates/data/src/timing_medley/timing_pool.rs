@@ -242,6 +242,7 @@ pub fn enumerate_pool(
     max_teams: usize,
     max_nodes: u64,
     census_only: bool,
+    plan_only: bool,
     pair_bounds: bool,
     priced_prefix: bool,
     price_card_filter: bool,
@@ -699,6 +700,26 @@ pub fn enumerate_pool(
         conditional = allowed;
         scan.stats.song_eligibility = eligibility;
         scan.stats.signature_seconds = start.elapsed().as_secs_f64();
+        if plan_only {
+            // A character may appear once in each of the three teams. The
+            // surviving cards must fill fifteen slots even before assignment.
+            let mut per_character = BTreeMap::new();
+            let mut slots = 0;
+            for &i in &available {
+                if conditional[i].iter().any(|&enabled| enabled) {
+                    let count = per_character.entry(cards[i].character_id).or_insert(0);
+                    if *count < 3 {
+                        *count += 1;
+                        slots += 1;
+                    }
+                    if slots == 15 { break; }
+                }
+            }
+            if slots < 15 {
+                scan.stats.complete = true;
+                return Ok((Vec::new(), scan.stats));
+            }
+        }
         if refine_pools {
             let mut stats = super::timing_refine::rebuild(
                 cards,
@@ -894,12 +915,17 @@ pub fn enumerate_pool(
         );
     }
     if prefix_key_pair_bounds {
-        let (bound, stats) = projection::prepare(&scan, &partitions)?;
+        let (bound, stats) = projection::prepare(&scan, &partitions, plan_only)?;
         eprintln!("projected prefix keys: {} masks, {} groups / {} members, complete={}, {:.3}s envelopes + {:.3}s table",
             stats.occupied_masks, stats.group_nodes, stats.member_nodes, stats.complete,
             stats.envelope_seconds, stats.table_seconds);
+        let no_plan = stats.excludes_all_plans;
         scan.prefix_bound = bound;
         scan.stats.prefix_key_pair_bounds = Some(stats);
+        if no_plan {
+            scan.stats.complete = true;
+            return Ok((Vec::new(), scan.stats));
+        }
     }
     if std::env::var("BANGDREAM_OPTIMIZE_POOL_PROFILE").as_deref() == Ok("1") {
         scan.stats.enumeration_profile = Some(EnumerationProfile {
@@ -932,7 +958,9 @@ pub fn enumerate_pool(
     scan.output.sort_unstable_by_key(|row| row.indices);
     scan.output.dedup_by_key(|row| row.indices);
     scan.stats.retained = scan.output.len();
-    if cards.len() <= 25 && scan.stats.complete {
+    // Keep the independent enumeration oracle for debug builds and research
+    // runs. A complete production plan already uses the certified pool search.
+    if (cfg!(debug_assertions) || !plan_only) && cards.len() <= 25 && scan.stats.complete {
         use bangdream_optimize_core::hit_timing::{
             bounds::CoarseTimingUpperCache,
             enumeration::{enumerate, TimingCardIdentity},
@@ -945,17 +973,23 @@ pub fn enumerate_pool(
                 character_id: cards[i].character_id,
             })
             .collect();
-        let mut coarse = inputs
-            .iter()
-            .map(|i| CoarseTimingUpperCache::new(i, cap))
-            .collect::<Result<Vec<_>, _>>()?;
+        let layouts = physical_layouts();
+        let audit_bounds = !refine_pools || retained.iter().any(|&i| {
+            eligible[i] && conditional[i].iter().any(|&enabled| enabled)
+        });
+        let mut coarse = if audit_bounds && !net_bounds {
+            inputs.iter().map(|i| CoarseTimingUpperCache::new(i, cap))
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            Vec::new()
+        };
         let mut expected = vec![];
         // Refinement rebuilds geometry and rounding envelopes from the surviving
         // catalogue. An upper from the old, wider catalogue need not fit inside
         // the tighter pool upper, even though both enclose every playable score.
         // Keep the independent oracle on the same immutable source domain.
         let audit_skills = audit_catalogue(&skills, &cases, &conditional, refine_pools);
-        let net_audit = if net_bounds {
+        let net_audit = if audit_bounds && net_bounds {
             inputs
                 .iter()
                 .map(|i| {
@@ -1007,13 +1041,10 @@ pub fn enumerate_pool(
             let members = std::array::from_fn(|j| skills[cases[indices[j]][context]].clone());
             for s in 0..3 {
                 let params = indices.map(|i| powers[s][&cards[i].card_id].final_parameters());
-                let p = physical_layouts()
-                    .iter()
-                    .map(|o| ScoringPower::from_member_parameters(&o.map(|i| params[i])))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into_iter()
-                    .max()
-                    .unwrap();
+                let mut p = ScoringPower::from_member_parameters(&params)?;
+                for order in &layouts {
+                    p = p.max(ScoringPower::from_member_parameters(&order.map(|i| params[i]))?);
+                }
                 let coarse_value = if net_bounds {
                     net_audit[s].upper_roster(&members, p)?
                 } else {

@@ -19,7 +19,7 @@ fn cached_bad_layout_matches_frame_enumeration_with_fifo_corrections_and_special
             Some(JudgementCorrection::Good), Some(JudgementCorrection::Bad)] {
             for s in &mut r.skills { s.duration = duration; s.correction = correction; }
             crate::hit_timing::validate(&r).unwrap();
-            let new = local::geometry_with_bounds(&r, &bad).unwrap();
+            let new = local::geometry_with_bounds(&r, &bad, false).unwrap();
             let old_corrections = geometry::correction_ranges(&r).unwrap();
             let old_regions = local::regions(&r).unwrap();
             let old_protected: Vec<_> = r.notes.iter().map(|n| n.trigger.is_some()

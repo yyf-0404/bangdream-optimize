@@ -55,6 +55,40 @@ impl ScoringPower {
         Self::from_parameters(members.iter().copied())
     }
 
+    /// Maximum scoring power over all physical layouts of these five members.
+    pub fn maximum_layout_power(members: &[[f32; 3]; 5]) -> Result<Self, ScoringError> {
+        for &value in members.iter().flatten() {
+            nonnegative(value, "member parameter")?;
+        }
+        // Only the first two members commute. Share their sum and try every
+        // ordering of the remaining three with native left-to-right rounding.
+        const PAIRS: [([usize; 2], [usize; 3]); 10] = [
+            ([0, 1], [2, 3, 4]),
+            ([0, 2], [1, 3, 4]),
+            ([0, 3], [1, 2, 4]),
+            ([0, 4], [1, 2, 3]),
+            ([1, 2], [0, 3, 4]),
+            ([1, 3], [0, 2, 4]),
+            ([1, 4], [0, 2, 3]),
+            ([2, 3], [0, 1, 4]),
+            ([2, 4], [0, 1, 3]),
+            ([3, 4], [0, 1, 2]),
+        ];
+        let mut maximum = 0.0_f32;
+        for ([a, b], rest) in PAIRS {
+            let pair: [f32; 3] = std::array::from_fn(|i| members[a][i] + members[b][i]);
+            let [x, y, z] = rest.map(|i| members[i]);
+            for (third, fourth, fifth) in [(x, y, z), (y, z, x), (z, x, y)] {
+                let prefix: [f32; 3] = std::array::from_fn(|i| pair[i] + third[i]);
+                for (d, e) in [(fourth, fifth), (fifth, fourth)] {
+                    let totals: [f32; 3] = std::array::from_fn(|i| (prefix[i] + d[i]) + e[i]);
+                    maximum = maximum.max(totals[1] + (totals[0] + totals[2]));
+                }
+            }
+        }
+        Self::new(maximum)
+    }
+
     fn from_parameters(members: impl Iterator<Item = [f32; 3]>) -> Result<Self, ScoringError> {
         let mut totals = [0.0_f32; 3];
         for member in members {
@@ -295,6 +329,36 @@ fn display_integer(value: f32) -> Result<i32, ScoringError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn maximum_layout_power_matches_every_native_order() {
+        let layouts = crate::hit_timing::layouts::physical_layouts();
+        let mut state = 37u32;
+        let mut saw_distinct_powers = false;
+        for _ in 0..256 {
+            let members = std::array::from_fn(|_| {
+                std::array::from_fn(|_| {
+                    state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+                    f32::from_bits(((134 + state % 12) << 23) | (state & 0x7fffff))
+                })
+            });
+            let powers = layouts.iter().map(|order| {
+                ScoringPower::from_member_parameters(&order.map(|i| members[i])).unwrap()
+            });
+            let max = powers.clone().max().unwrap();
+            saw_distinct_powers |= powers.min().unwrap() != max;
+            assert_eq!(ScoringPower::maximum_layout_power(&members), Ok(max));
+        }
+        assert!(saw_distinct_powers);
+        for bad in [-1.0, f32::NAN, f32::INFINITY, f32::MAX] {
+            let members = [[bad; 3]; 5];
+            assert_eq!(
+                ScoringPower::maximum_layout_power(&members),
+                ScoringPower::from_member_parameters(&members)
+            );
+        }
+    }
+
     #[test]
     fn retains_fractional_power_and_distinct_cache_keys() {
         let power = ScoringPower::from_member_parameters(&[[100_000.25; 3], [0.0; 3]]).unwrap();

@@ -93,6 +93,7 @@ struct SearchContext<'a> {
     skills: &'a [TeamCardSkill],
     groups: &'a [Vec<ExactCard>],
     suffix: &'a [SuffixBound],
+    minimum_score: i32,
     best: Option<SingleSongCandidate>,
     score_cache: HashMap<(u32, [u16; SKILL_COUNT]), i32>,
     timeline_cache: HashMap<[u16; SKILL_COUNT], CompiledSixSkillScore>,
@@ -105,7 +106,8 @@ struct SearchContext<'a> {
 pub(super) fn solve(
     cards: &[ResolvedSingleCard],
     chart: &Chart,
-) -> Result<SingleSongCandidate, SingleSongError> {
+    minimum_score: i32,
+) -> Result<Option<SingleSongCandidate>, SingleSongError> {
     let trace = exact_profile_enabled();
     let prepare_start = trace.then(Timer::start);
     let (skills, groups, raw_cards, active_cards) = prepare_cards(cards, chart)?;
@@ -121,6 +123,7 @@ pub(super) fn solve(
         skills: &skills,
         groups: &groups,
         suffix: &suffix,
+        minimum_score,
         best: None,
         score_cache: HashMap::new(),
         timeline_cache: HashMap::new(),
@@ -163,7 +166,7 @@ pub(super) fn solve(
         );
     }
 
-    context.best.ok_or(SingleSongError::NoResult)
+    Ok(context.best)
 }
 
 fn exact_profile_enabled() -> bool {
@@ -285,49 +288,50 @@ fn normal_position_order(normal_meta: [f64; TEAM_SIZE]) -> [u8; TEAM_SIZE] {
 }
 
 fn suffix_bounds(groups: &[Vec<ExactCard>]) -> Vec<SuffixBound> {
-    (0..=groups.len())
-        .map(|start| {
-            let suffix = &groups[start..];
-            let mut group_stats = suffix
-                .iter()
-                .map(|group| group.iter().map(|card| card.stat).fold(0.0_f64, f64::max))
-                .collect::<Vec<_>>();
-            group_stats.sort_by(|left, right| right.total_cmp(left));
-            let mut stat_by_slots = [0.0; TEAM_SIZE + 1];
-            for slots in 1..=TEAM_SIZE {
-                stat_by_slots[slots] =
-                    stat_by_slots[slots - 1] + group_stats.get(slots - 1).copied().unwrap_or(0.0);
+    let mut normal_meta_by_mask = [f64::NEG_INFINITY; 1 << TEAM_SIZE];
+    normal_meta_by_mask[0] = 0.0;
+    let empty = SuffixBound {
+        remaining_groups: 0,
+        stat_by_slots: [0.0; TEAM_SIZE + 1],
+        normal_meta_by_mask,
+        captain_meta: 0.0,
+    };
+    let mut suffix = vec![empty; groups.len() + 1];
+    let mut top_stats = [0.0; TEAM_SIZE];
+    for (index, group) in groups.iter().enumerate().rev() {
+        let next = &suffix[index + 1];
+        let mut bound = next.clone();
+        bound.remaining_groups += 1;
+        let mut normal = [f64::NEG_INFINITY; TEAM_SIZE];
+        let mut group_stat = 0.0_f64;
+        for card in group {
+            group_stat = group_stat.max(card.stat);
+            bound.captain_meta = bound.captain_meta.max(card.captain_meta);
+            for (best, value) in normal.iter_mut().zip(card.normal_meta) {
+                *best = best.max(value);
             }
-            let mut normal_meta_by_mask = [f64::NEG_INFINITY; 1 << TEAM_SIZE];
-            normal_meta_by_mask[0] = 0.0;
-            let mut captain_meta = 0.0_f64;
-            for group in suffix {
-                let mut next = normal_meta_by_mask;
-                for (mask, &value) in normal_meta_by_mask.iter().enumerate() {
-                    if !value.is_finite() {
-                        continue;
-                    }
-                    for card in group {
-                        for position in empty_positions(mask) {
-                            let next_mask = mask | (1 << position);
-                            next[next_mask] =
-                                next[next_mask].max(value + card.normal_meta[position]);
-                        }
-                    }
+        }
+        let position = top_stats.partition_point(|&stat| stat >= group_stat);
+        if position < TEAM_SIZE {
+            top_stats.copy_within(position..TEAM_SIZE - 1, position + 1);
+            top_stats[position] = group_stat;
+        }
+        for (slot, stat) in top_stats.into_iter().enumerate() {
+            bound.stat_by_slots[slot + 1] = bound.stat_by_slots[slot] + stat;
+        }
+        // Read only from the following suffix so this character occupies at most one slot.
+        for (mask, &value) in next.normal_meta_by_mask.iter().enumerate() {
+            if value.is_finite() {
+                for position in empty_positions(mask) {
+                    let next_mask = mask | (1 << position);
+                    bound.normal_meta_by_mask[next_mask] =
+                        bound.normal_meta_by_mask[next_mask].max(value + normal[position]);
                 }
-                normal_meta_by_mask = next;
-                for card in group {
-                    captain_meta = captain_meta.max(card.captain_meta);
-                }
             }
-            SuffixBound {
-                remaining_groups: suffix.len(),
-                stat_by_slots,
-                normal_meta_by_mask,
-                captain_meta,
-            }
-        })
-        .collect()
+        }
+        suffix[index] = bound;
+    }
+    suffix
 }
 
 fn search(
@@ -346,11 +350,14 @@ fn search(
         context.profile.feasibility_prunes += 1;
         return Ok(());
     }
-    if context.best.is_some()
-        && score_upper_bound(context, state, mask, bound) <= context.best.as_ref().unwrap().score
-    {
-        context.profile.upper_bound_prunes += 1;
-        return Ok(());
+    if context.best.is_some() || context.minimum_score > i32::MIN {
+        let upper = score_upper_bound(context, state, mask, bound);
+        if upper < context.minimum_score
+            || context.best.as_ref().is_some_and(|best| upper <= best.score)
+        {
+            context.profile.upper_bound_prunes += 1;
+            return Ok(());
+        }
     }
 
     let group = &context.groups[group_idx];
@@ -438,10 +445,11 @@ fn score_leaf(context: &mut SearchContext<'_>, state: &SearchState) -> Result<()
             f64::from(stat)
                 * (context.no_skill_meta + state.normal_meta + state.captain_meta[captain_idx]),
         );
-        if context
-            .best
-            .as_ref()
-            .is_some_and(|best| score_upper <= best.score)
+        if score_upper < context.minimum_score
+            || context
+                .best
+                .as_ref()
+                .is_some_and(|best| score_upper <= best.score)
         {
             context.profile.leaf_captain_prunes += 1;
             continue;
@@ -491,6 +499,9 @@ fn score_leaf(context: &mut SearchContext<'_>, state: &SearchState) -> Result<()
             score
         };
         context.profile.score_ms += optional_elapsed_ms(score_start);
+        if score < context.minimum_score {
+            continue;
+        }
         if context.best.as_ref().is_none_or(|old| {
             score > old.score
                 || (score == old.score && stat > old.scoring)

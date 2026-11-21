@@ -3,7 +3,9 @@ use crate::medley::team;
 use crate::model::dp::SongMode;
 use crate::model::preparation::{AreaItemPercent, PreparedCard};
 use crate::model::schema::SelectedAreaItems;
+use crate::scoring::MemberPower;
 use crate::{Chart, DpModelError, TeamCardSkill};
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,24 +21,41 @@ pub(crate) enum SingleCardRole {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ResolvedSingleCard {
-    pub(crate) power: crate::scoring::MemberPower,
+    pub(crate) power: MemberPower,
     pub(crate) card_id: u32,
     pub(crate) character_id: u32,
     pub(crate) stat: f64,
     pub(crate) skill: TeamCardSkill,
 }
 
+impl ResolvedSingleCard {
+    fn new(card: &PreparedCard, power: MemberPower, skill: TeamCardSkill) -> Self {
+        Self {
+            power,
+            card_id: card.card_id,
+            character_id: card.character_id,
+            stat: power.linear_total(),
+            skill,
+        }
+    }
+}
+
 pub(crate) fn resolve_card_indices(
     cards: &[PreparedCard],
     indices: &[usize],
-    area_item_percent: &AreaItemPercent,
-    selected_items: &SelectedAreaItems,
+    powers: &[MemberPower],
     mode: SongMode,
-    role: SingleCardRole,
 ) -> Result<Vec<ResolvedSingleCard>, DpModelError> {
     indices
         .iter()
-        .map(|&index| resolve_card(&cards[index], area_item_percent, selected_items, mode, role))
+        .map(|&index| {
+            let card = &cards[index];
+            Ok(ResolvedSingleCard::new(
+                card,
+                powers[index],
+                mode.resolve_skill(card)?,
+            ))
+        })
         .collect()
 }
 
@@ -52,39 +71,26 @@ pub(crate) fn resolve_card(
     } else {
         mode.resolve_skill(card)?
     };
-    Ok(ResolvedSingleCard {
-        power: card.member_power(
-            area_item_percent,
-            &selected_items.band,
-            &selected_items.attribute,
-            selected_items.magazine.as_str(),
-        ),
-        card_id: card.card_id,
-        character_id: card.character_id,
-        stat: card.add_up_stat(
-            area_item_percent,
-            &selected_items.band,
-            &selected_items.attribute,
-            selected_items.magazine.as_str(),
-        ),
-        skill,
-    })
+    let power = card.member_power(
+        area_item_percent,
+        &selected_items.band,
+        &selected_items.attribute,
+        selected_items.magazine.as_str(),
+    );
+    Ok(ResolvedSingleCard::new(card, power, skill))
 }
 
 pub(crate) fn pruned_card_indices(
     cards: &[PreparedCard],
     chart: &Chart,
-    area_item_percent: &AreaItemPercent,
-    selected_items: &SelectedAreaItems,
+    powers: &[MemberPower],
     mode: SongMode,
 ) -> Result<Vec<usize>, team::TeamBuildError> {
-    pruned_card_indices_for_role(
+    dominance::contribution_pruned_card_indices(
         cards,
         chart,
-        area_item_percent,
-        selected_items,
+        || Cow::Borrowed(powers),
         mode,
-        SingleCardRole::FullSkill,
         None,
         None,
         false,
@@ -116,8 +122,7 @@ pub(crate) fn pruned_card_indices_for_role(
     dominance::contribution_pruned_card_indices(
         cards,
         chart,
-        area_item_percent,
-        selected_items,
+        || Cow::Owned(team::adjusted_card_stats(cards, area_item_percent, selected_items)),
         mode,
         replacement_values,
         point_bonus_fixed_score_equivalent,

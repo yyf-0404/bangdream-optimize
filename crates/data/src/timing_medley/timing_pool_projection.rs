@@ -13,6 +13,7 @@ pub struct Stats {
     pub audited_teams: usize,
     pub occupied_masks: usize,
     pub complete: bool,
+    pub excludes_all_plans: bool,
     pub envelope_seconds: f64,
     pub table_seconds: f64,
     pub root_companions: [Option<i128>; 3],
@@ -249,6 +250,7 @@ impl Projection<'_, '_> {
 pub fn prepare(
     scan: &Scan<'_>,
     partitions: &[(Option<Attribute>, Vec<Group>)],
+    plan_only: bool,
 ) -> Result<(Option<key_pair_bound::PrefixUpper>, Stats), Error> {
     let start = Instant::now();
     let keys = Pair::key_cards(&scan.pairs, scan.cards.len(), 16);
@@ -352,6 +354,15 @@ pub fn prepare(
         }
     }
     let table = key_pair_bound::PrefixUpper::new(&rows, &p.keys)?;
+    // Every competitive plan must have a first-song row and two companions
+    // mutually disjoint on the projected keys. Non-key conflicts are relaxed.
+    if plan_only {
+        p.stats.excludes_all_plans = !rows.iter().any(|row| {
+            table.companions(&row.cards)[0].is_some_and(|pair| {
+                i128::from(row.scores[0]) + pair >= i128::from(scan.stats.seed_score)
+            })
+        });
+    }
     p.stats.root_companions = table.companions(&[]);
     p.stats.occupied_masks = table.occupied_masks();
     p.stats.table_seconds = start.elapsed().as_secs_f64();

@@ -1,6 +1,7 @@
 //! Reuse stat-independent meta-order seeds within an immutable signature context.
 //! Every team's exact integer scores and optimal orders are still calculated.
 use super::*;
+use crate::medley::enumeration::CandidateIncumbentFilter;
 
 const CACHE_SLOTS: usize = 32_768;
 const EMPTY_KEY: u128 = u128::MAX;
@@ -10,6 +11,7 @@ struct Entry {
     key: u128,
     orders: [[u8; TEAM_SIZE]; MEDLEY_TEAM_COUNT],
     captains: [u8; MEDLEY_TEAM_COUNT],
+    gain_uppers: [f64; MEDLEY_TEAM_COUNT],
 }
 
 impl Entry {
@@ -17,6 +19,7 @@ impl Entry {
         key: EMPTY_KEY,
         orders: [[0; 5]; 3],
         captains: [0; 3],
+        gain_uppers: [0.0; 3],
     };
 
     fn from_seeds(key: u128, seeds: [MedleySkillOrder; MEDLEY_TEAM_COUNT]) -> Self {
@@ -24,6 +27,7 @@ impl Entry {
             key,
             orders: seeds.map(|seed| seed.order_indices.map(|index| index as u8)),
             captains: seeds.map(|seed| seed.captain_index as u8),
+            gain_uppers: seeds.map(|seed| seed.gain_upper),
         }
     }
 
@@ -31,6 +35,7 @@ impl Entry {
         std::array::from_fn(|chart| MedleySkillOrder {
             order_indices: self.orders[chart].map(usize::from),
             captain_index: usize::from(self.captains[chart]),
+            gain_upper: self.gain_uppers[chart],
         })
     }
 }
@@ -41,6 +46,8 @@ pub(in crate::medley) struct CandidateScorer<'a> {
     options: TeamGenerationOptions,
     scratch: ExactScoreScratch,
     classes: Vec<u16>,
+    direct_class_bits: Option<u32>,
+    bound_matches_scoring: bool,
     entries: Vec<Entry>,
     pub(in crate::medley) hits: u64,
     pub(in crate::medley) misses: u64,
@@ -111,12 +118,24 @@ impl<'a> CandidateScorer<'a> {
             0
         };
         debug_assert!(slots == 0 || slots.is_power_of_two());
+        // A small catalogue fits every ordered five-class key in the budget.
+        // Address those keys directly, including the one-slot uniform case.
+        let bits = usize::BITS - class_ids.len().saturating_sub(1).leading_zeros();
+        let direct_class_bits =
+            (slots > 0 && bits * TEAM_SIZE as u32 <= slots.ilog2()).then_some(bits);
+        let slots = direct_class_bits.map_or(slots, |width| 1usize << (width * TEAM_SIZE as u32));
         Self {
             cards,
             charts,
             options,
             scratch: ExactScoreScratch::compressed(),
             classes,
+            direct_class_bits,
+            bound_matches_scoring: charts.len() == MEDLEY_TEAM_COUNT && charts.iter().all(|chart| {
+                chart.score_as_medley == options.score_as_medley
+                    && (chart.warning.is_empty()
+                        || chart.supports_exact_queue_search(cards.iter().map(|card| card.skill.duration)))
+            }),
             entries: vec![Entry::EMPTY; slots],
             hits: 0,
             misses: 0,
@@ -124,11 +143,21 @@ impl<'a> CandidateScorer<'a> {
         }
     }
 
-    pub(in crate::medley) fn score(
+    #[cfg(test)]
+    fn score(
         &mut self,
         selected: &[usize; TEAM_SIZE],
         profile: Option<&mut ResolvedCandidateBuildProfile>,
     ) -> Result<RawTeamCandidate, TeamBuildError> {
+        Ok(self.score_competitive(selected, None, profile)?.unwrap())
+    }
+
+    pub(in crate::medley) fn score_competitive(
+        &mut self,
+        selected: &[usize; TEAM_SIZE],
+        filter: Option<&CandidateIncumbentFilter>,
+        profile: Option<&mut ResolvedCandidateBuildProfile>,
+    ) -> Result<Option<RawTeamCandidate>, TeamBuildError> {
         let seeds = if self.entries.is_empty() {
             self.misses += 1;
             return if let Some(profile) = profile {
@@ -148,10 +177,25 @@ impl<'a> CandidateScorer<'a> {
                     selected,
                     &mut self.scratch,
                 )
-            };
+            }
+            .map(Some);
         } else {
             self.seeds(selected)
         };
+        // The cached assignment maximizes five distinct trigger gains and
+        // the encore. Queued charts include all predecessor windows in each
+        // gain. Physical layout and per-note rounding are relaxed only here.
+        if let Some(filter) = filter.filter(|_| self.bound_matches_scoring) {
+            let stat = selected.iter().map(|&i| self.cards[i].power.linear_total()).sum::<f64>();
+            if !self.charts.iter().enumerate().any(|(s, chart)| {
+                let upper = crate::scoring::linear_score_upper(
+                    stat * (chart.meta.no_skill + seeds[s].gain_upper),
+                );
+                filter.song_can_improve(s, upper)
+            }) {
+                return Ok(None);
+            }
+        }
         if let Some(profile) = profile {
             build_resolved_candidate_internal::<true>(
                 self.cards,
@@ -173,16 +217,22 @@ impl<'a> CandidateScorer<'a> {
                 Some(&seeds),
             )
         }
+        .map(Some)
     }
 
     fn seeds(&mut self, selected: &[usize; TEAM_SIZE]) -> [MedleySkillOrder; MEDLEY_TEAM_COUNT] {
         // Five 16-bit class ids use 80 bits, so no valid key equals the empty marker.
         // Keep positions in the key to preserve the original DP's tie behavior.
-        let mut key = 0u128;
-        for (slot, &index) in selected.iter().enumerate() {
-            key |= u128::from(self.classes[index]) << (slot * 16);
-        }
-        let index = slot_index(key, self.entries.len());
+        let (key, index) = if let Some(bits) = self.direct_class_bits {
+            let index = selected.iter().fold(0usize, |key, &i| (key << bits) | usize::from(self.classes[i]));
+            (index as u128, index)
+        } else {
+            let mut key = 0u128;
+            for (slot, &i) in selected.iter().enumerate() {
+                key |= u128::from(self.classes[i]) << (slot * 16);
+            }
+            (key, slot_index(key, self.entries.len()))
+        };
         let entry = self.entries[index];
         crate::scoring::cache_audit::lookup(
             crate::scoring::cache_audit::Cache::MedleySeed,
@@ -265,9 +315,7 @@ mod tests {
                     attribute: Attribute::Cool,
                     skill,
                     skill_meta_by_chart: std::array::from_fn(|song| {
-                        std::array::from_fn(|activation| {
-                            charts[song].skill_meta_value(activation, skill).unwrap()
-                        })
+                        charts[song].skill_meta_upper_values(skill).unwrap()
                     }),
                     skill_windows_by_chart: std::array::from_fn(|song| {
                         std::array::from_fn(|activation| {
@@ -357,6 +405,27 @@ mod tests {
         cards[5].skill_meta_by_chart[0][0] += 1.0;
         let scorer = CandidateScorer::with_slots(&cards, &charts, options, 128);
         assert_ne!(scorer.classes[0], scorer.classes[5]);
+    }
+
+    #[test]
+    fn assignment_upper_keeps_a_candidate_competitive_on_any_song() {
+        for gap in [3.0, 6.5, 12.0] {
+            let (charts, cards) = fixture(gap, true);
+            let mut scorer = CandidateScorer::with_slots(&cards, &charts, TeamGenerationOptions::default(), 8);
+            for selected in [[0, 1, 2, 3, 4], [5, 6, 7, 8, 9], [0, 6, 12, 18, 4]] {
+                let exact = scorer.score(&selected, None).unwrap();
+                for song in 0..3 {
+                    let mut others = [2_000_000.0; 3];
+                    others[song] = 0.0;
+                    let floor = exact.scores[song] + 4_000_000 - 1;
+                    let filter = CandidateIncumbentFilter::new(&others, floor).unwrap();
+                    let kept = scorer.score_competitive(&selected, Some(&filter), None).unwrap().unwrap();
+                    assert_same(&kept, &exact);
+                }
+                let unreachable = CandidateIncumbentFilter::new(&[0.0; 3], i32::MAX).unwrap();
+                assert!(scorer.score_competitive(&selected, Some(&unreachable), None).unwrap().is_none());
+            }
+        }
     }
 
     #[test]

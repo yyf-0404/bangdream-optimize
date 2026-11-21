@@ -1,7 +1,7 @@
 use super::candidate::TeamCandidate;
 use super::prune::{seed_signatures, MedleyPruneSignature};
 use super::scoring::{build_candidate, MedleyCardInput, RawTeamCandidate, SkillMetaCache};
-use super::team::{adjusted_card_stats, TeamBuildError, TeamGenerationOptions};
+use super::team::{adjusted_card_stats, ItemScoreBounds, TeamBuildError, TeamGenerationOptions};
 use crate::model::chart::{Chart, ExactScoreScratch, TeamCardSkill};
 use crate::model::preparation::{AreaItemPercent, PreparedCard};
 use crate::model::schema::{
@@ -49,13 +49,9 @@ pub fn propose_medley_seed(
     let selections = crate::area_item_combinations(area_item_percent);
     let estimated_item_count = selections.len();
     let mut best = None;
+    let mut bounds = ItemScoreBounds::new(cards, charts, area_item_percent);
     for items in selections {
-        let estimate = super::team::medley_same_team_item_score_upper_bound(
-            cards,
-            charts,
-            area_item_percent,
-            &items,
-        )?;
+        let estimate = bounds.score(&items)?;
         if best.as_ref().is_none_or(|(_, score)| estimate > *score) {
             best = Some((items, estimate));
         }

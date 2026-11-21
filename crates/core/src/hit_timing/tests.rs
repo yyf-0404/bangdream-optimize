@@ -36,6 +36,25 @@ fn scores(result: &ReplayResult) -> Vec<u32> {
 }
 
 #[test]
+fn compiled_witness_matches_replay_at_each_equipment_power() {
+    let mut request = input(&[0.0, 0.5, 1.0, 1.5], &[0, 66, 120, 180], vec![plain(77.5)]);
+    request.notes[0].trigger = Some(0);
+    request.initial_combo = 98;
+    request.fever_frames = Some([65, 125]);
+    for medley_combo in [false, true] {
+        request.medley_combo = medley_combo;
+        let (_, timeline) = compile_replay(&request).unwrap();
+        for power in [0.0, 123_456.75, 330_001.5] {
+            request.power = power;
+            assert_eq!(
+                timeline.score(ScoringPower::new(power).unwrap()).unwrap(),
+                replay(&request).unwrap().total,
+            );
+        }
+    }
+}
+
+#[test]
 fn same_frame_and_next_frame_have_explicit_skill_semantics() {
     let mut request = input(&[1.0, 1.0], &[120, 120], vec![plain(100.0)]);
     request.notes[0].trigger = Some(0);

@@ -64,6 +64,9 @@ pub enum CandidatePolicy {
     StreamCompetitive,
     StreamCompetitiveFrom([usize; 3]),
     StreamCompatibleFrom(Option<[usize; 3]>),
+    /// Return a local exact plan at or above this score, or NoValidPlan.
+    /// A cutoff from another equipment set supplies no local winner.
+    StreamCompatibleAtLeast { warm: Option<[usize; 3]>, minimum_score: i32 },
 }
 
 /// The input scores MUST upper-bound the callback under the same chart, skill
@@ -98,6 +101,7 @@ pub fn solve_staged_with_policy(
         CandidatePolicy::FirstCompetitiveFrom(indices)
         | CandidatePolicy::StreamCompetitiveFrom(indices) => Some(indices),
         CandidatePolicy::StreamCompatibleFrom(indices) => indices,
+        CandidatePolicy::StreamCompatibleAtLeast { warm, .. } => warm,
         _ => None,
     };
     if max_stages == 0
@@ -124,19 +128,19 @@ pub fn solve_staged_with_policy(
             return Err(LazyMedleyError::InvalidInput);
         }
     }
-    if matches!(
-        policy,
-        CandidatePolicy::StreamCompetitive
-            | CandidatePolicy::StreamCompetitiveFrom(_)
-            | CandidatePolicy::StreamCompatibleFrom(_)
-    ) {
-        return streamed::solve(
-            upper,
-            max_stages,
-            warm,
-            matches!(policy, CandidatePolicy::StreamCompatibleFrom(_)),
-            refine,
-        );
+    match policy {
+        CandidatePolicy::StreamCompatibleAtLeast { minimum_score, .. } => {
+            if minimum_score < 0 {
+                return Err(LazyMedleyError::InvalidInput);
+            }
+            return streamed::solve(upper, max_stages, warm, true, minimum_score, refine);
+        }
+        CandidatePolicy::StreamCompetitive | CandidatePolicy::StreamCompetitiveFrom(_)
+        | CandidatePolicy::StreamCompatibleFrom(_) => {
+            let compatible = matches!(policy, CandidatePolicy::StreamCompatibleFrom(_));
+            return streamed::solve(upper, max_stages, warm, compatible, 0, refine);
+        }
+        _ => {}
     }
     // No unverified caller incumbent can exclude a real solution. Negative one
     // lets the strict solver find a valid zero-score triple as well.

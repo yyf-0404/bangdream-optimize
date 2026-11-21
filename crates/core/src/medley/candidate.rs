@@ -11,6 +11,7 @@ use crate::timing::Timer;
 use bangdream_optimize_medley_solver::{
     solve_medley_wide_with, solve_medley_with, MedleySolverAutoRoute, MedleySolverImplementation,
     MedleySolverInput, MedleySolverPreference, MedleySolverQuality, WideMedleySolverInput,
+    AUTO_EXACT_CANDIDATE_THRESHOLD,
 };
 use serde::{Deserialize, Serialize};
 
@@ -89,14 +90,32 @@ pub(crate) fn calculate_medley_from_raw_candidates(
     let filter_start = Timer::start();
     let mut candidate_indices =
         raw_medley_solver_candidate_indices(request.candidates, request.current_best);
-    if use_compatible_bound(request.solver_preference, candidate_indices.len()) {
-        candidate_indices = disjoint_bound::candidate_indices(
-            candidate_indices,
+    let preference = request
+        .solver_preference
+        .unwrap_or(MedleySolverPreference::Auto);
+    let exact = use_compatible_bound(Some(preference), candidate_indices.len());
+    // A proven companion bound can make a large Auto pool small enough for
+    // exact search. Keep the original pool if Auto still needs random buckets.
+    let try_exact = preference == MedleySolverPreference::Auto
+        && request.current_best > 0
+        && candidate_indices.len() > AUTO_EXACT_CANDIDATE_THRESHOLD
+        && use_compatible_bound(Some(MedleySolverPreference::StrictExact), candidate_indices.len());
+    if exact || try_exact {
+        let indices = if exact {
+            std::mem::take(&mut candidate_indices)
+        } else {
+            candidate_indices.clone()
+        };
+        let filtered = disjoint_bound::candidate_indices(
+            indices,
             |index| request.candidates[index].raw_indices,
             |index| request.candidates[index].scores.map(i64::from),
             i64::from(request.current_best) + 1,
             "max-raw",
         );
+        if exact || filtered.len() <= AUTO_EXACT_CANDIDATE_THRESHOLD {
+            candidate_indices = filtered;
+        }
     }
     let filter_ms = filter_start.elapsed_ms();
     if trace {
@@ -110,9 +129,6 @@ pub(crate) fn calculate_medley_from_raw_candidates(
     }
 
     let solve_start = Timer::start();
-    let preference = request
-        .solver_preference
-        .unwrap_or(MedleySolverPreference::Auto);
     let (plan, used_card_count) = match raw_candidate_solver_input_for_indices(
         request.candidates,
         request.current_best,
@@ -377,8 +393,7 @@ fn raw_medley_solver_candidate_indices(
         .collect()
 }
 
-// Decide using the original candidate count: do not change Auto's exact/bucket route
-// or the candidate sequence consumed by the explicitly approximate algorithms.
+// Identify routes that are already exact before applying the companion bound.
 fn use_compatible_bound(preference: Option<MedleySolverPreference>, count: usize) -> bool {
     let exact = match preference.unwrap_or(MedleySolverPreference::Auto) {
         MedleySolverPreference::Auto => {
@@ -599,7 +614,9 @@ fn trace_enabled() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::medley::test_support::prepared_card;
     use crate::model::schema::{EventType, SongSelection};
+    use crate::Attribute;
 
     #[test]
     fn calculates_medley_from_candidates() {
@@ -717,7 +734,7 @@ mod tests {
     }
 
     #[test]
-    fn maximum_bound_does_not_change_approximate_routing() {
+    fn companion_bound_gate_uses_the_original_route() {
         use bangdream_optimize_medley_solver::AUTO_EXACT_CANDIDATE_THRESHOLD as N;
         assert!(use_compatible_bound(None, N));
         assert!(!use_compatible_bound(None, N + 1));
@@ -733,6 +750,43 @@ mod tests {
             Some(MedleySolverPreference::StrictExact),
             N + 1
         ));
+    }
+
+    #[test]
+    fn raw_auto_uses_exact_when_companion_bounds_certify_a_small_domain() {
+        let raw_team = |cards, score| RawTeamCandidate {
+            raw_indices: cards,
+            ordered_raw_indices: [cards; 3],
+            captain_raw_indices: [cards[0]; 3],
+            scores: [score; 3],
+        };
+        let mut candidates = vec![raw_team([0, 1, 2, 3, 4], 120); AUTO_EXACT_CANDIDATE_THRESHOLD];
+        candidates.extend([
+            raw_team([0, 3, 5, 6, 7], 100),
+            raw_team([1, 4, 8, 9, 10], 100),
+            raw_team([2, 11, 12, 13, 14], 100),
+        ]);
+        let cards = (0..15)
+            .map(|i| prepared_card(i + 1, i + 1, 1, Attribute::Cool))
+            .collect::<Vec<_>>();
+        let songs = [1, 2, 3].map(|song_id| SongSelection {
+            song_id,
+            difficulty: 3,
+        });
+        let result = calculate_medley_from_raw_candidates(RawCandidateBuildRequest {
+            event_id: 1,
+            song_list: &songs,
+            candidates: &candidates,
+            cards: &cards,
+            current_best: 299,
+            solver_preference: None,
+            items: None,
+        })
+        .unwrap();
+        let metrics = result.metrics.unwrap().medley.unwrap();
+        assert_eq!(metrics.solver_candidate_count, 3);
+        assert_eq!(metrics.solver_quality.as_deref(), Some("exact"));
+        assert_eq!(result.total_score, 300);
     }
 
     #[test]

@@ -28,9 +28,9 @@ fn shared_budget_evicts_oldest_across_charts_and_held_banks_keep_exact_witnesses
     pool.stats.budget_bytes = Some(bytes*2);
     let third = pool.prepare(2,&request.skills).unwrap();
     let skills_key = key(&request.skills);
-    assert!(pool.caches[0].exact.contains_key(&skills_key));
+    assert!(pool.caches[0].exact.contains_key(&(false, skills_key.clone())));
     assert!(pool.caches[1].exact.is_empty());
-    assert!(pool.caches[2].exact.contains_key(&skills_key));
+    assert!(pool.caches[2].exact.contains_key(&(false, skills_key.clone())));
     assert_eq!(pool.retained_bytes(),bytes*2);
     assert_eq!(pool.stats.evicted_bindings,1);
     assert_eq!(pool.stats.released_geometry_bytes,bytes as u64);
@@ -46,7 +46,7 @@ fn shared_budget_evicts_oldest_across_charts_and_held_banks_keep_exact_witnesses
     let builds = pool.caches[1].stats.group_builds;
     pool.prepare(1,&request.skills).unwrap();
     assert_eq!(pool.caches[1].stats.group_builds,builds+1);
-    assert!(!pool.caches[0].exact.contains_key(&skills_key));
+    assert!(!pool.caches[0].exact.contains_key(&(false, skills_key.clone())));
     assert!(pool.retained_bytes() <= pool.max_geometry_bytes);
 }
 

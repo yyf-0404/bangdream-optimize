@@ -4,6 +4,44 @@ use crate::hit_timing::{CandidateDistanceMode, JudgementCorrection, NativeTimeRo
 mod exact_score_reuse;
 
 #[test]
+fn shared_playing_windows_keep_exact_scores_and_canonical_witnesses() {
+    let mut short = skill(ScoreEffect::Plain { percent: 90. });
+    short.duration = 0.3;
+    let mut long = skill(ScoreEffect::PerfectOnly { percent: 145. });
+    long.duration = 0.5;
+    let times = [1., 1.08, 1.14, 1.4, 2., 2.3, 4., 4.14, 4.35, 4.7];
+    for (trigger, correction) in [(1, None), (6, None), (1, Some(JudgementCorrection::Bad))] {
+        short.correction = correction;
+        let mut chart = input(&times, vec![short.clone(), long.clone()]);
+        chart.notes[1].trigger = None;
+        chart.notes[trigger].trigger = Some(1);
+        let mut shared = TimingCompileCache::new(&chart, SearchOptions::default());
+        let mut reference = TimingCompileCache::new(&chart, SearchOptions::default());
+        let mut middle = short.clone();
+        middle.duration = 0.4;
+        let common = [middle, long.clone()];
+        let numeric = shared.prepare_for_score(&common).unwrap();
+        let canonical = shared.prepare(&common).unwrap();
+        assert!(Arc::ptr_eq(numeric.exact.as_ref().unwrap(), canonical.exact.as_ref().unwrap()));
+        let mut geometry = None;
+        for skills in [[short.clone(), long.clone()], [long.clone(), short.clone()]] {
+            let numeric = shared.prepare_for_score(&skills).unwrap();
+            if trigger == 6 && correction.is_none() {
+                let id = numeric.exact.as_ref().unwrap().geometry_identity();
+                if let Some(first) = geometry.replace(id) { assert_eq!(first, id); }
+            }
+            let expected = reference.prepare(&skills).unwrap();
+            for p in [0.0, chart.power, f32::from_bits(chart.power.to_bits() + 1)] {
+                let power = ScoringPower::new(p).unwrap();
+                let result = expected.materialize(power).unwrap();
+                assert_eq!(numeric.score(power, &mut TimingScoreScratch::default()).unwrap(), result.total);
+                assert_eq!(shared.prepare(&skills).unwrap().materialize(power).unwrap(), result);
+            }
+        }
+    }
+}
+
+#[test]
 fn ranges_cache_reuses_preparation_and_matches_fresh_restricted_models() {
     let request=input(&[1.,1.025,1.05,2.],vec![skill(ScoreEffect::Plain{percent:100.})]);
     let limits=vec![Some([120,120]),None,Some([124,126]),None];
@@ -12,7 +50,7 @@ fn ranges_cache_reuses_preparation_and_matches_fresh_restricted_models() {
     let mut scratch=TimingScoreScratch::default();
     for percent in [60.,100.,140.,90.] {
         let skills=vec![skill(ScoreEffect::Plain{percent})];
-        let bank=cache.prepare(&skills).unwrap();
+        let bank=cache.prepare_for_score(&skills).unwrap();
         let mut fresh=request.clone();fresh.skills=skills;
         let expected=super::super::independent::JointTimeline::maximum_in_frame_ranges(&fresh,&limits).unwrap().unwrap();
         assert_eq!(bank.score_optional(power,&mut scratch).unwrap(),Some(expected.result.total));
@@ -519,7 +557,7 @@ fn geometry_byte_budget_evicts_lru_models_without_invalidating_returned_banks() 
     short[0].duration = 1.;
     let second = cache.prepare(&short).unwrap();
     assert!(cache.exact_geometry_bytes() <= cache.max_geometry_bytes);
-    assert!(!cache.exact.contains_key(&r.skills.iter().map(ReplaySkill::cache_key).collect::<Vec<_>>()));
+    assert!(!cache.exact.contains_key(&(false, r.skills.iter().map(ReplaySkill::cache_key).collect::<Vec<_>>())));
     for (bank, skills) in [(&first, &r.skills), (&second, &short)] {
         let mut request = r.clone();
         request.skills = skills.clone();

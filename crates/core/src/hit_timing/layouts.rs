@@ -6,7 +6,7 @@ use crate::{
     scoring::{ScoringError, ScoringPower},
     skill_shuffle::{tables, CAPTAIN_SLOT, SHUFFLE_PATH_COUNT},
 };
-use std::collections::BTreeMap;
+use std::{borrow::Cow, collections::BTreeMap, sync::OnceLock};
 
 pub fn physical_layouts() -> Vec<[usize; 5]> {
     tables().layouts.iter().map(|l| l.cards).collect()
@@ -24,8 +24,42 @@ pub struct TimingLayouts {
     requests: Vec<LayoutScoreRequest>,
     // Cards, native orders and path weights already live in tables(). Only the
     // roster/power-dependent request IDs vary. There are at most 120 * 96 IDs.
-    references: Box<[u16]>,
+    references: Cow<'static, [u16]>,
     configurations: Vec<Vec<usize>>,
+}
+
+// Only the equality pattern of the five skills determines which sequences
+// coincide. At most 52 patterns are reachable, irrespective of the inventory.
+struct LayoutPattern {
+    configurations: Vec<[usize; 6]>,
+    references: Vec<u16>,
+}
+
+impl LayoutPattern {
+    fn for_classes(classes: [usize; 5]) -> &'static Self {
+        // Classes are numbered on first appearance, so classes[i] <= i.
+        let index = classes.iter().enumerate().fold(0, |key, (i, class)| key * (i + 1) + class);
+        static PATTERNS: [OnceLock<LayoutPattern>; 120] = [const { OnceLock::new() }; 120];
+        PATTERNS[index].get_or_init(|| {
+            let mut keys = BTreeMap::new();
+            let mut configurations = Vec::new();
+            let mut references = Vec::new();
+            for layout in &tables().layouts {
+                for order in &layout.weighted_orders {
+                    let mut slots = [layout.cards[CAPTAIN_SLOT]; 6];
+                    slots[..5].copy_from_slice(&tables().orders[order.index]);
+                    let sequence = slots.map(|i| classes[i]);
+                    let id = *keys.entry(sequence).or_insert_with(|| {
+                        let id = configurations.len() as u16;
+                        configurations.push(slots);
+                        id
+                    });
+                    references.push(id);
+                }
+            }
+            Self { configurations, references }
+        })
+    }
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -92,41 +126,46 @@ impl TimingLayouts {
         mut power: impl FnMut([usize; 5]) -> Result<ScoringPower, ScoringError>,
     ) -> Result<Self, ScoringError> {
         let tables = tables();
-        let mut keys = BTreeMap::new();
-        let mut configuration_keys = BTreeMap::new();
-        let mut configurations: Vec<Vec<usize>> = Vec::new();
+        let powers = tables.layouts.iter().map(|l| power(l.cards)).collect::<Result<Vec<_>, _>>()?;
+        let pattern = LayoutPattern::for_classes(classes);
+        if powers.iter().all(|p| *p == powers[0]) {
+            let requests = pattern.configurations.iter().enumerate().map(|(configuration, &slots)| {
+                LayoutScoreRequest { slots, power: powers[0], configuration }
+            }).collect();
+            return Ok(Self {
+                requests,
+                references: Cow::Borrowed(&pattern.references),
+                configurations: (0..pattern.configurations.len()).map(|i| vec![i]).collect(),
+            });
+        }
+        let mut by_power = BTreeMap::new();
+        let mut configurations = vec![Vec::new(); pattern.configurations.len()];
         let mut requests = Vec::new();
-        let mut references = Vec::with_capacity(
-            tables.layouts.iter().map(|l| l.weighted_orders.len()).sum(),
-        );
-        for layout in &tables.layouts {
-            let p = power(layout.cards)?;
-            let captain = layout.cards[CAPTAIN_SLOT];
+        let mut references = Vec::with_capacity(pattern.references.len());
+        for (layout, p) in tables.layouts.iter().zip(powers) {
+            let row = by_power.entry(p.cache_key())
+                .or_insert_with(|| vec![u16::MAX; configurations.len()]);
             for order in &layout.weighted_orders {
-                let mut slots = [captain; 6];
-                slots[..5].copy_from_slice(&tables.orders[order.index]);
-                let sequence = slots.map(|i| classes[i]);
-                let configuration = *configuration_keys.entry(sequence).or_insert_with(|| {
-                    configurations.push(Vec::new());
-                    configurations.len() - 1
-                });
-                let key = (sequence, p.cache_key());
-                let index = *keys.entry(key).or_insert_with(|| {
+                let configuration = usize::from(pattern.references[references.len()]);
+                let id = &mut row[configuration];
+                if *id == u16::MAX {
+                    // At most 120 layouts times 96 reachable orders.
+                    *id = requests.len() as u16;
+                    let mut slots = [layout.cards[CAPTAIN_SLOT]; 6];
+                    slots[..5].copy_from_slice(&tables.orders[order.index]);
                     configurations[configuration].push(requests.len());
                     requests.push(LayoutScoreRequest {
                         slots,
                         power: p,
                         configuration,
                     });
-                    requests.len() - 1
-                });
-                references.push(u16::try_from(index)
-                    .expect("five-card layout family has at most 120 * 96 requests"));
+                }
+                references.push(*id);
             }
         }
         Ok(Self {
             requests,
-            references: references.into_boxed_slice(),
+            references: Cow::Owned(references),
             configurations,
         })
     }
@@ -140,6 +179,38 @@ impl TimingLayouts {
     /// f32 power separately. A group never rounds or substitutes a power.
     pub fn configurations(&self) -> &[Vec<usize>] {
         &self.configurations
+    }
+
+    /// Exact score without resolving ties between physical layouts. For a fixed
+    /// skill sequence the legal hit plans are independent of power, and each
+    /// plan's native note scores are nondecreasing in power (including both
+    /// integer truncations). The group's largest reachable power attains its
+    /// maximum. A finalist still needs `maximize` to count lower-power ties.
+    pub fn maximum_monotone_score(
+        &self,
+        upper: &[u64],
+        mut score: impl FnMut(usize, &LayoutScoreRequest) -> Result<u64, SearchError>,
+    ) -> Result<u64, LayoutError> {
+        if upper.len() != self.requests.len() {
+            return Err(LayoutError::InvalidBounds);
+        }
+        let mut peaks: Vec<_> = self.configurations.iter().map(|group| {
+            *group.iter().max_by_key(|&&i| self.requests[i].power)
+                .expect("each configuration has a reachable layout")
+        }).collect();
+        peaks.sort_unstable_by_key(|&i| (std::cmp::Reverse(upper[i]), i));
+        let mut best = 0;
+        for i in peaks {
+            if upper[i] <= best {
+                break;
+            }
+            let value = score(i, &self.requests[i])?;
+            if value > upper[i] {
+                return Err(LayoutError::Underestimated { request: i, actual: value, upper: upper[i] });
+            }
+            best = best.max(value);
+        }
+        Ok(best)
     }
 
     /// Deterministic callback over one fixed candidate family. Equal upper
@@ -225,6 +296,11 @@ impl TimingLayouts {
                 scored_requests: scored,
                 possible_requests: upper.len(),
             });
+            // All native paths tie here. Later layouts cannot improve the tie
+            // probability, and equal probabilities keep the first layout.
+            if u64::from(paths) == SHUFFLE_PATH_COUNT {
+                break;
+            }
         }
         Ok(result)
     }

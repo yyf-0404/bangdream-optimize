@@ -63,11 +63,21 @@ impl TimingCompileCachePool {
 
     pub fn prepare(&mut self, song: usize, skills: &[ReplaySkill])
         -> Result<CompiledTimingCandidates, SearchError> {
+        self.prepare_impl(song, skills, false)
+    }
+
+    pub fn prepare_for_score(&mut self, song: usize, skills: &[ReplaySkill])
+        -> Result<CompiledTimingCandidates, SearchError> {
+        self.prepare_impl(song, skills, true)
+    }
+
+    fn prepare_impl(&mut self, song: usize, skills: &[ReplaySkill], score_only: bool)
+        -> Result<CompiledTimingCandidates, SearchError> {
         self.clock = self.clock.checked_add(1).expect("cache access clock overflow");
         // The chart's existing entry/owner timestamps now use one common clock.
         // Its independent byte and 64-binding rules continue to apply first.
         self.caches[song].exact_clock = self.clock - 1;
-        let bank = self.caches[song].prepare(skills)?;
+        let bank = self.caches[song].prepare_impl(skills, score_only)?;
         self.stats.preparations += 1;
         self.enforce();
         Ok(bank)

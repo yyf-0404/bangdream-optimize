@@ -329,10 +329,11 @@ pub(in crate::medley) fn build_candidate(
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct MedleySkillOrder {
     order_indices: [usize; TEAM_SIZE],
     captain_index: usize,
+    gain_upper: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -401,16 +402,18 @@ fn selected_skill_meta(
 
 fn max_meta_order_for_team(skill_meta: &[[f64; TEAM_SIZE + 1]; TEAM_SIZE]) -> MedleySkillOrder {
     if crate::skill_assignment::enabled() {
-        let (_, order_indices, captain_index) = crate::skill_assignment::maximize_f64(skill_meta);
+        let (gain_upper, order_indices, captain_index) = crate::skill_assignment::maximize_f64(skill_meta);
         return MedleySkillOrder {
             order_indices,
             captain_index,
+            gain_upper,
         };
     }
     if skill_meta[1..].iter().all(|row| row == &skill_meta[0]) {
         return MedleySkillOrder {
             order_indices: [0, 1, 2, 3, 4],
             captain_index: 0,
+            gain_upper: skill_meta[0].iter().sum(),
         };
     }
 
@@ -455,6 +458,7 @@ fn max_meta_order_for_team(skill_meta: &[[f64; TEAM_SIZE + 1]; TEAM_SIZE]) -> Me
     MedleySkillOrder {
         order_indices,
         captain_index,
+        gain_upper: dp[(1 << TEAM_SIZE) - 1] + captain_meta,
     }
 }
 

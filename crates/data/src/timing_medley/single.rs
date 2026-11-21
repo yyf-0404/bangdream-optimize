@@ -1,13 +1,12 @@
 //! Single-song highest score over the configured cards, equipment and legal hit frames.
 use super::{
-    engine_error, int_score,
+    engine_error, int_score, SkillCatalogue,
     product::{
         prepare_inventory, timing_result, timing_selections, timing_team_order, TimingMaximizeInput,
     },
     timing_memo::Memo,
 };
 use crate::{
-    bestdori::timing_skill::TimingTeamCard,
     timing_chart::time_distance::{TimeDistanceChart, TimeDistanceScoring},
     timing_plan::simplify::restore_chart_positions,
     DataError,
@@ -52,11 +51,6 @@ impl ItemCase {
     }
 }
 
-struct SkillCatalogue {
-    skills: Vec<ReplaySkill>,
-    cases: Vec<[usize; 4]>,
-}
-
 struct Candidate {
     index: usize,
     bound: PoolTimingChoice,
@@ -75,6 +69,7 @@ struct Winner {
 
 struct Search<'a> {
     cards: &'a [PreparedCard],
+    replacement_groups: Vec<Vec<usize>>,
     catalogue: &'a SkillCatalogue,
     bound: &'a PoolTimingUpper,
     upper_cache: TimingUpperCache,
@@ -99,14 +94,15 @@ impl Search<'_> {
         index: usize,
         power: MemberPower,
     ) -> Result<PoolTimingChoice, DataError> {
-        let [mixed, band, attribute, both] = self.catalogue.cases[index];
+        let cases = self.catalogue.cases[index];
         let power = power.linear_total();
-        Ok(self
-            .bound
-            .choice(mixed, power)?
-            .union(self.bound.choice(band, power)?)
-            .union(self.bound.choice(attribute, power)?)
-            .union(self.bound.choice(both, power)?))
+        let mut choice = self.bound.choice(cases[0], power)?;
+        for i in 1..cases.len() {
+            if !cases[..i].contains(&cases[i]) {
+                choice = choice.union(self.bound.choice(cases[i], power)?);
+            }
+        }
+        Ok(choice)
     }
 
     fn item_upper(&self, item: &ItemCase) -> Result<u64, DataError> {
@@ -122,17 +118,15 @@ impl Search<'_> {
 
     fn search_item(&mut self, item: &ItemCase) -> Result<(), DataError> {
         let mut candidates = Vec::with_capacity(self.cards.len());
-        for (i, card) in self.cards.iter().enumerate() {
-            let dominated = self.cards.iter().enumerate().any(|(j, other)| {
-                i != j
-                    && card.character_id == other.character_id
-                    && card.band_id == other.band_id
-                    && card.attribute == other.attribute
-                    && self.catalogue.cases[i] == self.catalogue.cases[j]
-                    && item.powers[j].componentwise_dominates(item.powers[i])
-                    && (j < i || !item.powers[i].componentwise_dominates(item.powers[j]))
-            });
-            if !dominated {
+        for group in &self.replacement_groups {
+            for &i in group {
+                let dominated = group.iter().any(|&j| {
+                    i != j && item.powers[j].componentwise_dominates(item.powers[i])
+                        && (j < i || !item.powers[i].componentwise_dominates(item.powers[j]))
+                });
+                if dominated {
+                    continue;
+                }
                 let bound = self.relaxed_card(i, item.powers[i])?;
                 let rank = self.bound.separable_upper(&[bound; 5])?;
                 candidates.push(Candidate {
@@ -181,7 +175,11 @@ impl Search<'_> {
         if cards.len() - next < remaining {
             return Ok(());
         }
-        let relaxed = std::array::from_fn(|i| if i < depth { choices[i] } else { suffix[next] });
+        // Remaining cards are selected at strictly increasing indices. Each
+        // successive member therefore belongs to a smaller suffix.
+        let relaxed = std::array::from_fn(|i| {
+            if i < depth { choices[i] } else { suffix[next + (i - depth)] }
+        });
         if !self.competitive(self.bound.separable_upper(&relaxed)?) {
             return Ok(());
         }
@@ -203,12 +201,7 @@ impl Search<'_> {
 
     fn score_roster(&mut self, item: &ItemCase, roster: [usize; 5]) -> Result<(), DataError> {
         let cards = roster.map(|i| &self.cards[i]);
-        let common_band = cards.iter().all(|card| card.band_id == cards[0].band_id);
-        let common_attribute = cards
-            .iter()
-            .all(|card| card.attribute == cards[0].attribute);
-        let skill_case = usize::from(common_band) | (usize::from(common_attribute) << 1);
-        let ids = roster.map(|i| self.catalogue.cases[i][skill_case]);
+        let ids = self.catalogue.roster_ids(self.cards, roster);
         let members = roster.map(|i| item.powers[i]);
         let resolved = std::array::from_fn::<_, 5, _>(|i| {
             self.bound.choice(ids[i], members[i].linear_total())
@@ -257,7 +250,7 @@ impl Search<'_> {
                 let sequence = request.slots.map(|i| skills[i].clone());
                 let bank = self
                     .score_memo
-                    .get(&sequence, || self.score_cache.prepare(&sequence))?;
+                    .get(&sequence, || self.score_cache.prepare_for_score(&sequence))?;
                 bank.score_optional(request.power, &mut self.score_scratch)
             })
             .map_err(engine_error)?;
@@ -319,26 +312,7 @@ pub(super) fn maximize(
         }
         .into());
     }
-    let mut catalogue = SkillCatalogue {
-        skills: Vec::new(),
-        cases: Vec::with_capacity(cards.len()),
-    };
-    let mut keys = BTreeMap::new();
-    for card in cards {
-        let cases = inventory.data.hit_timing_skill_cases(
-            input.server,
-            TimingTeamCard {
-                card_id: card.card_id,
-                skill_level: card.skill_level,
-            },
-        )?;
-        catalogue.cases.push(cases.map(|case| {
-            *keys.entry(case.skill.cache_key()).or_insert_with(|| {
-                catalogue.skills.push(case.skill);
-                catalogue.skills.len() - 1
-            })
-        }));
-    }
+    let catalogue = SkillCatalogue::new(&inventory.data, input.server, cards)?;
     let area =
         calculate_area_item_percent(&inventory.player.area_item, input.area_item_definitions)?;
     let items = area_item_combinations(&area)
@@ -376,8 +350,14 @@ pub(super) fn maximize(
         cap,
         Default::default(),
     )?;
+    let mut replacements = BTreeMap::new();
+    for (i, card) in cards.iter().enumerate() {
+        let key = (card.character_id, card.band_id, card.attribute.as_str(), catalogue.cases[i]);
+        replacements.entry(key).or_insert_with(Vec::new).push(i);
+    }
     let mut search = Search {
         cards,
+        replacement_groups: replacements.into_values().collect(),
         catalogue: &catalogue,
         bound: &bound,
         upper_cache: TimingUpperCache::new(&replay_input),

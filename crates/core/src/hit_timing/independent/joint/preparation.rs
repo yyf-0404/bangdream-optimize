@@ -80,7 +80,7 @@ impl JointPreparation {
 
     /// Raw note windows are fixed for this owner, independent of skills, routing
     /// lifetime and graph eviction. Only the FIFO envelopes/mask vary per call.
-    pub(crate) fn geometry(&mut self, input: &ReplayInput)
+    pub(crate) fn geometry(&mut self, input: &ReplayInput, share_playing_windows: bool)
         -> Result<local::JointGeometry, ReplayError> {
         if !self.stats.bad_interval_scan_enabled {
             return local::geometry(input, local::enabled());
@@ -102,7 +102,7 @@ impl JointPreparation {
             self.stats.bad_bounds_payload_bytes = bad.payload_bytes();
             self.bad_bounds = Some(bad);
         }
-        let layout = local::geometry_with_bounds(input, self.bad_bounds.as_ref().unwrap())?;
+        let layout = local::geometry_with_bounds(input, self.bad_bounds.as_ref().unwrap(), share_playing_windows)?;
         if self.stats.bad_interval_audit_enabled {
             local::audit_geometry(input, &layout)?;
             self.stats.protected_scans_audited += 1;
